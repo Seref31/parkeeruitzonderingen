@@ -41,6 +41,14 @@ if not st.session_state.logged_in:
             st.error("Ongeldige gebruikersnaam of wachtwoord")
 
     st.stop()
+    # ================= UITLOGGEN =================
+st.sidebar.markdown(f"👤 Ingelogd als **{st.session_state.user}**")
+
+if st.sidebar.button("🚪 Uitloggen"):
+    st.session_state.logged_in = False
+    st.session_state.user = None
+    st.rerun()
+
 import streamlit as st
 import sqlite3
 from datetime import datetime, timedelta
@@ -220,5 +228,6 @@ with tab_p:
 
     df = pd.read_sql("SELECT * FROM projecten", conn)
     st.dataframe(df, use_container_width=True)
+
 
 
