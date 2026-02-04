@@ -1,4 +1,46 @@
 import streamlit as st
+import hashlib
+
+# ================= LOGIN =================
+
+USERS = {
+    "bryn": "Bryn#4821",
+    "wout": "Wout@7394",
+    "martin": "Martin!6158",
+    "andre": "Andre$9042",
+    "pieter": "Pieter#2716",
+    "laura": "Laura@5589",
+    "rick": "Rick!8430",
+    "nicole": "Nicole$3927",
+    "nidal": "Nidal#6604",
+    "robert": "Robert@5178",
+}
+
+def hash_pw(pw: str) -> str:
+    return hashlib.sha256(pw.encode()).hexdigest()
+
+HASHED_USERS = {u: hash_pw(p) for u, p in USERS.items()}
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if not st.session_state.logged_in:
+    st.title("🔐 Parkeeruitzonderingen – Inloggen")
+
+    username = st.text_input("Gebruikersnaam")
+    password = st.text_input("Wachtwoord", type="password")
+
+    if st.button("Inloggen"):
+        if username in HASHED_USERS and hash_pw(password) == HASHED_USERS[username]:
+            st.session_state.logged_in = True
+            st.session_state.user = username
+            st.success("Inloggen gelukt")
+            st.rerun()
+        else:
+            st.error("Ongeldige gebruikersnaam of wachtwoord")
+
+    st.stop()
+import streamlit as st
 import sqlite3
 from datetime import datetime, timedelta
 import os
@@ -177,3 +219,4 @@ with tab_p:
 
     df = pd.read_sql("SELECT * FROM projecten", conn)
     st.dataframe(df, use_container_width=True)
+
