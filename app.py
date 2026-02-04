@@ -5,10 +5,7 @@ import os
 import pandas as pd
 
 # ================= CONFIG =================
-st.set_page_config(
-    page_title="Parkeeruitzonderingen",
-    layout="wide"
-)
+st.set_page_config(page_title="Parkeeruitzonderingen", layout="wide")
 
 BASE_DIR = "data"
 os.makedirs(BASE_DIR, exist_ok=True)
@@ -37,81 +34,146 @@ def init_db():
         opmerking TEXT
     )
     """)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS gehandicapten (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT,
+        geldig_tot TEXT,
+        opmerking TEXT
+    )
+    """)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS contracten (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        leverancier TEXT,
+        einddatum TEXT,
+        opmerking TEXT
+    )
+    """)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS projecten (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT,
+        einddatum TEXT,
+        prio TEXT
+    )
+    """)
     conn.commit()
 
 init_db()
 
+# ================= TABS =================
+tab_dashboard, tab_u, tab_g, tab_c, tab_p = st.tabs([
+    "📊 Dashboard",
+    "🅿️ Uitzonderingen",
+    "♿ Gehandicapten",
+    "📄 Contracten",
+    "🧩 Projecten",
+])
+
 # ================= DASHBOARD =================
-def count(sql, params=()):
-    return conn.execute(sql, params).fetchone()[0]
+with tab_dashboard:
+    st.header("📊 Dashboard")
 
-vandaag = datetime.today().date()
-grens14 = (vandaag + timedelta(days=MELDING_DAGEN)).strftime("%Y-%m-%d")
+    def count(sql, params=()):
+        return conn.execute(sql, params).fetchone()[0]
 
-u_totaal = count("SELECT COUNT(*) FROM uitzonderingen")
-u_14 = count(
-    "SELECT COUNT(*) FROM uitzonderingen WHERE datum_einde IS NOT NULL AND datum_einde BETWEEN ? AND ?",
-    (vandaag.strftime("%Y-%m-%d"), grens14)
-)
+    vandaag = datetime.today().date()
+    grens14 = (vandaag + timedelta(days=MELDING_DAGEN)).strftime("%Y-%m-%d")
 
-st.title("🚗 Parkeeruitzonderingen")
-
-col1, col2 = st.columns(2)
-col1.metric("Totaal uitzonderingen", u_totaal)
-col2.metric("Verloopt < 14 dagen", u_14)
-
-st.divider()
-
-# ================= FORMULIER =================
-st.subheader("➕ Nieuwe parkeeruitzondering")
-
-with st.form("nieuw"):
-    naam = st.text_input("Naam")
-    kenteken = st.text_input("Kenteken")
-    locatie = st.text_input("Locatie")
-    datum_start = st.date_input("Startdatum")
-    datum_einde = st.date_input("Einddatum")
-    opmerking = st.text_area("Opmerking")
-
-    opslaan = st.form_submit_button("Opslaan")
-
-if opslaan:
-    conn.execute(
-        """
-        INSERT INTO uitzonderingen
-        (naam, kenteken, locatie, datum_start, datum_einde, opmerking)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (
-            naam,
-            kenteken,
-            locatie,
-            datum_start.strftime("%Y-%m-%d"),
-            datum_einde.strftime("%Y-%m-%d"),
-            opmerking,
-        ),
+    u_totaal = count("SELECT COUNT(*) FROM uitzonderingen")
+    u_14 = count(
+        "SELECT COUNT(*) FROM uitzonderingen WHERE datum_einde BETWEEN ? AND ?",
+        (vandaag.strftime("%Y-%m-%d"), grens14),
     )
-    conn.commit()
-    st.success("Uitzondering opgeslagen")
 
-st.divider()
+    col1, col2 = st.columns(2)
+    col1.metric("Totaal uitzonderingen", u_totaal)
+    col2.metric("Verloopt < 14 dagen", u_14)
 
-# ================= OVERZICHT =================
-st.subheader("📋 Overzicht uitzonderingen")
+# ================= UITZONDERINGEN =================
+with tab_u:
+    st.header("🅿️ Parkeeruitzonderingen")
 
-df = pd.read_sql_query(
-    "SELECT * FROM uitzonderingen ORDER BY datum_einde",
-    conn
-)
+    with st.form("u_form"):
+        naam = st.text_input("Naam")
+        kenteken = st.text_input("Kenteken")
+        locatie = st.text_input("Locatie")
+        start = st.date_input("Startdatum")
+        einde = st.date_input("Einddatum")
+        opmerking = st.text_area("Opmerking")
+        save = st.form_submit_button("Opslaan")
 
-st.dataframe(df, use_container_width=True)
+    if save:
+        conn.execute(
+            "INSERT INTO uitzonderingen VALUES (NULL,?,?,?,?,?,?)",
+            (naam, kenteken, locatie, start, einde, opmerking),
+        )
+        conn.commit()
+        st.success("Uitzondering opgeslagen")
 
-# ================= EXPORT =================
-if not df.empty:
-    csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "⬇️ Download CSV",
-        csv,
-        "parkeeruitzonderingen.csv",
-        "text/csv",
-    )
+    df = pd.read_sql("SELECT * FROM uitzonderingen", conn)
+    st.dataframe(df, use_container_width=True)
+
+# ================= GEHANDICAPTEN =================
+with tab_g:
+    st.header("♿ Gehandicapten")
+
+    with st.form("g_form"):
+        naam = st.text_input("Naam")
+        geldig_tot = st.date_input("Geldig tot")
+        opmerking = st.text_area("Opmerking")
+        save = st.form_submit_button("Opslaan")
+
+    if save:
+        conn.execute(
+            "INSERT INTO gehandicapten VALUES (NULL,?,?,?)",
+            (naam, geldig_tot, opmerking),
+        )
+        conn.commit()
+        st.success("Gehandicaptenrecord opgeslagen")
+
+    df = pd.read_sql("SELECT * FROM gehandicapten", conn)
+    st.dataframe(df, use_container_width=True)
+
+# ================= CONTRACTEN =================
+with tab_c:
+    st.header("📄 Contracten")
+
+    with st.form("c_form"):
+        leverancier = st.text_input("Leverancier")
+        einddatum = st.date_input("Einddatum")
+        opmerking = st.text_area("Opmerking")
+        save = st.form_submit_button("Opslaan")
+
+    if save:
+        conn.execute(
+            "INSERT INTO contracten VALUES (NULL,?,?,?)",
+            (leverancier, einddatum, opmerking),
+        )
+        conn.commit()
+        st.success("Contract opgeslagen")
+
+    df = pd.read_sql("SELECT * FROM contracten", conn)
+    st.dataframe(df, use_container_width=True)
+
+# ================= PROJECTEN =================
+with tab_p:
+    st.header("🧩 Projecten")
+
+    with st.form("p_form"):
+        naam = st.text_input("Projectnaam")
+        einddatum = st.date_input("Einddatum")
+        prio = st.selectbox("Prioriteit", ["Hoog", "Gemiddeld", "Laag"])
+        save = st.form_submit_button("Opslaan")
+
+    if save:
+        conn.execute(
+            "INSERT INTO projecten VALUES (NULL,?,?,?)",
+            (naam, einddatum, prio),
+        )
+        conn.commit()
+        st.success("Project opgeslagen")
+
+    df = pd.read_sql("SELECT * FROM projecten", conn)
+    st.dataframe(df, use_container_width=True)
