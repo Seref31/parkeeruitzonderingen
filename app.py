@@ -550,34 +550,7 @@ class App:
         self.build_tab_projecten()
 
     # ----- Dashboard -----
-    def build_tab_dashboard(self):
-        
-        wrap.pack(fill="both", expand=True, padx=16, pady=10)
-
-        # KPI-rij 1
-        
-        row1.pack(fill="x", pady=6)
-
-      
-        self.lbl_kpi_u_totaal.pack(side="left", padx=(0, 16))
-
-   12))
-        self.lbl_kpi_u_14.pack(side="left", padx=(0, 16))
-
-        self.lbl_kpi_g_14.pack(side="left", padx=(0, 16))
-
-        self.lbl_kpi_c_90.pack(side="left", padx=(0, 16))
-
-        # KPI-rij 2
-        row2.pack(fill="x", pady=6)
-
-        self.lbl_kpi_p_totaal.pack(side="left", padx=(0, 16))
-
-        self.lbl_kpi_p_actief.pack(side="left", padx=(0, 16))
-
-        self.lbl_kpi_p_prio.pack(side="left", padx=(0, 16))
-
-        # Vernieuwen
+   
 
     def refresh_dashboard(self):
         def _count(sql, params=()):
@@ -1557,4 +1530,5 @@ if __name__ == "__main__":
     App(root)
 
     root.mainloop()
+
 
