@@ -5,6 +5,7 @@ import hashlib
 
 USERS = {
     "bryn": "Bryn#4821",
+    "Seref": "Esilam-01",
     "wout": "Wout@7394",
     "martin": "Martin!6158",
     "andre": "Andre$9042",
@@ -219,4 +220,5 @@ with tab_p:
 
     df = pd.read_sql("SELECT * FROM projecten", conn)
     st.dataframe(df, use_container_width=True)
+
 
