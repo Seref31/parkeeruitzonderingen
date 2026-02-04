@@ -1,6 +1,6 @@
 # ===================== DATABASE VEILIGHEIDS-CHECK =====================
 import ctypes
-import tkinter.messagebox as mb
+
 
 
 def ensure_database_local(db_path: str):
@@ -31,10 +31,10 @@ def ensure_database_local(db_path: str):
 import os
 import csv
 import sqlite3
-import tkinter as tk
 
-from tkinter import ttk, messagebox, filedialog as fd
-from tkinter import font as tkfont
+
+
+
 from datetime import datetime, timedelta
 
 # ===================== E-MAIL INSTELLINGEN =====================
@@ -1654,4 +1654,5 @@ class App:
 if __name__ == "__main__":
     root = tk.Tk()
     App(root)
+
     root.mainloop()
