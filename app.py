@@ -176,9 +176,8 @@ def inline_one_line(val: object) -> str:
     return s.replace("\n", "; ")
 
 
-def autosize_tree_columns(tree: ttk.Treeview, max_px=420, pad=24):
     """Zet kolombreedtes o.b.v. inhoud (binnen bovengrens)."""
-    f = tkfont.nametofont("TkDefaultFont")
+    
     cols = tree["columns"]
     widths = [f.measure(tree.heading(c, "text")) + pad for c in cols]
 
@@ -531,15 +530,11 @@ class App:
 
     # ----- UI -----
     def build_ui(self):
-        self.notebook = ttk.Notebook(self.root)
+     
         self.notebook.pack(fill="both", expand=True)
 
         # Tabs
-        self.tab_d = ttk.Frame(self.notebook)  # Dashboard
-        self.tab_u = ttk.Frame(self.notebook)  # Uitzonderingen
-        self.tab_g = ttk.Frame(self.notebook)  # Gehandicapten
-        self.tab_c = ttk.Frame(self.notebook)  # Contracten
-        self.tab_p = ttk.Frame(self.notebook)  # Projecten
+
 
         self.notebook.add(self.tab_d, text="📊 Dashboard")
         self.notebook.add(self.tab_u, text="🅿️ Uitzonderingen")
@@ -556,40 +551,33 @@ class App:
 
     # ----- Dashboard -----
     def build_tab_dashboard(self):
-        wrap = ttk.Frame(self.tab_d)
+        
         wrap.pack(fill="both", expand=True, padx=16, pady=10)
 
         # KPI-rij 1
-        row1 = ttk.Frame(wrap)
+        
         row1.pack(fill="x", pady=6)
 
-        self.lbl_kpi_u_totaal = ttk.Label(row1, text="Uitzonderingen: 0", font=("Segoe UI", 12, "bold"))
+      
         self.lbl_kpi_u_totaal.pack(side="left", padx=(0, 16))
 
-        self.lbl_kpi_u_14 = ttk.Label(row1, text="Uitzonderingen <14d: 0", font=("Segoe UI", 12))
+   12))
         self.lbl_kpi_u_14.pack(side="left", padx=(0, 16))
 
-        self.lbl_kpi_g_14 = ttk.Label(row1, text="Gehandicapten <14d: 0", font=("Segoe UI", 12))
         self.lbl_kpi_g_14.pack(side="left", padx=(0, 16))
 
-        self.lbl_kpi_c_90 = ttk.Label(row1, text="Contracten <90d: 0", font=("Segoe UI", 12))
         self.lbl_kpi_c_90.pack(side="left", padx=(0, 16))
 
         # KPI-rij 2
-        row2 = ttk.Frame(wrap)
         row2.pack(fill="x", pady=6)
 
-        self.lbl_kpi_p_totaal = ttk.Label(row2, text="Projecten totaal: 0", font=("Segoe UI", 12, "bold"))
         self.lbl_kpi_p_totaal.pack(side="left", padx=(0, 16))
 
-        self.lbl_kpi_p_actief = ttk.Label(row2, text="Projecten actief: 0", font=("Segoe UI", 12))
         self.lbl_kpi_p_actief.pack(side="left", padx=(0, 16))
 
-        self.lbl_kpi_p_prio = ttk.Label(row2, text="Prio (Hoog/Gem/Laag): 0/0/0", font=("Segoe UI", 12))
         self.lbl_kpi_p_prio.pack(side="left", padx=(0, 16))
 
         # Vernieuwen
-        ttk.Button(wrap, text="🔄 Vernieuwen", command=self.refresh_dashboard).pack(pady=10)
 
     def refresh_dashboard(self):
         def _count(sql, params=()):
@@ -638,15 +626,10 @@ class App:
 
     # ----- Tab Uitzonderingen -----
     def build_tab_uitzonderingen(self):
-        top = ttk.Frame(self.tab_u)
         top.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(top, text="Zoeken:").pack(side="left")
-        self.search_u = tk.StringVar()
         self.search_u.trace_add("write", lambda *_: self.load_uitzonderingen())
-        ttk.Entry(top, textvariable=self.search_u, width=40).pack(side="left", padx=5)
 
-        tree_frame = ttk.Frame(self.tab_u)
         tree_frame.pack(fill="both", expand=True, padx=10, pady=(0, 6))
 
         cols = (
@@ -661,10 +644,7 @@ class App:
             "Toestemming",
         )
 
-        self.tree_u = ttk.Treeview(tree_frame, columns=cols, show="headings")
 
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree_u.yview)
-        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree_u.xview)
         self.tree_u.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
         self.tree_u.grid(row=0, column=0, sticky="nsew")
@@ -678,25 +658,16 @@ class App:
             self.tree_u.heading(c, text=c)
             self.tree_u.column(c, width=120, stretch=True, anchor="w")
 
-        preview = ttk.LabelFrame(self.tab_u, text="Voorbeeld (volledige tekst van selectie)")
         preview.pack(fill="x", padx=10, pady=(0, 10))
 
-        self.preview_u = tk.Text(preview, height=4, wrap="word")
         self.preview_u.pack(fill="x", padx=8, pady=6)
         self.preview_u.configure(state="disabled")
 
-        self.tree_u.bind("<<TreeviewSelect>>", lambda e: self._update_preview_u())
 
         # Knoppen
-        btns = ttk.Frame(self.tab_u)
         btns.pack(pady=6)
 
-        ttk.Button(btns, text="➕ Nieuw", command=self.nieuw_u).pack(side="left", padx=5)
-        ttk.Button(btns, text="✏️ Wijzigen", command=self.wijzig_u).pack(side="left", padx=5)
-        ttk.Button(btns, text="🗑️ Verwijderen", command=self.verwijder_u).pack(side="left", padx=5)
-        ttk.Button(btns, text="📤 Export Excel", command=self.export_uitzonderingen).pack(side="left", padx=12)
-        ttk.Button(btns, text="✉️ Test e-mail", command=self._test_mail).pack(side="left", padx=12)
-        ttk.Button(btns, text="📄 Export PDF", command=self.export_uitzonderingen_pdf).pack(side="left", padx=6)
+
 
     def _update_preview_u(self):
         self.preview_u.configure(state="normal")
@@ -745,7 +716,6 @@ class App:
             )
             self.tree_u.insert("", "end", iid=r["id"], values=values)
 
-        autosize_tree_columns(self.tree_u, max_px=420)
         self._update_preview_u()
 
     def export_uitzonderingen(self):
@@ -783,7 +753,6 @@ class App:
         export_rows_to_pdf(rows, headers, keys, "Uitzonderingen", "uitzonderingen")
 
     def formulier_u(self, record=None):
-        win = tk.Toplevel(self.root)
         win.title("Uitzondering")
         win.transient(self.root)
 
@@ -802,8 +771,6 @@ class App:
 
         entries = {}
         for i, (lbl, key) in enumerate(velden):
-            ttk.Label(win, text=lbl).grid(row=i, column=0, sticky="w", padx=5, pady=3)
-            e = ttk.Entry(win, width=55)
             e.grid(row=i, column=1, padx=5, pady=3, sticky="ew")
             if record:
                 e.insert(0, record[key] or "")
@@ -880,7 +847,6 @@ class App:
             self.load_uitzonderingen()
             self.refresh_dashboard()
 
-        ttk.Button(win, text="Opslaan", command=opslaan).grid(row=len(velden), column=1, sticky="e", pady=8, padx=5)
 
     def nieuw_u(self):
         self.formulier_u()
@@ -913,22 +879,14 @@ class App:
 
     # ----- Tab Gehandicapten -----
     def build_tab_gehandicapten(self):
-        top = ttk.Frame(self.tab_g)
         top.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(top, text="Zoeken:").pack(side="left")
-        self.search_g = tk.StringVar()
         self.search_g.trace_add("write", lambda *_: self.load_gehandicapten())
-        ttk.Entry(top, textvariable=self.search_g, width=40).pack(side="left", padx=5)
 
-        tree_frame = ttk.Frame(self.tab_g)
         tree_frame.pack(fill="both", expand=True, padx=10, pady=(0, 6))
 
         cols = ("Naam", "Besluit door", "GGPP", "Locatie", "Geldig tot")
-        self.tree_g = ttk.Treeview(tree_frame, columns=cols, show="headings")
 
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree_g.yview)
-        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree_g.xview)
         self.tree_g.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
         self.tree_g.grid(row=0, column=0, sticky="nsew")
@@ -942,24 +900,16 @@ class App:
             self.tree_g.heading(c, text=c)
             self.tree_g.column(c, width=140, stretch=True, anchor="w")
 
-        preview = ttk.LabelFrame(self.tab_g, text="Voorbeeld (volledige tekst van selectie)")
         preview.pack(fill="x", padx=10, pady=(0, 10))
 
-        self.preview_g = tk.Text(preview, height=4, wrap="word")
         self.preview_g.pack(fill="x", padx=8, pady=6)
         self.preview_g.configure(state="disabled")
 
-        self.tree_g.bind("<<TreeviewSelect>>", lambda e: self._update_preview_g())
 
         # Knoppen
-        btns = ttk.Frame(self.tab_g)
         btns.pack(pady=6)
 
-        ttk.Button(btns, text="➕ Nieuw", command=self.nieuw_g).pack(side="left", padx=5)
-        ttk.Button(btns, text="✏️ Wijzigen", command=self.wijzig_g).pack(side="left", padx=5)
-        ttk.Button(btns, text="🗑️ Verwijderen", command=self.verwijder_g).pack(side="left", padx=5)
-        ttk.Button(btns, text="📤 Export Excel", command=self.export_gehandicapten).pack(side="left", padx=12)
-        ttk.Button(btns, text="📄 Export PDF", command=self.export_gehandicapten_pdf).pack(side="left", padx=6)
+
 
     def _update_preview_g(self):
         self.preview_g.configure(state="normal")
@@ -1002,7 +952,6 @@ class App:
             )
             self.tree_g.insert("", "end", iid=r["id"], values=values)
 
-        autosize_tree_columns(self.tree_g, max_px=420)
         self._update_preview_g()
 
     def export_gehandicapten(self):
@@ -1036,7 +985,6 @@ class App:
         export_rows_to_pdf(rows, headers, keys, "Gehandicapten", "gehandicapten")
 
     def formulier_g(self, record=None):
-        win = tk.Toplevel(self.root)
         win.title("Gehandicaptenregistratie")
         win.transient(self.root)
 
@@ -1053,8 +1001,6 @@ class App:
 
         entries = {}
         for i, (lbl, key) in enumerate(velden):
-            ttk.Label(win, text=lbl).grid(row=i, column=0, sticky="w", padx=5, pady=3)
-            e = ttk.Entry(win, width=55)
             e.grid(row=i, column=1, padx=5, pady=3, sticky="ew")
             if record:
                 e.insert(0, record[key] or "")
@@ -1127,7 +1073,6 @@ class App:
             self.load_gehandicapten()
             self.refresh_dashboard()
 
-        ttk.Button(win, text="Opslaan", command=opslaan).grid(row=len(velden), column=1, sticky="e", pady=8, padx=5)
 
     def nieuw_g(self):
         self.formulier_g()
@@ -1148,22 +1093,15 @@ class App:
 
     # ----- Tab Contracten -----
     def build_tab_contracten(self):
-        top = ttk.Frame(self.tab_c)
         top.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(top, text="Zoeken:").pack(side="left")
-        self.search_c = tk.StringVar()
         self.search_c.trace_add("write", lambda *_: self.load_contracten())
-        ttk.Entry(top, textvariable=self.search_c, width=40).pack(side="left", padx=5)
 
-        tree_frame = ttk.Frame(self.tab_c)
         tree_frame.pack(fill="both", expand=True, padx=10, pady=(0, 6))
 
         cols = ("Leverancier", "Ingangsdatum", "Einddatum", "Contactpersoon", "Opmerking")
-        self.tree_c = ttk.Treeview(tree_frame, columns=cols, show="headings")
 
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree_c.yview)
-        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree_c.xview)
+
         self.tree_c.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
         self.tree_c.grid(row=0, column=0, sticky="nsew")
@@ -1182,24 +1120,15 @@ class App:
                 anchor="w",
             )
 
-        preview = ttk.LabelFrame(self.tab_c, text="Voorbeeld (volledige tekst van selectie)")
         preview.pack(fill="x", padx=10, pady=(0, 10))
 
-        self.preview_c = tk.Text(preview, height=4, wrap="word")
         self.preview_c.pack(fill="x", padx=8, pady=6)
         self.preview_c.configure(state="disabled")
 
-        self.tree_c.bind("<<TreeviewSelect>>", lambda e: self._update_preview_c())
 
         # Knoppen
-        btns = ttk.Frame(self.tab_c)
         btns.pack(pady=6)
 
-        ttk.Button(btns, text="➕ Nieuw", command=self.nieuw_c).pack(side="left", padx=5)
-        ttk.Button(btns, text="✏️ Wijzigen", command=self.wijzig_c).pack(side="left", padx=5)
-        ttk.Button(btns, text="🗑️ Verwijderen", command=self.verwijder_c).pack(side="left", padx=5)
-        ttk.Button(btns, text="📤 Export Excel", command=self.export_contracten).pack(side="left", padx=12)
-        ttk.Button(btns, text="📄 Export PDF", command=self.export_contracten_pdf).pack(side="left", padx=6)
 
     def _update_preview_c(self):
         self.preview_c.configure(state="normal")
@@ -1239,7 +1168,6 @@ class App:
             )
             self.tree_c.insert("", "end", iid=r["id"], values=values)
 
-        autosize_tree_columns(self.tree_c, max_px=420)
         self._update_preview_c()
 
     def export_contracten(self):
@@ -1261,7 +1189,6 @@ class App:
         export_rows_to_pdf(rows, headers, keys, "Contracten", "contracten")
 
     def formulier_c(self, record=None):
-        win = tk.Toplevel(self.root)
         win.title("Contract")
         win.transient(self.root)
 
@@ -1275,8 +1202,6 @@ class App:
 
         entries = {}
         for i, (lbl, key) in enumerate(velden):
-            ttk.Label(win, text=lbl).grid(row=i, column=0, sticky="w", padx=5, pady=3)
-            e = ttk.Entry(win, width=55)
             e.grid(row=i, column=1, padx=5, pady=3, sticky="ew")
             if record:
                 e.insert(0, record[key] or "")
@@ -1316,7 +1241,6 @@ class App:
             self.load_contracten()
             self.refresh_dashboard()
 
-        ttk.Button(win, text="Opslaan", command=opslaan).grid(row=len(velden), column=1, sticky="e", pady=8, padx=5)
 
     def nieuw_c(self):
         self.formulier_c()
@@ -1337,15 +1261,10 @@ class App:
 
     # ----- Tab Projecten -----
     def build_tab_projecten(self):
-        top = ttk.Frame(self.tab_p)
         top.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(top, text="Zoeken:").pack(side="left")
-        self.search_p = tk.StringVar()
         self.search_p.trace_add("write", lambda *_: self.load_projecten())
-        ttk.Entry(top, textvariable=self.search_p, width=40).pack(side="left", padx=5)
 
-        tree_frame = ttk.Frame(self.tab_p)
         tree_frame.pack(fill="both", expand=True, padx=10, pady=(0, 6))
 
         cols = (
@@ -1357,10 +1276,8 @@ class App:
             "Betrokken adviseur",
             "Prio",
         )
-        self.tree_p = ttk.Treeview(tree_frame, columns=cols, show="headings")
 
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree_p.yview)
-        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree_p.xview)
+
         self.tree_p.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
         self.tree_p.grid(row=0, column=0, sticky="nsew")
@@ -1378,24 +1295,16 @@ class App:
                 stretch=True,
             )
 
-        preview = ttk.LabelFrame(self.tab_p, text="Voorbeeld (volledige tekst van selectie)")
         preview.pack(fill="x", padx=10, pady=(0, 10))
 
-        self.preview_p = tk.Text(preview, height=4, wrap="word")
         self.preview_p.pack(fill="x", padx=8, pady=6)
         self.preview_p.configure(state="disabled")
 
-        self.tree_p.bind("<<TreeviewSelect>>", lambda e: self._update_preview_p())
 
         # Knoppen
-        btns = ttk.Frame(self.tab_p)
         btns.pack(pady=6)
 
-        ttk.Button(btns, text="➕ Nieuw", command=self.nieuw_p).pack(side="left", padx=5)
-        ttk.Button(btns, text="✏️ Wijzigen", command=self.wijzig_p).pack(side="left", padx=5)
-        ttk.Button(btns, text="🗑️ Verwijderen", command=self.verwijder_p).pack(side="left", padx=5)
-        ttk.Button(btns, text="📤 Export Excel", command=self.export_projecten_excel).pack(side="left", padx=12)
-        ttk.Button(btns, text="📄 Export PDF", command=self.export_projecten_pdf).pack(side="left", padx=6)
+
 
     def _update_preview_p(self):
         self.preview_p.configure(state="normal")
@@ -1437,7 +1346,6 @@ class App:
             )
             self.tree_p.insert("", "end", iid=r["id"], values=values)
 
-        autosize_tree_columns(self.tree_p, max_px=420)
         self._update_preview_p()
 
     def export_projecten_excel(self):
@@ -1499,7 +1407,6 @@ class App:
         export_rows_to_pdf(rows_for_export, headers, keys, "Projecten", "projecten")
 
     def formulier_p(self, record=None):
-        win = tk.Toplevel(self.root)
         win.title("Project")
         win.transient(self.root)
 
@@ -1516,10 +1423,8 @@ class App:
 
         entries = {}
         for i, (lbl, key) in enumerate(labels):
-            ttk.Label(win, text=lbl).grid(row=i, column=0, sticky="w", padx=5, pady=3)
 
             if key == "gestart":
-                cb = ttk.Combobox(win, values=["Ja", "Nee"], state="readonly", width=20)
                 if record:
                     cb.set("Ja" if (record["gestart"] or 0) else "Nee")
                 else:
@@ -1528,7 +1433,6 @@ class App:
                 entries[key] = cb
 
             elif key == "prio":
-                cbp = ttk.Combobox(win, values=["Hoog", "Gemiddeld", "Laag"], state="readonly", width=20)
                 if record:
                     cbp.set(record["prio"] or "Gemiddeld")
                 else:
@@ -1537,7 +1441,6 @@ class App:
                 entries[key] = cbp
 
             else:
-                e = ttk.Entry(win, width=55)
                 e.grid(row=i, column=1, padx=5, pady=3, sticky="ew")
                 if record:
                     e.insert(0, record[key] or "")
@@ -1591,7 +1494,6 @@ class App:
             self.load_projecten()
             self.refresh_dashboard()
 
-        ttk.Button(win, text="Opslaan", command=opslaan).grid(row=len(labels), column=1, sticky="e", pady=8, padx=5)
 
     def nieuw_p(self):
         self.formulier_p()
@@ -1652,7 +1554,7 @@ class App:
 
 # ===================== START =====================
 if __name__ == "__main__":
-    root = tk.Tk()
     App(root)
 
     root.mainloop()
+
