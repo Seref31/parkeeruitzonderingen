@@ -1,194 +1,233 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
-from datetime import date, timedelta
+import sqlite3
+from datetime import date, datetime
 from io import BytesIO
 
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
 
-# ================= CONFIG =================
-st.set_page_config(page_title="Parkeeruitzonderingen", layout="wide")
-DB = "data.db"
+DB = "parkeeruitzonderingen.db"
 
-# ================= DB =================
-conn = sqlite3.connect(DB, check_same_thread=False)
+# ---------------- DB ----------------
+def conn():
+    return sqlite3.connect(DB, check_same_thread=False)
 
 def init_db():
-    conn.execute("""
+    c = conn()
+    cur = c.cursor()
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS uitzonderingen (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        naam TEXT, kenteken TEXT, locatie TEXT,
-        start TEXT, einde TEXT
-    )""")
+        id INTEGER PRIMARY KEY,
+        naam TEXT,
+        kenteken TEXT,
+        locatie TEXT,
+        type TEXT,
+        start DATE,
+        einde DATE,
+        toestemming TEXT,
+        opmerking TEXT
+    )
+    """)
 
-    conn.execute("""
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS gehandicapten (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        naam TEXT, kaartnummer TEXT, geldig_tot TEXT
-    )""")
+        id INTEGER PRIMARY KEY,
+        naam TEXT,
+        kaartnummer TEXT,
+        adres TEXT,
+        locatie TEXT,
+        geldig_tot DATE,
+        besluit_door TEXT,
+        opmerking TEXT
+    )
+    """)
 
-    conn.execute("""
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS contracten (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        leverancier TEXT, einddatum TEXT
-    )""")
+        id INTEGER PRIMARY KEY,
+        leverancier TEXT,
+        contractnummer TEXT,
+        start DATE,
+        einde DATE,
+        contactpersoon TEXT,
+        opmerking TEXT
+    )
+    """)
 
-    conn.execute("""
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS projecten (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        naam TEXT, prio TEXT, gestart TEXT
-    )""")
+        id INTEGER PRIMARY KEY,
+        naam TEXT,
+        projectleider TEXT,
+        start DATE,
+        einde DATE,
+        prio TEXT,
+        status TEXT,
+        opmerking TEXT
+    )
+    """)
 
-    conn.commit()
+    c.commit()
+    c.close()
 
 init_db()
 
-# ================= EXPORT =================
-def export_excel(df):
+# ---------------- EXPORT ----------------
+def export_excel(df, naam):
     buf = BytesIO()
-    df.to_excel(buf, index=False)
-    return buf.getvalue()
+    df.to_excel(buf, index=False, engine="openpyxl")
+    st.download_button(
+        "📥 Download Excel",
+        buf.getvalue(),
+        file_name=f"{naam}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 def export_pdf(df, titel):
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4)
+    styles = getSampleStyleSheet()
     data = [df.columns.tolist()] + df.values.tolist()
+
     table = Table(data)
     table.setStyle(TableStyle([
         ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
-        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey)
     ]))
-    doc.build([table])
-    return buf.getvalue()
 
-# ================= UI =================
+    doc.build([
+        Paragraph(titel, styles["Title"]),
+        table
+    ])
+
+    st.download_button(
+        "📄 Download PDF",
+        buf.getvalue(),
+        file_name=f"{titel}.pdf",
+        mime="application/pdf"
+    )
+
+# ---------------- UI ----------------
+st.set_page_config("Parkeeruitzonderingen", layout="wide")
 st.title("🚗 Parkeeruitzonderingen")
 
-# ---------- DASHBOARD ----------
-col1, col2, col3, col4 = st.columns(4)
+tab_d, tab_u, tab_g, tab_c, tab_p = st.tabs(
+    ["📊 Dashboard", "🅿️ Uitzonderingen", "♿ Gehandicapten", "📄 Contracten", "🧩 Projecten"]
+)
 
-def count(table):
-    return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+# ---------------- DASHBOARD ----------------
+with tab_d:
+    c = conn()
+    u = pd.read_sql("SELECT * FROM uitzonderingen", c)
+    g = pd.read_sql("SELECT * FROM gehandicapten", c)
+    ctt = pd.read_sql("SELECT * FROM contracten", c)
+    p = pd.read_sql("SELECT * FROM projecten", c)
 
-col1.metric("Uitzonderingen", count("uitzonderingen"))
-col2.metric("Gehandicapten", count("gehandicapten"))
-col3.metric("Contracten", count("contracten"))
-col4.metric("Projecten", count("projecten"))
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Uitzonderingen", len(u))
+    col2.metric("Gehandicapten", len(g))
+    col3.metric("Contracten", len(ctt))
+    col4.metric("Projecten", len(p))
 
-st.divider()
-
-# ---------- TABS ----------
-tab_u, tab_g, tab_c, tab_p = st.tabs([
-    "🅿️ Uitzonderingen",
-    "♿ Gehandicapten",
-    "📄 Contracten",
-    "🧩 Projecten"
-])
-
-# ================= UITZONDERINGEN =================
+# ---------------- UITZONDERINGEN ----------------
 with tab_u:
     st.subheader("Nieuwe uitzondering")
-
-    with st.form("form_u"):
+    with st.form("u_form"):
         naam = st.text_input("Naam")
         kenteken = st.text_input("Kenteken")
         locatie = st.text_input("Locatie")
+        type_u = st.selectbox("Type", ["Bewoner", "Bedrijf", "Project"])
         start = st.date_input("Startdatum", date.today())
-        einde = st.date_input("Einddatum", date.today()+timedelta(days=14))
+        einde = st.date_input("Einddatum")
+        toestemming = st.text_input("Toestemming")
+        opm = st.text_area("Opmerking")
         if st.form_submit_button("Opslaan"):
-            conn.execute(
-                "INSERT INTO uitzonderingen VALUES (NULL,?,?,?,?,?)",
-                (naam, kenteken, locatie, start, einde)
+            conn().execute(
+                "INSERT INTO uitzonderingen VALUES (NULL,?,?,?,?,?,?,?,?)",
+                (naam, kenteken, locatie, type_u, start, einde, toestemming, opm)
             )
-            conn.commit()
+            conn().commit()
             st.success("Opgeslagen")
-            st.rerun()
 
-    zoek = st.text_input("🔍 Zoeken uitzonderingen", key="zu")
-    df = pd.read_sql("SELECT * FROM uitzonderingen", conn)
+    df = pd.read_sql("SELECT * FROM uitzonderingen", conn())
+    zoek = st.text_input("🔍 Zoeken")
     if zoek:
-        df = df[df.apply(lambda r: zoek.lower() in str(r).lower(), axis=1)]
-
+        df = df[df.apply(lambda r: zoek.lower() in r.astype(str).str.lower().to_string(), axis=1)]
     st.dataframe(df, use_container_width=True)
+    export_excel(df, "uitzonderingen")
+    export_pdf(df, "Uitzonderingen")
 
-    st.download_button("⬇️ Excel", export_excel(df), "uitzonderingen.xlsx")
-    st.download_button("⬇️ PDF", export_pdf(df, "Uitzonderingen"), "uitzonderingen.pdf")
-
-# ================= GEHANDICAPTEN =================
+# ---------------- GEHANDICAPTEN ----------------
 with tab_g:
-    st.subheader("Nieuwe gehandicaptenregistratie")
-
-    with st.form("form_g"):
-        naam = st.text_input("Naam", key="g1")
+    st.subheader("Gehandicaptenregistratie")
+    with st.form("g_form"):
+        naam = st.text_input("Naam")
         kaart = st.text_input("Kaartnummer")
+        adres = st.text_input("Adres")
+        locatie = st.text_input("Locatie")
         geldig = st.date_input("Geldig tot")
+        besluit = st.text_input("Besluit door")
+        opm = st.text_area("Opmerking")
         if st.form_submit_button("Opslaan"):
-            conn.execute(
-                "INSERT INTO gehandicapten VALUES (NULL,?,?,?)",
-                (naam, kaart, geldig)
+            conn().execute(
+                "INSERT INTO gehandicapten VALUES (NULL,?,?,?,?,?,?,?)",
+                (naam, kaart, adres, locatie, geldig, besluit, opm)
             )
-            conn.commit()
+            conn().commit()
             st.success("Opgeslagen")
-            st.rerun()
 
-    zoek = st.text_input("🔍 Zoeken gehandicapten", key="zg")
-    df = pd.read_sql("SELECT * FROM gehandicapten", conn)
-    if zoek:
-        df = df[df.apply(lambda r: zoek.lower() in str(r).lower(), axis=1)]
-
+    df = pd.read_sql("SELECT * FROM gehandicapten", conn())
     st.dataframe(df, use_container_width=True)
-    st.download_button("⬇️ Excel", export_excel(df), "gehandicapten.xlsx")
-    st.download_button("⬇️ PDF", export_pdf(df, "Gehandicapten"), "gehandicapten.pdf")
+    export_excel(df, "gehandicapten")
+    export_pdf(df, "Gehandicapten")
 
-# ================= CONTRACTEN =================
+# ---------------- CONTRACTEN ----------------
 with tab_c:
-    st.subheader("Nieuw contract")
-
-    with st.form("form_c"):
-        leverancier = st.text_input("Leverancier")
-        einddatum = st.date_input("Einddatum")
+    st.subheader("Contracten")
+    with st.form("c_form"):
+        lev = st.text_input("Leverancier")
+        nr = st.text_input("Contractnummer")
+        start = st.date_input("Startdatum")
+        einde = st.date_input("Einddatum")
+        contact = st.text_input("Contactpersoon")
+        opm = st.text_area("Opmerking")
         if st.form_submit_button("Opslaan"):
-            conn.execute(
-                "INSERT INTO contracten VALUES (NULL,?,?)",
-                (leverancier, einddatum)
+            conn().execute(
+                "INSERT INTO contracten VALUES (NULL,?,?,?,?,?,?)",
+                (lev, nr, start, einde, contact, opm)
             )
-            conn.commit()
+            conn().commit()
             st.success("Opgeslagen")
-            st.rerun()
 
-    zoek = st.text_input("🔍 Zoeken contracten", key="zc")
-    df = pd.read_sql("SELECT * FROM contracten", conn)
-    if zoek:
-        df = df[df.apply(lambda r: zoek.lower() in str(r).lower(), axis=1)]
-
+    df = pd.read_sql("SELECT * FROM contracten", conn())
     st.dataframe(df, use_container_width=True)
-    st.download_button("⬇️ Excel", export_excel(df), "contracten.xlsx")
-    st.download_button("⬇️ PDF", export_pdf(df, "Contracten"), "contracten.pdf")
+    export_excel(df, "contracten")
+    export_pdf(df, "Contracten")
 
-# ================= PROJECTEN =================
+# ---------------- PROJECTEN ----------------
 with tab_p:
-    st.subheader("Nieuw project")
-
-    with st.form("form_p"):
+    st.subheader("Projecten")
+    with st.form("p_form"):
         naam = st.text_input("Projectnaam")
+        leider = st.text_input("Projectleider")
+        start = st.date_input("Startdatum")
+        einde = st.date_input("Einddatum")
         prio = st.selectbox("Prioriteit", ["Hoog", "Gemiddeld", "Laag"])
-        gestart = st.selectbox("Gestart", ["Ja", "Nee"])
+        status = st.selectbox("Status", ["Niet gestart", "Actief", "Afgerond"])
+        opm = st.text_area("Opmerking")
         if st.form_submit_button("Opslaan"):
-            conn.execute(
-                "INSERT INTO projecten VALUES (NULL,?,?,?)",
-                (naam, prio, gestart)
+            conn().execute(
+                "INSERT INTO projecten VALUES (NULL,?,?,?,?,?,?,?)",
+                (naam, leider, start, einde, prio, status, opm)
             )
-            conn.commit()
+            conn().commit()
             st.success("Opgeslagen")
-            st.rerun()
 
-    zoek = st.text_input("🔍 Zoeken projecten", key="zp")
-    df = pd.read_sql("SELECT * FROM projecten", conn)
-    if zoek:
-        df = df[df.apply(lambda r: zoek.lower() in str(r).lower(), axis=1)]
-
+    df = pd.read_sql("SELECT * FROM projecten", conn())
     st.dataframe(df, use_container_width=True)
-    st.download_button("⬇️ Excel", export_excel(df), "projecten.xlsx")
-    st.download_button("⬇️ PDF", export_pdf(df, "Projecten"), "projecten.pdf")
+    export_excel(df, "projecten")
+    export_pdf(df, "Projecten")
