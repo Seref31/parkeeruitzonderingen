@@ -10,16 +10,16 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
-# =========================================================
+# ======================================================
 # CONFIG
-# =========================================================
+# ======================================================
 st.set_page_config("Parkeeruitzonderingen", layout="wide")
 DB = "parkeeruitzonderingen.db"
 DEFAULT_PW = "Welkom123!"
 
-# =========================================================
+# ======================================================
 # DATABASE
-# =========================================================
+# ======================================================
 def conn():
     return sqlite3.connect(DB, check_same_thread=False)
 
@@ -83,49 +83,50 @@ def init_db():
 
 init_db()
 
-# =========================================================
+# ======================================================
 # LOGIN
-# =========================================================
+# ======================================================
 def login():
     st.title("🔐 Inloggen")
 
-    user = st.text_input("Gebruikersnaam")
-    pw = st.text_input("Wachtwoord", type="password")
+    u = st.text_input("Gebruikersnaam")
+    p = st.text_input("Wachtwoord", type="password")
 
     if st.button("Inloggen"):
         c = conn()
-        cur = c.cursor()
-        cur.execute("SELECT password, must_change FROM users WHERE username=?", (user,))
-        r = cur.fetchone()
+        r = c.execute(
+            "SELECT password, must_change FROM users WHERE username=?",
+            (u,)
+        ).fetchone()
         c.close()
 
         if not r:
             st.error("Onbekende gebruiker")
             return
 
-        if hashlib.sha256(pw.encode()).hexdigest() != r[0]:
+        if hashlib.sha256(p.encode()).hexdigest() != r[0]:
             st.error("Onjuist wachtwoord")
             return
 
-        st.session_state.user = user
+        st.session_state.user = u
         st.session_state.must_change = r[1] == 1
         st.rerun()
 
 def change_password():
     st.title("🔑 Wachtwoord wijzigen")
 
-    pw1 = st.text_input("Nieuw wachtwoord", type="password")
-    pw2 = st.text_input("Herhaal wachtwoord", type="password")
+    p1 = st.text_input("Nieuw wachtwoord", type="password")
+    p2 = st.text_input("Herhaal wachtwoord", type="password")
 
     if st.button("Opslaan"):
-        if pw1 != pw2 or len(pw1) < 6:
-            st.error("Wachtwoorden ongeldig")
+        if p1 != p2 or len(p1) < 6:
+            st.error("Wachtwoord ongeldig")
             return
 
         c = conn()
         c.execute(
             "UPDATE users SET password=?, must_change=0 WHERE username=?",
-            (hashlib.sha256(pw1.encode()).hexdigest(), st.session_state.user)
+            (hashlib.sha256(p1.encode()).hexdigest(), st.session_state.user)
         )
         c.commit()
         c.close()
@@ -134,15 +135,15 @@ def change_password():
         st.success("Wachtwoord gewijzigd")
         st.rerun()
 
-# =========================================================
+# ======================================================
 # EXPORT
-# =========================================================
-def export_excel(df, name):
+# ======================================================
+def export_excel(df, naam):
     buf = BytesIO()
     df.to_excel(buf, index=False, engine="openpyxl")
-    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
+    st.download_button("📥 Excel", buf.getvalue(), f"{naam}.xlsx")
 
-def export_pdf(df, title):
+def export_pdf(df, titel):
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4)
     styles = getSampleStyleSheet()
@@ -154,67 +155,83 @@ def export_pdf(df, title):
         ("BACKGROUND",(0,0),(-1,0),colors.lightgrey)
     ]))
 
-    doc.build([Paragraph(title, styles["Title"]), table])
-    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
+    doc.build([Paragraph(titel, styles["Title"]), table])
+    st.download_button("📄 PDF", buf.getvalue(), f"{titel}.pdf")
 
-# =========================================================
-# CRUD BLOK
-# =========================================================
+# ======================================================
+# CRUD BLOK (NIEUW / WIJZIGEN / VERWIJDEREN)
+# ======================================================
 def crud(tab, table, fields):
     with tab:
+        st.subheader(table.capitalize())
+
         c = conn()
         df = pd.read_sql(f"SELECT * FROM {table}", c)
         c.close()
 
+        zoek = st.text_input("🔍 Zoeken", key=f"{table}_zoek")
+        if zoek:
+            df = df[df.apply(lambda r: zoek.lower() in r.astype(str).str.lower().to_string(), axis=1)]
+
         sel = st.selectbox(
-            "Selecteer record",
+            "✏️ Selecteer record (voor wijzigen)",
             [None] + df["id"].tolist(),
             key=f"{table}_select"
         )
 
-        data = {}
+        values = {}
         for f in fields:
-            data[f] = st.text_input(
+            values[f] = st.text_input(
                 f.capitalize(),
-                key=f"{table}_{f}",
-                value=df.loc[df.id == sel, f].values[0] if sel else ""
+                value=df.loc[df.id == sel, f].values[0] if sel else "",
+                key=f"{table}_{f}"
             )
 
         col1, col2, col3 = st.columns(3)
 
-        if col1.button("💾 Opslaan", key=f"{table}_save"):
+        # NIEUW
+        if col1.button("➕ Nieuw opslaan", key=f"{table}_new"):
             c = conn()
-            if sel:
-                sets = ", ".join(f"{k}=?" for k in data)
-                c.execute(
-                    f"UPDATE {table} SET {sets} WHERE id=?",
-                    (*data.values(), sel)
-                )
-            else:
-                cols = ",".join(data)
-                q = ",".join("?" * len(data))
-                c.execute(
-                    f"INSERT INTO {table} ({cols}) VALUES ({q})",
-                    tuple(data.values())
-                )
+            cols = ",".join(values)
+            q = ",".join("?" * len(values))
+            c.execute(
+                f"INSERT INTO {table} ({cols}) VALUES ({q})",
+                tuple(values.values())
+            )
             c.commit()
             c.close()
+            st.success("Nieuw record opgeslagen")
             st.rerun()
 
-        if sel and col2.button("🗑 Verwijderen", key=f"{table}_del"):
+        # WIJZIGEN
+        if sel and col2.button("✏️ Wijzigen", key=f"{table}_edit"):
+            c = conn()
+            sets = ", ".join(f"{k}=?" for k in values)
+            c.execute(
+                f"UPDATE {table} SET {sets} WHERE id=?",
+                (*values.values(), sel)
+            )
+            c.commit()
+            c.close()
+            st.success("Record gewijzigd")
+            st.rerun()
+
+        # VERWIJDEREN
+        if sel and col3.button("🗑 Verwijderen", key=f"{table}_del"):
             c = conn()
             c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
             c.commit()
             c.close()
+            st.warning("Record verwijderd")
             st.rerun()
 
         st.dataframe(df, use_container_width=True)
         export_excel(df, table)
         export_pdf(df, table)
 
-# =========================================================
-# APP
-# =========================================================
+# ======================================================
+# APP FLOW
+# ======================================================
 if "user" not in st.session_state:
     login()
     st.stop()
