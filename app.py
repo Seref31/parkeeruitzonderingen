@@ -126,11 +126,10 @@ def login_screen():
             st.session_state.force_change = r[1]
             st.rerun()
 
-st.markdown("---")
-    st.info(
-        "🔑 **Wachtwoord vergeten?**\n\n"
+    st.markdown("---")
+    st.info("🔑 **Wachtwoord vergeten?**\n\n"
         "Neem contact op met de beheerder (Parkeerbeheer / ICT).\n"
-        "Je ontvangt een tijdelijk wachtwoord dat je bij het inloggen direct moet wijzigen."
+        "Je ontvangt een tijdelijk wachtwoord dat je bij het inloggen direct moet wijzigen." )
     )
 
 def change_pw_screen():
@@ -317,4 +316,5 @@ with tab_w:
         dropdowns={"status":["Gepland","In uitvoering","Afgerond"]},
         optional_dates=("start","einde")
     )
+
 
