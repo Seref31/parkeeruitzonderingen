@@ -1,198 +1,253 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
+import sqlite3
+import hashlib
 from datetime import date
 from io import BytesIO
-import hashlib
 
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
-# ================== CONFIG ==================
+# =========================================================
+# CONFIG
+# =========================================================
+st.set_page_config("Parkeeruitzonderingen", layout="wide")
 DB = "parkeeruitzonderingen.db"
+DEFAULT_PW = "Welkom123!"
 
-def hash_pw(pw: str) -> str:
-    return hashlib.sha256(pw.encode("utf-8")).hexdigest()
-
-# Eerste login moet wachtwoord wijzigen
-USERS = {
-    "Seref": {"password": hash_pw("Welkom123!"), "force_change": True},
-    "Bryn": {"password": hash_pw("Welkom123!"), "force_change": True},
-    "Wout": {"password": hash_pw("Welkom123!"), "force_change": True},
-    "Andre": {"password": hash_pw("Welkom123!"), "force_change": True},
-    "Pieter": {"password": hash_pw("Welkom123!"), "force_change": True},
-}
-
-# ================== SESSION ==================
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.user = None
-    st.session_state.force_pw_change = False
-
-# ================== DATABASE ==================
-def get_conn():
+# =========================================================
+# DATABASE
+# =========================================================
+def conn():
     return sqlite3.connect(DB, check_same_thread=False)
 
 def init_db():
-    c = get_conn()
+    c = conn()
     cur = c.cursor()
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS uitzonderingen (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        naam TEXT, kenteken TEXT, locatie TEXT, type TEXT,
-        start DATE, einde DATE, toestemming TEXT, opmerking TEXT
-    )""")
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY,
+        password TEXT,
+        must_change INTEGER
+    )
+    """)
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS gehandicapten (
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS uitzonderingen (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        naam TEXT, kaartnummer TEXT, adres TEXT, locatie TEXT,
-        geldig_tot DATE, besluit_door TEXT, opmerking TEXT
-    )""")
+        naam TEXT, kenteken TEXT, locatie TEXT,
+        type TEXT, start DATE, einde DATE,
+        toestemming TEXT, opmerking TEXT
+    )
+    """)
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS contracten (
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS gehandicapten (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT, kaartnummer TEXT, adres TEXT,
+        locatie TEXT, geldig_tot DATE,
+        besluit_door TEXT, opmerking TEXT
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS contracten (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         leverancier TEXT, contractnummer TEXT,
-        start DATE, einde DATE, contactpersoon TEXT, opmerking TEXT
-    )""")
+        start DATE, einde DATE,
+        contactpersoon TEXT, opmerking TEXT
+    )
+    """)
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS projecten (
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS projecten (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         naam TEXT, projectleider TEXT,
-        start DATE, einde DATE, prio TEXT, status TEXT, opmerking TEXT
-    )""")
+        start DATE, einde DATE,
+        prio TEXT, status TEXT, opmerking TEXT
+    )
+    """)
+
+    users = ["Seref", "Bryn", "Wout", "Andre", "Pieter"]
+    for u in users:
+        cur.execute(
+            "INSERT OR IGNORE INTO users VALUES (?,?,1)",
+            (u, hashlib.sha256(DEFAULT_PW.encode()).hexdigest(),)
+        )
 
     c.commit()
     c.close()
 
 init_db()
 
-# ================== LOGIN ==================
-def login_screen():
+# =========================================================
+# LOGIN
+# =========================================================
+def login():
     st.title("🔐 Inloggen")
 
-    with st.form("login"):
-        u = st.text_input("Gebruikersnaam")
-        p = st.text_input("Wachtwoord", type="password")
-        if st.form_submit_button("Inloggen"):
-            if u in USERS and USERS[u]["password"] == hash_pw(p):
-                st.session_state.logged_in = True
-                st.session_state.user = u
-                st.session_state.force_pw_change = USERS[u]["force_change"]
-                st.rerun()
-            else:
-                st.error("Ongeldige login")
+    user = st.text_input("Gebruikersnaam")
+    pw = st.text_input("Wachtwoord", type="password")
 
-def password_change_screen():
-    st.title("🔑 Wachtwoord wijzigen (verplicht)")
-
-    with st.form("pw_change"):
-        p1 = st.text_input("Nieuw wachtwoord", type="password")
-        p2 = st.text_input("Herhaal wachtwoord", type="password")
-        if st.form_submit_button("Wijzigen"):
-            if len(p1) < 8:
-                st.error("Minimaal 8 tekens")
-            elif p1 != p2:
-                st.error("Wachtwoorden komen niet overeen")
-            else:
-                USERS[st.session_state.user]["password"] = hash_pw(p1)
-                USERS[st.session_state.user]["force_change"] = False
-                st.session_state.force_pw_change = False
-                st.success("Wachtwoord gewijzigd")
-                st.rerun()
-
-if not st.session_state.logged_in:
-    login_screen()
-    st.stop()
-
-if st.session_state.force_pw_change:
-    password_change_screen()
-    st.stop()
-
-# ================== UI ==================
-st.set_page_config("Parkeeruitzonderingen", layout="wide")
-
-with st.sidebar:
-    st.write(f"👤 {st.session_state.user}")
-    if st.button("🚪 Uitloggen"):
-        st.session_state.logged_in = False
-        st.session_state.user = None
-        st.session_state.force_pw_change = False
-        st.rerun()
-
-st.title("🚗 Parkeeruitzonderingen")
-
-tab_d, tab_u, tab_g, tab_c, tab_p = st.tabs(
-    ["📊 Dashboard", "🅿️ Uitzonderingen", "♿ Gehandicapten", "📄 Contracten", "🧩 Projecten"]
-)
-
-# ================== DASHBOARD ==================
-with tab_d:
-    c = get_conn()
-    st.columns(4)[0].metric("Uitzonderingen", pd.read_sql("SELECT * FROM uitzonderingen", c).shape[0])
-    st.columns(4)[1].metric("Gehandicapten", pd.read_sql("SELECT * FROM gehandicapten", c).shape[0])
-    st.columns(4)[2].metric("Contracten", pd.read_sql("SELECT * FROM contracten", c).shape[0])
-    st.columns(4)[3].metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
-    c.close()
-
-# ================== CRUD HULP ==================
-def crud_block(table, fields, date_optional=False):
-    c = get_conn()
-    df = pd.read_sql(f"SELECT * FROM {table}", c)
-    c.close()
-
-    sel = st.selectbox("Selecteer record", [None] + df["id"].tolist())
-    rec = df[df["id"] == sel].iloc[0] if sel else None
-
-    with st.form(table):
-        values = {}
-        for f in fields:
-            if f in ("start", "einde", "geldig_tot"):
-                values[f] = st.date_input(
-                    f, rec[f] if rec is not None else None
-                )
-            else:
-                values[f] = st.text_input(f, rec[f] if rec is not None else "")
-
-        c1, c2, c3 = st.columns(3)
-        add = c1.form_submit_button("➕ Toevoegen")
-        upd = c2.form_submit_button("✏️ Wijzigen")
-        dele = c3.form_submit_button("🗑️ Verwijderen")
-
-        c = get_conn()
-        if add and rec is None:
-            cols = ",".join(fields)
-            q = ",".join(["?"] * len(fields))
-            c.execute(f"INSERT INTO {table} ({cols}) VALUES ({q})", tuple(values.values()))
-            c.commit(); st.rerun()
-
-        if upd and rec is not None:
-            sets = ",".join([f"{f}=?" for f in fields])
-            c.execute(f"UPDATE {table} SET {sets} WHERE id=?", (*values.values(), sel))
-            c.commit(); st.rerun()
-
-        if dele and rec is not None:
-            c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
-            c.commit(); st.rerun()
-
+    if st.button("Inloggen"):
+        c = conn()
+        cur = c.cursor()
+        cur.execute("SELECT password, must_change FROM users WHERE username=?", (user,))
+        r = cur.fetchone()
         c.close()
 
-    st.dataframe(df, use_container_width=True)
+        if not r:
+            st.error("Onbekende gebruiker")
+            return
 
-# ================== TABS ==================
-with tab_u:
-    crud_block("uitzonderingen",
-        ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"])
+        if hashlib.sha256(pw.encode()).hexdigest() != r[0]:
+            st.error("Onjuist wachtwoord")
+            return
 
-with tab_g:
-    crud_block("gehandicapten",
-        ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"])
+        st.session_state.user = user
+        st.session_state.must_change = r[1] == 1
+        st.rerun()
 
-with tab_c:
-    crud_block("contracten",
-        ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"])
+def change_password():
+    st.title("🔑 Wachtwoord wijzigen")
 
-with tab_p:
-    crud_block("projecten",
-        ["naam","projectleider","start","einde","prio","status","opmerking"])
+    pw1 = st.text_input("Nieuw wachtwoord", type="password")
+    pw2 = st.text_input("Herhaal wachtwoord", type="password")
+
+    if st.button("Opslaan"):
+        if pw1 != pw2 or len(pw1) < 6:
+            st.error("Wachtwoorden ongeldig")
+            return
+
+        c = conn()
+        c.execute(
+            "UPDATE users SET password=?, must_change=0 WHERE username=?",
+            (hashlib.sha256(pw1.encode()).hexdigest(), st.session_state.user)
+        )
+        c.commit()
+        c.close()
+
+        st.session_state.must_change = False
+        st.success("Wachtwoord gewijzigd")
+        st.rerun()
+
+# =========================================================
+# EXPORT
+# =========================================================
+def export_excel(df, name):
+    buf = BytesIO()
+    df.to_excel(buf, index=False, engine="openpyxl")
+    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
+
+def export_pdf(df, title):
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4)
+    styles = getSampleStyleSheet()
+    data = [df.columns.tolist()] + df.astype(str).values.tolist()
+
+    table = Table(data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("GRID",(0,0),(-1,-1),0.5,colors.grey),
+        ("BACKGROUND",(0,0),(-1,0),colors.lightgrey)
+    ]))
+
+    doc.build([Paragraph(title, styles["Title"]), table])
+    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
+
+# =========================================================
+# CRUD BLOK
+# =========================================================
+def crud(tab, table, fields):
+    with tab:
+        c = conn()
+        df = pd.read_sql(f"SELECT * FROM {table}", c)
+        c.close()
+
+        sel = st.selectbox(
+            "Selecteer record",
+            [None] + df["id"].tolist(),
+            key=f"{table}_select"
+        )
+
+        data = {}
+        for f in fields:
+            data[f] = st.text_input(
+                f.capitalize(),
+                key=f"{table}_{f}",
+                value=df.loc[df.id == sel, f].values[0] if sel else ""
+            )
+
+        col1, col2, col3 = st.columns(3)
+
+        if col1.button("💾 Opslaan", key=f"{table}_save"):
+            c = conn()
+            if sel:
+                sets = ", ".join(f"{k}=?" for k in data)
+                c.execute(
+                    f"UPDATE {table} SET {sets} WHERE id=?",
+                    (*data.values(), sel)
+                )
+            else:
+                cols = ",".join(data)
+                q = ",".join("?" * len(data))
+                c.execute(
+                    f"INSERT INTO {table} ({cols}) VALUES ({q})",
+                    tuple(data.values())
+                )
+            c.commit()
+            c.close()
+            st.rerun()
+
+        if sel and col2.button("🗑 Verwijderen", key=f"{table}_del"):
+            c = conn()
+            c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
+            c.commit()
+            c.close()
+            st.rerun()
+
+        st.dataframe(df, use_container_width=True)
+        export_excel(df, table)
+        export_pdf(df, table)
+
+# =========================================================
+# APP
+# =========================================================
+if "user" not in st.session_state:
+    login()
+    st.stop()
+
+if st.session_state.must_change:
+    change_password()
+    st.stop()
+
+st.sidebar.success(f"Ingelogd als {st.session_state.user}")
+if st.sidebar.button("🚪 Uitloggen"):
+    st.session_state.clear()
+    st.rerun()
+
+tab_d, tab_u, tab_g, tab_c, tab_p = st.tabs(
+    ["📊 Dashboard","🅿️ Uitzonderingen","♿ Gehandicapten","📄 Contracten","🧩 Projecten"]
+)
+
+with tab_d:
+    c = conn()
+    st.metric("Uitzonderingen", pd.read_sql("SELECT * FROM uitzonderingen", c).shape[0])
+    st.metric("Gehandicapten", pd.read_sql("SELECT * FROM gehandicapten", c).shape[0])
+    st.metric("Contracten", pd.read_sql("SELECT * FROM contracten", c).shape[0])
+    st.metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
+    c.close()
+
+crud(tab_u, "uitzonderingen",
+     ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"])
+
+crud(tab_g, "gehandicapten",
+     ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"])
+
+crud(tab_c, "contracten",
+     ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"])
+
+crud(tab_p, "projecten",
+     ["naam","projectleider","start","einde","prio","status","opmerking"])
