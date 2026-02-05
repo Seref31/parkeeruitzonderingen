@@ -127,10 +127,10 @@ def login_screen():
             st.rerun()
 
     st.markdown("---")
-    st.info("🔑 **Wachtwoord vergeten?**\n\n"
+    st.info(
+        "🔑 **Wachtwoord vergeten?**\n\n"
         "Neem contact op met de beheerder (Parkeerbeheer / ICT).\n"
         "Je ontvangt een tijdelijk wachtwoord dat je bij het inloggen direct moet wijzigen." )
-    )
 
 def change_pw_screen():
     st.title("🔑 Wachtwoord wijzigen")
@@ -316,5 +316,6 @@ with tab_w:
         dropdowns={"status":["Gepland","In uitvoering","Afgerond"]},
         optional_dates=("start","einde")
     )
+
 
 
