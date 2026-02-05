@@ -11,7 +11,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
 # ================= CONFIG =================
-st.set_page_config("Parkeeruitzonderingen", layout="wide")
+st.set_page_config("Parkeerbeheer Dashboard", layout="wide")
 DB = "parkeeruitzonderingen.db"
 
 START_USERS = {
@@ -40,6 +40,7 @@ def init_db():
     c = conn()
     cur = c.cursor()
 
+    # users
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         username TEXT PRIMARY KEY,
@@ -53,6 +54,7 @@ def init_db():
             (u, hash_pw(p))
         )
 
+    # bestaande tabellen (ongewijzigd)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS uitzonderingen(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,6 +85,19 @@ def init_db():
         naam TEXT, projectleider TEXT,
         start DATE, einde DATE,
         prio TEXT, status TEXT, opmerking TEXT
+    )""")
+
+    # 🆕 NIEUW: werkzaamheden
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS werkzaamheden(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        omschrijving TEXT,
+        locatie TEXT,
+        start DATE,
+        einde DATE,
+        status TEXT,
+        uitvoerder TEXT,
+        opmerking TEXT
     )""")
 
     c.commit()
@@ -233,19 +248,27 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
     c.close()
 
 # ================= UI =================
-st.title("🚗 Parkeeruitzonderingen")
+st.title("🅿️ Parkeerbeheer Dashboard")
 
-tab_d, tab_u, tab_g, tab_c, tab_p = st.tabs(
-    ["📊 Dashboard", "🅿️ Uitzonderingen", "♿ Gehandicapten", "📄 Contracten", "🧩 Projecten"]
+tab_d, tab_u, tab_g, tab_c, tab_p, tab_w = st.tabs(
+    [
+        "📊 Dashboard",
+        "🅿️ Uitzonderingen",
+        "♿ Gehandicapten",
+        "📄 Contracten",
+        "🧩 Projecten",
+        "🛠️ Werkzaamheden",
+    ]
 )
 
 with tab_d:
     c = conn()
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Uitzonderingen", pd.read_sql("SELECT * FROM uitzonderingen", c).shape[0])
     col2.metric("Gehandicapten", pd.read_sql("SELECT * FROM gehandicapten", c).shape[0])
     col3.metric("Contracten", pd.read_sql("SELECT * FROM contracten", c).shape[0])
     col4.metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
+    col5.metric("Werkzaamheden", pd.read_sql("SELECT * FROM werkzaamheden", c).shape[0])
     c.close()
 
 with tab_u:
@@ -277,5 +300,13 @@ with tab_p:
             "prio":["Hoog","Gemiddeld","Laag"],
             "status":["Niet gestart","Actief","Afgerond"]
         },
+        optional_dates=("start","einde")
+    )
+
+with tab_w:
+    crud_block(
+        "werkzaamheden",
+        ["omschrijving","locatie","start","einde","status","uitvoerder","opmerking"],
+        dropdowns={"status":["Gepland","In uitvoering","Afgerond"]},
         optional_dates=("start","einde")
     )
