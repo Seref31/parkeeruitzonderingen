@@ -10,9 +10,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
-# ======================================================
-# CONFIG
-# ======================================================
+# ================= CONFIG =================
 st.set_page_config("Parkeeruitzonderingen", layout="wide")
 DB = "parkeeruitzonderingen.db"
 
@@ -30,30 +28,24 @@ START_USERS = {
     "robert":  "Robert@5178",
 }
 
-# ======================================================
-# HULPFUNCTIES
-# ======================================================
-def hash_pw(pw: str) -> str:
-    return hashlib.sha256(pw.encode()).hexdigest()
-
+# ================= HULP =================
 def conn():
     return sqlite3.connect(DB, check_same_thread=False)
 
-# ======================================================
-# DATABASE INIT
-# ======================================================
+def hash_pw(pw: str) -> str:
+    return hashlib.sha256(pw.encode()).hexdigest()
+
+# ================= DB INIT =================
 def init_db():
     c = conn()
     cur = c.cursor()
 
-    # users
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         username TEXT PRIMARY KEY,
         password TEXT,
         force_change INTEGER
-    )
-    """)
+    )""")
 
     for u, p in START_USERS.items():
         cur.execute(
@@ -61,7 +53,6 @@ def init_db():
             (u, hash_pw(p))
         )
 
-    # data tabellen
     cur.execute("""
     CREATE TABLE IF NOT EXISTS uitzonderingen(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,9 +90,7 @@ def init_db():
 
 init_db()
 
-# ======================================================
-# LOGIN / WACHTWOORD WIJZIGEN
-# ======================================================
+# ================= LOGIN =================
 def login_screen():
     st.title("🔐 Inloggen")
     u = st.text_input("Gebruiker")
@@ -122,8 +111,8 @@ def login_screen():
             st.session_state.force_change = r[1]
             st.rerun()
 
-def change_password_screen():
-    st.title("🔑 Wachtwoord wijzigen (verplicht)")
+def change_pw_screen():
+    st.title("🔑 Wachtwoord wijzigen")
     p1 = st.text_input("Nieuw wachtwoord", type="password")
     p2 = st.text_input("Herhaal wachtwoord", type="password")
 
@@ -139,6 +128,7 @@ def change_password_screen():
         )
         c.commit()
         c.close()
+
         st.success("Wachtwoord gewijzigd")
         st.session_state.force_change = 0
         st.rerun()
@@ -148,26 +138,21 @@ if "user" not in st.session_state:
     st.stop()
 
 if st.session_state.get("force_change", 0) == 1:
-    change_password_screen()
+    change_pw_screen()
     st.stop()
 
-# ======================================================
-# SIDEBAR
-# ======================================================
 st.sidebar.success(f"Ingelogd als **{st.session_state.user}**")
 if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
     st.rerun()
 
-# ======================================================
-# EXPORT
-# ======================================================
-def export_excel(df, naam):
+# ================= EXPORT =================
+def export_excel(df, name):
     buf = BytesIO()
     df.to_excel(buf, index=False)
-    st.download_button("📥 Excel", buf.getvalue(), f"{naam}.xlsx")
+    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
 
-def export_pdf(df, titel):
+def export_pdf(df, title):
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4)
     styles = getSampleStyleSheet()
@@ -177,15 +162,14 @@ def export_pdf(df, titel):
         ("GRID",(0,0),(-1,-1),0.5,colors.grey),
         ("BACKGROUND",(0,0),(-1,0),colors.lightgrey)
     ]))
-    doc.build([Paragraph(titel, styles["Title"]), t])
-    st.download_button("📄 PDF", buf.getvalue(), f"{titel}.pdf")
+    doc.build([Paragraph(title, styles["Title"]), t])
+    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
 
-# ======================================================
-# GENERIEK CRUD BLOK
-# ======================================================
+# ================= CRUD =================
 def crud_block(table, fields, dropdowns=None, optional_dates=()):
     dropdowns = dropdowns or {}
-    df = pd.read_sql(f"SELECT * FROM {table}", conn())
+    c = conn()
+    df = pd.read_sql(f"SELECT * FROM {table}", c)
 
     sel = st.selectbox(
         "✏️ Selecteer record",
@@ -197,14 +181,14 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
 
     with st.form(f"{table}_form"):
         values = {}
+
         for f in fields:
-            key = f"{table}_{f}"
             val = record[f] if record is not None else ""
+            key = f"{table}_{f}"
 
             if f in dropdowns:
                 values[f] = st.selectbox(
-                    f,
-                    dropdowns[f],
+                    f, dropdowns[f],
                     index=dropdowns[f].index(val) if val in dropdowns[f] else 0,
                     key=key
                 )
@@ -220,36 +204,35 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
         col1, col2, col3 = st.columns(3)
 
         if col1.form_submit_button("💾 Opslaan"):
-            conn().execute(
+            c.execute(
                 f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
                 tuple(values.values())
             )
-            conn().commit()
+            c.commit()
             st.success("Toegevoegd")
             st.rerun()
 
         if record is not None and col2.form_submit_button("✏️ Wijzigen"):
-            conn().execute(
+            c.execute(
                 f"UPDATE {table} SET {','.join(f+'=?' for f in fields)} WHERE id=?",
                 (*values.values(), sel)
             )
-            conn().commit()
+            c.commit()
             st.success("Gewijzigd")
             st.rerun()
 
         if record is not None and col3.form_submit_button("🗑️ Verwijderen"):
-            conn().execute(f"DELETE FROM {table} WHERE id=?", (sel,))
-            conn().commit()
+            c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
+            c.commit()
             st.warning("Verwijderd")
             st.rerun()
 
     st.dataframe(df, use_container_width=True)
     export_excel(df, table)
     export_pdf(df, table)
+    c.close()
 
-# ======================================================
-# UI
-# ======================================================
+# ================= UI =================
 st.title("🚗 Parkeeruitzonderingen")
 
 tab_d, tab_u, tab_g, tab_c, tab_p = st.tabs(
