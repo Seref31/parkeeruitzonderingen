@@ -10,16 +10,16 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
-# ======================================================
+# =====================================================
 # CONFIG
-# ======================================================
+# =====================================================
 st.set_page_config("Parkeeruitzonderingen", layout="wide")
 DB = "parkeeruitzonderingen.db"
 DEFAULT_PW = "Welkom123!"
 
-# ======================================================
+# =====================================================
 # DATABASE
-# ======================================================
+# =====================================================
 def conn():
     return sqlite3.connect(DB, check_same_thread=False)
 
@@ -32,8 +32,7 @@ def init_db():
         username TEXT PRIMARY KEY,
         password TEXT,
         must_change INTEGER
-    )
-    """)
+    )""")
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS uitzonderingen (
@@ -41,8 +40,7 @@ def init_db():
         naam TEXT, kenteken TEXT, locatie TEXT,
         type TEXT, start DATE, einde DATE,
         toestemming TEXT, opmerking TEXT
-    )
-    """)
+    )""")
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS gehandicapten (
@@ -50,8 +48,7 @@ def init_db():
         naam TEXT, kaartnummer TEXT, adres TEXT,
         locatie TEXT, geldig_tot DATE,
         besluit_door TEXT, opmerking TEXT
-    )
-    """)
+    )""")
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS contracten (
@@ -59,8 +56,7 @@ def init_db():
         leverancier TEXT, contractnummer TEXT,
         start DATE, einde DATE,
         contactpersoon TEXT, opmerking TEXT
-    )
-    """)
+    )""")
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS projecten (
@@ -68,8 +64,7 @@ def init_db():
         naam TEXT, projectleider TEXT,
         start DATE, einde DATE,
         prio TEXT, status TEXT, opmerking TEXT
-    )
-    """)
+    )""")
 
     users = ["Seref", "Bryn", "Wout", "Andre", "Pieter"]
     for u in users:
@@ -83,9 +78,9 @@ def init_db():
 
 init_db()
 
-# ======================================================
+# =====================================================
 # LOGIN
-# ======================================================
+# =====================================================
 def login():
     st.title("🔐 Inloggen")
 
@@ -114,13 +109,14 @@ def login():
 
 def change_password():
     st.title("🔑 Wachtwoord wijzigen")
+    st.warning("Dit is je eerste login. Je moet je wachtwoord wijzigen.")
 
     p1 = st.text_input("Nieuw wachtwoord", type="password")
     p2 = st.text_input("Herhaal wachtwoord", type="password")
 
     if st.button("Opslaan"):
         if p1 != p2 or len(p1) < 6:
-            st.error("Wachtwoord ongeldig")
+            st.error("Wachtwoord ongeldig (min. 6 tekens)")
             return
 
         c = conn()
@@ -135,9 +131,9 @@ def change_password():
         st.success("Wachtwoord gewijzigd")
         st.rerun()
 
-# ======================================================
+# =====================================================
 # EXPORT
-# ======================================================
+# =====================================================
 def export_excel(df, naam):
     buf = BytesIO()
     df.to_excel(buf, index=False, engine="openpyxl")
@@ -147,8 +143,8 @@ def export_pdf(df, titel):
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4)
     styles = getSampleStyleSheet()
-    data = [df.columns.tolist()] + df.astype(str).values.tolist()
 
+    data = [df.columns.tolist()] + df.astype(str).values.tolist()
     table = Table(data, repeatRows=1)
     table.setStyle(TableStyle([
         ("GRID",(0,0),(-1,-1),0.5,colors.grey),
@@ -158,10 +154,16 @@ def export_pdf(df, titel):
     doc.build([Paragraph(titel, styles["Title"]), table])
     st.download_button("📄 PDF", buf.getvalue(), f"{titel}.pdf")
 
-# ======================================================
-# CRUD BLOK (NIEUW / WIJZIGEN / VERWIJDEREN)
-# ======================================================
-def crud(tab, table, fields):
+# =====================================================
+# HULPFUNCTIES
+# =====================================================
+def opt_date(label, value, key):
+    return st.date_input(label, value if value else None, key=key)
+
+# =====================================================
+# CRUD
+# =====================================================
+def crud(tab, table, fields, selects=None, dates=None):
     with tab:
         st.subheader(table.capitalize())
 
@@ -169,27 +171,45 @@ def crud(tab, table, fields):
         df = pd.read_sql(f"SELECT * FROM {table}", c)
         c.close()
 
-        zoek = st.text_input("🔍 Zoeken", key=f"{table}_zoek")
-        if zoek:
-            df = df[df.apply(lambda r: zoek.lower() in r.astype(str).str.lower().to_string(), axis=1)]
+        zoekveld = st.selectbox("Zoek in", df.columns, key=f"{table}_zoekveld")
+        zoekterm = st.text_input("Zoekterm", key=f"{table}_zoekterm")
+
+        if zoekterm:
+            df = df[df[zoekveld].astype(str).str.contains(zoekterm, case=False)]
 
         sel = st.selectbox(
-            "✏️ Selecteer record (voor wijzigen)",
+            "✏️ Selecteer record",
             [None] + df["id"].tolist(),
             key=f"{table}_select"
         )
 
+        if sel:
+            st.info("✏️ Wijzig bestaand record")
+        else:
+            st.success("➕ Nieuw record")
+
         values = {}
         for f in fields:
-            values[f] = st.text_input(
-                f.capitalize(),
-                value=df.loc[df.id == sel, f].values[0] if sel else "",
-                key=f"{table}_{f}"
-            )
+            current = df.loc[df.id == sel, f].values[0] if sel else ""
+
+            if selects and f in selects:
+                values[f] = st.selectbox(
+                    f.capitalize(),
+                    selects[f],
+                    index=selects[f].index(current) if current in selects[f] else 0,
+                    key=f"{table}_{f}"
+                )
+            elif dates and f in dates:
+                values[f] = opt_date(f.capitalize(), current, f"{table}_{f}")
+            else:
+                values[f] = st.text_input(
+                    f.capitalize(),
+                    value=current or "",
+                    key=f"{table}_{f}"
+                )
 
         col1, col2, col3 = st.columns(3)
 
-        # NIEUW
         if col1.button("➕ Nieuw opslaan", key=f"{table}_new"):
             c = conn()
             cols = ",".join(values)
@@ -203,7 +223,6 @@ def crud(tab, table, fields):
             st.success("Nieuw record opgeslagen")
             st.rerun()
 
-        # WIJZIGEN
         if sel and col2.button("✏️ Wijzigen", key=f"{table}_edit"):
             c = conn()
             sets = ", ".join(f"{k}=?" for k in values)
@@ -216,22 +235,22 @@ def crud(tab, table, fields):
             st.success("Record gewijzigd")
             st.rerun()
 
-        # VERWIJDEREN
         if sel and col3.button("🗑 Verwijderen", key=f"{table}_del"):
-            c = conn()
-            c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
-            c.commit()
-            c.close()
-            st.warning("Record verwijderd")
-            st.rerun()
+            if st.checkbox("Ik weet zeker dat ik dit wil verwijderen", key=f"{table}_confirm"):
+                c = conn()
+                c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
+                c.commit()
+                c.close()
+                st.warning("Record verwijderd")
+                st.rerun()
 
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df.sort_values("id", ascending=False).head(50), use_container_width=True)
         export_excel(df, table)
         export_pdf(df, table)
 
-# ======================================================
+# =====================================================
 # APP FLOW
-# ======================================================
+# =====================================================
 if "user" not in st.session_state:
     login()
     st.stop()
@@ -257,14 +276,35 @@ with tab_d:
     st.metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
     c.close()
 
-crud(tab_u, "uitzonderingen",
-     ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"])
+crud(
+    tab_u,
+    "uitzonderingen",
+    ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
+    selects={"type": ["Bewoner","Bedrijf","Project"]},
+    dates=["start","einde"]
+)
 
-crud(tab_g, "gehandicapten",
-     ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"])
+crud(
+    tab_g,
+    "gehandicapten",
+    ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"],
+    dates=["geldig_tot"]
+)
 
-crud(tab_c, "contracten",
-     ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"])
+crud(
+    tab_c,
+    "contracten",
+    ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"],
+    dates=["start","einde"]
+)
 
-crud(tab_p, "projecten",
-     ["naam","projectleider","start","einde","prio","status","opmerking"])
+crud(
+    tab_p,
+    "projecten",
+    ["naam","projectleider","start","einde","prio","status","opmerking"],
+    selects={
+        "prio": ["Hoog","Gemiddeld","Laag"],
+        "status": ["Niet gestart","Actief","Afgerond"]
+    },
+    dates=["start","einde"]
+)
