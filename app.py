@@ -1,85 +1,93 @@
 import streamlit as st
-import pandas as pd
 import sqlite3
+import pandas as pd
 from datetime import date
 from io import BytesIO
+import hashlib
 
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
-# ================== CONFIG ==================
+# ======================================================
+# CONFIG
+# ======================================================
 st.set_page_config("Parkeeruitzonderingen", layout="wide")
-
 DB = "parkeeruitzonderingen.db"
 
-USERS = {
-    "seref": "Seref#2026",
-    "bryn": "Bryn#4821",
-    "wout": "Wout@7394",
-    "martin": "Martin!6158",
-    "andre": "Andre$9042",
-    "pieter": "Pieter#2716",
-    "laura": "Laura@5589",
-    "rick": "Rick!8430",
-    "nicole": "Nicole$3927",
-    "nidal": "Nidal#6604",
-    "robert": "Robert@5178",
+START_USERS = {
+    "seref":   "Seref#2026",
+    "bryn":    "Bryn#4821",
+    "wout":    "Wout@7394",
+    "martin":  "Martin!6158",
+    "andre":   "Andre$9042",
+    "pieter":  "Pieter#2716",
+    "laura":   "Laura@5589",
+    "rick":    "Rick!8430",
+    "nicole":  "Nicole$3927",
+    "nidal":   "Nidal#6604",
+    "robert":  "Robert@5178",
 }
 
-# ================== LOGIN ==================
-def login_block():
-    st.title("🔐 Inloggen")
-    u = st.text_input("Gebruiker")
-    p = st.text_input("Wachtwoord", type="password")
+# ======================================================
+# HULPFUNCTIES
+# ======================================================
+def hash_pw(pw: str) -> str:
+    return hashlib.sha256(pw.encode()).hexdigest()
 
-    if st.button("Inloggen"):
-        if USERS.get(u) == p:
-            st.session_state["user"] = u
-            st.rerun()
-        else:
-            st.error("Onjuiste inloggegevens")
-
-if "user" not in st.session_state:
-    login_block()
-    st.stop()
-
-st.sidebar.success(f"Ingelogd als **{st.session_state['user']}**")
-if st.sidebar.button("🚪 Uitloggen"):
-    st.session_state.clear()
-    st.rerun()
-
-# ================== DATABASE ==================
 def conn():
     return sqlite3.connect(DB, check_same_thread=False)
 
+# ======================================================
+# DATABASE INIT
+# ======================================================
 def init_db():
     c = conn()
     cur = c.cursor()
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS uitzonderingen(
+    # users
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY,
+        password TEXT,
+        force_change INTEGER
+    )
+    """)
+
+    for u, p in START_USERS.items():
+        cur.execute(
+            "INSERT OR IGNORE INTO users VALUES (?,?,1)",
+            (u, hash_pw(p))
+        )
+
+    # data tabellen
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS uitzonderingen(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         naam TEXT, kenteken TEXT, locatie TEXT,
         type TEXT, start DATE, einde DATE,
         toestemming TEXT, opmerking TEXT
     )""")
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS gehandicapten(
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS gehandicapten(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         naam TEXT, kaartnummer TEXT, adres TEXT,
         locatie TEXT, geldig_tot DATE,
         besluit_door TEXT, opmerking TEXT
     )""")
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS contracten(
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS contracten(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         leverancier TEXT, contractnummer TEXT,
         start DATE, einde DATE,
         contactpersoon TEXT, opmerking TEXT
     )""")
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS projecten(
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS projecten(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         naam TEXT, projectleider TEXT,
         start DATE, einde DATE,
@@ -91,32 +99,93 @@ def init_db():
 
 init_db()
 
-# ================== EXPORT ==================
-def export_excel(df, name):
+# ======================================================
+# LOGIN / WACHTWOORD WIJZIGEN
+# ======================================================
+def login_screen():
+    st.title("🔐 Inloggen")
+    u = st.text_input("Gebruiker")
+    p = st.text_input("Wachtwoord", type="password")
+
+    if st.button("Inloggen"):
+        c = conn()
+        r = c.execute(
+            "SELECT password, force_change FROM users WHERE username=?",
+            (u,)
+        ).fetchone()
+        c.close()
+
+        if not r or r[0] != hash_pw(p):
+            st.error("Onjuiste inloggegevens")
+        else:
+            st.session_state.user = u
+            st.session_state.force_change = r[1]
+            st.rerun()
+
+def change_password_screen():
+    st.title("🔑 Wachtwoord wijzigen (verplicht)")
+    p1 = st.text_input("Nieuw wachtwoord", type="password")
+    p2 = st.text_input("Herhaal wachtwoord", type="password")
+
+    if st.button("Opslaan"):
+        if not p1 or p1 != p2:
+            st.error("Wachtwoorden komen niet overeen")
+            return
+
+        c = conn()
+        c.execute(
+            "UPDATE users SET password=?, force_change=0 WHERE username=?",
+            (hash_pw(p1), st.session_state.user)
+        )
+        c.commit()
+        c.close()
+        st.success("Wachtwoord gewijzigd")
+        st.session_state.force_change = 0
+        st.rerun()
+
+if "user" not in st.session_state:
+    login_screen()
+    st.stop()
+
+if st.session_state.get("force_change", 0) == 1:
+    change_password_screen()
+    st.stop()
+
+# ======================================================
+# SIDEBAR
+# ======================================================
+st.sidebar.success(f"Ingelogd als **{st.session_state.user}**")
+if st.sidebar.button("🚪 Uitloggen"):
+    st.session_state.clear()
+    st.rerun()
+
+# ======================================================
+# EXPORT
+# ======================================================
+def export_excel(df, naam):
     buf = BytesIO()
     df.to_excel(buf, index=False)
-    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
+    st.download_button("📥 Excel", buf.getvalue(), f"{naam}.xlsx")
 
-def export_pdf(df, title):
+def export_pdf(df, titel):
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4)
     styles = getSampleStyleSheet()
-
     data = [df.columns.tolist()] + df.astype(str).values.tolist()
     t = Table(data, repeatRows=1)
     t.setStyle(TableStyle([
         ("GRID",(0,0),(-1,-1),0.5,colors.grey),
         ("BACKGROUND",(0,0),(-1,0),colors.lightgrey)
     ]))
-    doc.build([Paragraph(title, styles["Title"]), t])
-    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
+    doc.build([Paragraph(titel, styles["Title"]), t])
+    st.download_button("📄 PDF", buf.getvalue(), f"{titel}.pdf")
 
-# ================== CRUD BLOK ==================
+# ======================================================
+# GENERIEK CRUD BLOK
+# ======================================================
 def crud_block(table, fields, dropdowns=None, optional_dates=()):
     dropdowns = dropdowns or {}
     df = pd.read_sql(f"SELECT * FROM {table}", conn())
-
-    st.subheader(table.capitalize())
 
     sel = st.selectbox(
         "✏️ Selecteer record",
@@ -124,9 +193,7 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
         key=f"{table}_select"
     )
 
-    record = None
-    if sel:
-        record = df[df.id == sel].iloc[0]
+    record = df[df.id == sel].iloc[0] if sel else None
 
     with st.form(f"{table}_form"):
         values = {}
@@ -136,11 +203,12 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
 
             if f in dropdowns:
                 values[f] = st.selectbox(
-                    f, dropdowns[f],
+                    f,
+                    dropdowns[f],
                     index=dropdowns[f].index(val) if val in dropdowns[f] else 0,
                     key=key
                 )
-            elif "datum" in f or f in optional_dates:
+            elif f in optional_dates:
                 values[f] = st.date_input(
                     f,
                     value=pd.to_datetime(val).date() if val else None,
@@ -152,33 +220,36 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
         col1, col2, col3 = st.columns(3)
 
         if col1.form_submit_button("💾 Opslaan"):
-            c = conn()
-            c.execute(
+            conn().execute(
                 f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
                 tuple(values.values())
             )
-            c.commit(); c.close()
-            st.success("Toegevoegd"); st.rerun()
+            conn().commit()
+            st.success("Toegevoegd")
+            st.rerun()
 
         if record is not None and col2.form_submit_button("✏️ Wijzigen"):
-            c = conn()
-            c.execute(
+            conn().execute(
                 f"UPDATE {table} SET {','.join(f+'=?' for f in fields)} WHERE id=?",
                 (*values.values(), sel)
             )
-            c.commit(); c.close()
-            st.success("Gewijzigd"); st.rerun()
+            conn().commit()
+            st.success("Gewijzigd")
+            st.rerun()
 
         if record is not None and col3.form_submit_button("🗑️ Verwijderen"):
             conn().execute(f"DELETE FROM {table} WHERE id=?", (sel,))
             conn().commit()
-            st.warning("Verwijderd"); st.rerun()
+            st.warning("Verwijderd")
+            st.rerun()
 
     st.dataframe(df, use_container_width=True)
     export_excel(df, table)
     export_pdf(df, table)
 
-# ================== UI ==================
+# ======================================================
+# UI
+# ======================================================
 st.title("🚗 Parkeeruitzonderingen")
 
 tab_d, tab_u, tab_g, tab_c, tab_p = st.tabs(
@@ -187,10 +258,11 @@ tab_d, tab_u, tab_g, tab_c, tab_p = st.tabs(
 
 with tab_d:
     c = conn()
-    st.columns(4)[0].metric("Uitzonderingen", pd.read_sql("SELECT * FROM uitzonderingen", c).shape[0])
-    st.columns(4)[1].metric("Gehandicapten", pd.read_sql("SELECT * FROM gehandicapten", c).shape[0])
-    st.columns(4)[2].metric("Contracten", pd.read_sql("SELECT * FROM contracten", c).shape[0])
-    st.columns(4)[3].metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Uitzonderingen", pd.read_sql("SELECT * FROM uitzonderingen", c).shape[0])
+    col2.metric("Gehandicapten", pd.read_sql("SELECT * FROM gehandicapten", c).shape[0])
+    col3.metric("Contracten", pd.read_sql("SELECT * FROM contracten", c).shape[0])
+    col4.metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
     c.close()
 
 with tab_u:
