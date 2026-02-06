@@ -1,6 +1,6 @@
 streamlit
 pandas
-reportlab
-openpyxl
-pdfplumber
 geopy
+folium
+streamlit-folium
+reportlab
