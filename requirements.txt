@@ -4,3 +4,4 @@ geopy
 folium
 streamlit-folium
 reportlab
+tabula-py
