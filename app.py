@@ -5,37 +5,47 @@ from datetime import date
 from io import BytesIO
 import hashlib
 
-# PDF export
+# GEO / MAP
+from geopy.geocoders import Nominatim
+import folium
+from streamlit_folium import st_folium
+
+# PDF
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
-
-# GEO + MAP
-from geopy.geocoders import Nominatim
-import folium
-from streamlit_folium import st_folium
 
 # ================= CONFIG =================
 st.set_page_config("Parkeerbeheer Dashboard", layout="wide")
 DB = "parkeeruitzonderingen.db"
 
 START_USERS = {
-    "seref": "Seref#2026",
+    "seref":   "Seref#2026",
+    "bryn":    "Bryn#4821",
+    "wout":    "Wout@7394",
+    "martin":  "Martin!6158",
+    "andre":   "Andre$9042",
+    "pieter":  "Pieter#2716",
+    "laura":   "Laura@5589",
+    "rick":    "Rick!8430",
+    "nicole":  "Nicole$3927",
+    "nidal":   "Nidal#6604",
+    "robert":  "Robert@5178",
 }
 
-# ================= HULP =================
+# ================= HELPERS =================
 def conn():
     return sqlite3.connect(DB, check_same_thread=False)
 
-def hash_pw(pw: str) -> str:
+def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
 @st.cache_data
-def geocode_adres(adres):
+def geocode(adres):
     try:
-        geolocator = Nominatim(user_agent="parkeerbeheer_app")
-        loc = geolocator.geocode(adres)
+        g = Nominatim(user_agent="parkeerbeheer")
+        loc = g.geocode(adres)
         if loc:
             return loc.latitude, loc.longitude
     except:
@@ -56,8 +66,9 @@ def init_db():
     c = conn()
     cur = c.cursor()
 
+    # USERS
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE IF NOT EXISTS users(
         username TEXT PRIMARY KEY,
         password TEXT,
         force_change INTEGER
@@ -69,8 +80,9 @@ def init_db():
             (u, hash_pw(p))
         )
 
+    # AUDIT
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS audit_log (
+    CREATE TABLE IF NOT EXISTS audit_log(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         gebruiker TEXT,
         tabel TEXT,
@@ -79,18 +91,43 @@ def init_db():
         tijdstip TEXT
     )""")
 
+    # UITZONDERINGEN
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS uitzonderingen(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT, kenteken TEXT, locatie TEXT,
+        type TEXT, start DATE, einde DATE,
+        toestemming TEXT, opmerking TEXT
+    )""")
+
+    # GEHANDICAPTEN
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS gehandicapten(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT, kaartnummer TEXT, adres TEXT,
+        locatie TEXT, geldig_tot DATE,
+        besluit_door TEXT, opmerking TEXT
+    )""")
+
+    # CONTRACTEN
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS contracten(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        leverancier TEXT, contractnummer TEXT,
+        start DATE, einde DATE,
+        contactpersoon TEXT, opmerking TEXT
+    )""")
+
+    # PROJECTEN
     cur.execute("""
     CREATE TABLE IF NOT EXISTS projecten(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        naam TEXT,
-        projectleider TEXT,
-        start DATE,
-        einde DATE,
-        prio TEXT,
-        status TEXT,
-        opmerking TEXT
+        naam TEXT, projectleider TEXT,
+        start DATE, einde DATE,
+        prio TEXT, status TEXT, opmerking TEXT
     )""")
 
+    # WERKZAAMHEDEN + GPS
     cur.execute("""
     CREATE TABLE IF NOT EXISTS werkzaamheden(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -145,122 +182,87 @@ def export_excel(df, name):
     df.to_excel(buf, index=False)
     st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
 
-def export_pdf(df, title):
-    buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4)
-    styles = getSampleStyleSheet()
-    data = [df.columns.tolist()] + df.astype(str).values.tolist()
-    t = Table(data, repeatRows=1)
-    t.setStyle(TableStyle([
-        ("GRID",(0,0),(-1,-1),0.5,colors.grey),
-        ("BACKGROUND",(0,0),(-1,0),colors.lightgrey)
-    ]))
-    doc.build([Paragraph(title, styles["Title"]), t])
-    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
-
 # ================= UI =================
 st.title("🅿️ Parkeerbeheer Dashboard")
 
-tab_d, tab_p, tab_w = st.tabs([
+tabs = st.tabs([
     "📊 Dashboard",
+    "🅿️ Uitzonderingen",
+    "♿ Gehandicapten",
+    "📄 Contracten",
     "🧩 Projecten",
-    "🛠️ Werkzaamheden"
+    "🛠️ Werkzaamheden",
+    "👥 Users",
+    "🧾 Audit-log"
 ])
 
 # ================= DASHBOARD =================
-with tab_d:
+with tabs[0]:
     c = conn()
-    col1, col2 = st.columns(2)
-    col1.metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
-    col2.metric("Werkzaamheden", pd.read_sql("SELECT * FROM werkzaamheden", c).shape[0])
-    c.close()
-
-# ================= PROJECTEN =================
-with tab_p:
-    st.subheader("🧩 Projecten")
-    c = conn()
-    df = pd.read_sql("SELECT * FROM projecten", c)
-
-    with st.form("project_form"):
-        naam = st.text_input("Naam")
-        leider = st.text_input("Projectleider")
-        start = st.date_input("Start", value=None)
-        einde = st.date_input("Einde", value=None)
-        prio = st.selectbox("Prioriteit", ["Hoog","Gemiddeld","Laag"])
-        status = st.selectbox("Status", ["Niet gestart","Actief","Afgerond"])
-        opm = st.text_area("Opmerking")
-
-        if st.form_submit_button("💾 Opslaan"):
-            cur = c.cursor()
-            cur.execute("""
-                INSERT INTO projecten
-                (naam, projectleider, start, einde, prio, status, opmerking)
-                VALUES (?,?,?,?,?,?,?)
-            """,(naam, leider, start, einde, prio, status, opm))
-            c.commit()
-            log_actie("projecten","INSERT",cur.lastrowid)
-            st.success("Project toegevoegd")
-            st.rerun()
-
-    st.dataframe(df, use_container_width=True)
-    export_excel(df,"projecten")
-    export_pdf(df,"projecten")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Uitzonderingen", pd.read_sql("SELECT * FROM uitzonderingen", c).shape[0])
+    col2.metric("Gehandicapten", pd.read_sql("SELECT * FROM gehandicapten", c).shape[0])
+    col3.metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
+    col4.metric("Werkzaamheden", pd.read_sql("SELECT * FROM werkzaamheden", c).shape[0])
     c.close()
 
 # ================= WERKZAAMHEDEN =================
-with tab_w:
+with tabs[5]:
     st.subheader("🛠️ Werkzaamheden")
 
     c = conn()
     df = pd.read_sql("SELECT * FROM werkzaamheden", c)
 
-    with st.form("werk_form"):
-        oms = st.text_input("Omschrijving")
-        adres = st.text_input("Adres / locatie")
-        start = st.date_input("Start", value=None)
-        einde = st.date_input("Einde", value=None)
-        status = st.selectbox("Status", ["Gepland","In uitvoering","Afgerond"])
-        uitvoerder = st.text_input("Uitvoerder")
-        opm = st.text_area("Opmerking")
+    st.markdown("### ➕ Nieuwe werkzaamheid")
 
-        lat, lon = geocode_adres(adres)
-        st.caption(
-            f"📍 GPS: {lat:.5f}, {lon:.5f}"
-            if lat and lon else "📍 GPS nog niet bepaald"
-        )
+    oms = st.text_input("Omschrijving")
+    adres = st.text_input("Adres / locatie")
+    status = st.selectbox("Status", ["Gepland","In uitvoering","Afgerond"])
+    uitvoerder = st.text_input("Uitvoerder")
+    opm = st.text_area("Opmerking")
 
-        if st.form_submit_button("💾 Opslaan"):
-            cur = c.cursor()
-            cur.execute("""
-                INSERT INTO werkzaamheden
-                (omschrijving, locatie, start, einde, status, uitvoerder, latitude, longitude, opmerking)
-                VALUES (?,?,?,?,?,?,?,?,?)
-            """,(oms, adres, start, einde, status, uitvoerder, lat, lon, opm))
-            c.commit()
-            log_actie("werkzaamheden","INSERT",cur.lastrowid)
-            st.success("Werkzaamheid toegevoegd")
-            st.rerun()
+    lat, lon = geocode(adres)
+    if lat and lon:
+        st.caption(f"📍 GPS: {lat:.5f}, {lon:.5f}")
+
+    if st.button("💾 Opslaan"):
+        c.execute("""
+            INSERT INTO werkzaamheden
+            (omschrijving, locatie, status, uitvoerder, latitude, longitude, opmerking)
+            VALUES (?,?,?,?,?,?,?)
+        """,(oms, adres, status, uitvoerder, lat, lon, opm))
+        c.commit()
+        log_actie("werkzaamheden","INSERT")
+        st.success("Werkzaamheid opgeslagen")
+        st.rerun()
 
     st.dataframe(df, use_container_width=True)
 
     st.subheader("🗺️ Werkzaamheden op kaart")
-    df_map = df.dropna(subset=["latitude","longitude"])
     m = folium.Map(location=[51.81,4.67], zoom_start=12)
 
-    for _, r in df_map.iterrows():
+    for _, r in df.dropna(subset=["latitude","longitude"]).iterrows():
         folium.Marker(
             [r.latitude, r.longitude],
-            popup=f"""
-            <b>{r.omschrijving}</b><br>
-            {r.locatie}<br>
-            {r.start} – {r.einde}<br>
-            {r.status}
-            """,
-            icon=folium.Icon(color="orange", icon="wrench", prefix="fa")
+            popup=f"{r.omschrijving}<br>{r.locatie}",
+            icon=folium.Icon(icon="wrench", prefix="fa")
         ).add_to(m)
 
-    st_folium(m, use_container_width=True, height=450)
+    st_folium(m, height=450, use_container_width=True)
+    c.close()
 
-    export_excel(df,"werkzaamheden")
-    export_pdf(df,"werkzaamheden")
+# ================= USERS =================
+with tabs[6]:
+    st.subheader("👥 Gebruikers")
+    c = conn()
+    df = pd.read_sql("SELECT username FROM users", c)
+    st.dataframe(df, use_container_width=True)
+    c.close()
+
+# ================= AUDIT =================
+with tabs[7]:
+    st.subheader("🧾 Audit-log")
+    c = conn()
+    df = pd.read_sql("SELECT * FROM audit_log ORDER BY tijdstip DESC", c)
+    st.dataframe(df, use_container_width=True)
     c.close()
