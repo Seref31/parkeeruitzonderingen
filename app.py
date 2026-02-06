@@ -61,7 +61,7 @@ def init_db():
     )""")
 
     for u, p in START_USERS.items():
-        ccur.execute(
+cur.execute(
     "INSERT OR IGNORE INTO users (username, password, force_change) VALUES (?,?,1)",
     (u, hash_pw(p))
 )
@@ -322,4 +322,5 @@ with tabs[5]:
         st.map(df_map)
     else:
         st.info("Geen GPS-locaties beschikbaar")
+
 
