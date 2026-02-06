@@ -57,14 +57,15 @@ def init_db():
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         username TEXT PRIMARY KEY,
-        password TEXT
+        password TEXT,
+        force_change INTEGER
     )""")
 
     for u, p in START_USERS.items():
-cur.execute(
-    "INSERT OR IGNORE INTO users (username, password, force_change) VALUES (?,?,1)",
-    (u, hash_pw(p))
-)
+        cur.execute(
+            "INSERT OR IGNORE INTO users (username, password, force_change) VALUES (?,?,1)",
+            (u, hash_pw(p))
+        )
 
     # AUDIT LOG
     cur.execute("""
@@ -131,7 +132,6 @@ cur.execute(
     c.commit()
     c.close()
 
-init_db()
 
 # ================= LOGIN =================
 if "user" not in st.session_state:
@@ -322,5 +322,6 @@ with tabs[5]:
         st.map(df_map)
     else:
         st.info("Geen GPS-locaties beschikbaar")
+
 
 
