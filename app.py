@@ -1,9 +1,10 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-import hashlib
-from datetime import datetime, date
+from datetime import date, datetime
 from io import BytesIO
+import hashlib
+import pdfplumber
 
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
@@ -141,36 +142,35 @@ if "user" not in st.session_state:
             audit("LOGIN")
             st.rerun()
         else:
-            st.error("Onjuiste gegevens of account geblokkeerd")
+            st.error("Onjuiste inloggegevens")
     st.stop()
 
 # ================= FORCE PASSWORD CHANGE =================
 if st.session_state.force_change == 1:
     st.title("🔑 Wachtwoord wijzigen (verplicht)")
-    npw = st.text_input("Nieuw wachtwoord", type="password", key="new_pw")
-    npw2 = st.text_input("Herhaal wachtwoord", type="password", key="new_pw2")
+    pw1 = st.text_input("Nieuw wachtwoord", type="password")
+    pw2 = st.text_input("Herhaal wachtwoord", type="password")
 
     if st.button("Wijzigen"):
-        if npw != npw2 or len(npw) < 8:
-            st.error("Wachtwoorden ongelijk of te kort")
+        if pw1 != pw2 or len(pw1) < 8:
+            st.error("Wachtwoord ongeldig")
         else:
             c = conn()
             c.execute("""
                 UPDATE users
                 SET password=?, force_change=0
                 WHERE username=?
-            """, (hash_pw(npw), st.session_state.user))
+            """, (hash_pw(pw1), st.session_state.user))
             c.commit()
             c.close()
             audit("PASSWORD_CHANGE")
             st.session_state.force_change = 0
-            st.success("Wachtwoord gewijzigd")
             st.rerun()
     st.stop()
 
 # ================= SIDEBAR =================
 st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
-if st.sidebar.button("Uitloggen"):
+if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
     st.rerun()
 
@@ -203,7 +203,7 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
     export_excel(df, table)
     export_pdf(df, table)
 
-    if not has_role("admin","editor"):
+    if not has_role("admin", "editor"):
         c.close()
         return
 
@@ -258,8 +258,38 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
 
     c.close()
 
+# ================= PDF IMPORT PROJECTEN =================
+def import_projecten_pdf(upload):
+    rows = []
+    with pdfplumber.open(upload) as pdf:
+        for page in pdf.pages:
+            table = page.extract_table()
+            if table:
+                headers = table[0]
+                for r in table[1:]:
+                    rows.append(dict(zip(headers, r)))
+
+    if not rows:
+        return 0
+
+    df = pd.DataFrame(rows).replace({"None": None, "n.t.b.": None})
+    for col in ["start", "einde"]:
+        if col in df:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+
+    c = conn()
+    bestaand = pd.read_sql("SELECT naam, start FROM projecten", c)
+    nieuw = df.merge(bestaand, on=["naam","start"], how="left", indicator=True)
+    nieuw = nieuw[nieuw["_merge"] == "left_only"].drop(columns="_merge")
+    nieuw.to_sql("projecten", c, if_exists="append", index=False)
+    c.close()
+    return len(nieuw)
+
 # ================= UI =================
+st.title("🅿️ Parkeerbeheer Dashboard")
+
 tabs = st.tabs([
+    "📊 Dashboard",
     "🅿️ Uitzonderingen",
     "♿ Gehandicapten",
     "📄 Contracten",
@@ -269,34 +299,63 @@ tabs = st.tabs([
 ])
 
 with tabs[0]:
+    c = conn()
+    cols = st.columns(5)
+    cols[0].metric("Uitzonderingen", pd.read_sql("SELECT * FROM uitzonderingen", c).shape[0])
+    cols[1].metric("Gehandicapten", pd.read_sql("SELECT * FROM gehandicapten", c).shape[0])
+    cols[2].metric("Contracten", pd.read_sql("SELECT * FROM contracten", c).shape[0])
+    cols[3].metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
+    cols[4].metric("Werkzaamheden", pd.read_sql("SELECT * FROM werkzaamheden", c).shape[0])
+    c.close()
+
+with tabs[1]:
     crud_block("uitzonderingen",
         ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
         dropdowns={"type":["Bewoner","Bedrijf","Project"]})
 
-with tabs[1]:
+with tabs[2]:
     crud_block("gehandicapten",
         ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"],
         optional_dates=("geldig_tot",))
 
-with tabs[2]:
+with tabs[3]:
     crud_block("contracten",
         ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"],
         optional_dates=("start","einde"))
 
-with tabs[3]:
+with tabs[4]:
+    st.subheader("📄 Projecten importeren uit PDF")
+    pdf = st.file_uploader("Upload projecten-PDF", type="pdf", key="project_pdf")
+    if pdf and st.button("⬆️ Importeren"):
+        st.success(f"{import_projecten_pdf(pdf)} projecten geïmporteerd")
+        st.rerun()
+    st.markdown("---")
     crud_block("projecten",
         ["naam","projectleider","start","einde","prio","status","opmerking"],
         dropdowns={"prio":["Hoog","Gemiddeld","Laag"],
                    "status":["Niet gestart","Actief","Afgerond"]},
         optional_dates=("start","einde"))
 
-with tabs[4]:
+with tabs[5]:
     crud_block("werkzaamheden",
         ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
         dropdowns={"status":["Gepland","In uitvoering","Afgerond"]},
         optional_dates=("start","einde"))
 
-with tabs[5]:
+    st.markdown("### 📍 Werkzaamheden op kaart")
+    c = conn()
+    df_map = pd.read_sql("""
+        SELECT latitude, longitude
+        FROM werkzaamheden
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+    """, c)
+    c.close()
+    if not df_map.empty:
+        st.map(df_map)
+    else:
+        st.info("Geen GPS-locaties ingevoerd")
+
+with tabs[6]:
     c = conn()
     st.dataframe(pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c))
     c.close()
