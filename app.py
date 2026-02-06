@@ -89,9 +89,14 @@ def init_db():
     cur.execute("""
     CREATE TABLE IF NOT EXISTS werkzaamheden(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        omschrijving TEXT, locatie TEXT,
-        start DATE, einde DATE,
-        status TEXT, uitvoerder TEXT,
+        omschrijving TEXT,
+        locatie TEXT,
+        start DATE,
+        einde DATE,
+        status TEXT,
+        uitvoerder TEXT,
+        latitude REAL,
+        longitude REAL,
         opmerking TEXT
     )""")
 
@@ -151,12 +156,7 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
     c = conn()
     df = pd.read_sql(f"SELECT * FROM {table}", c)
 
-    sel = st.selectbox(
-        "✏️ Selecteer record",
-        [None] + df["id"].tolist(),
-        key=f"{table}_select"
-    )
-
+    sel = st.selectbox("✏️ Selecteer record", [None] + df["id"].tolist(), key=f"{table}_select")
     record = df[df.id == sel].iloc[0] if sel else None
 
     with st.form(f"{table}_form"):
@@ -170,23 +170,17 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
                     index=dropdowns[f].index(val) if val in dropdowns[f] else 0,
                     key=key)
             elif f in optional_dates:
-                values[f] = st.date_input(
-                    f,
-                    value=pd.to_datetime(val).date() if val else None,
-                    key=key
-                )
+                values[f] = st.date_input(f, value=pd.to_datetime(val).date() if val else None, key=key)
             else:
                 values[f] = st.text_input(f, value=str(val) if val else "", key=key)
 
         col1, col2, col3 = st.columns(3)
-
         if col1.form_submit_button("💾 Opslaan"):
             c.execute(
                 f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
                 tuple(values.values())
             )
             c.commit()
-            st.success("Toegevoegd")
             st.rerun()
 
         if record is not None and col2.form_submit_button("✏️ Wijzigen"):
@@ -195,13 +189,11 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
                 (*values.values(), sel)
             )
             c.commit()
-            st.success("Gewijzigd")
             st.rerun()
 
         if record is not None and col3.form_submit_button("🗑️ Verwijderen"):
             c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
             c.commit()
-            st.warning("Verwijderd")
             st.rerun()
 
     st.dataframe(df, use_container_width=True)
@@ -212,15 +204,13 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
 # ================= PDF IMPORT PROJECTEN =================
 def import_projecten_pdf(upload):
     rows = []
-
     with pdfplumber.open(upload) as pdf:
         for page in pdf.pages:
             table = page.extract_table()
-            if not table:
-                continue
-            headers = table[0]
-            for r in table[1:]:
-                rows.append(dict(zip(headers, r)))
+            if table:
+                headers = table[0]
+                for r in table[1:]:
+                    rows.append(dict(zip(headers, r)))
 
     if not rows:
         return 0
@@ -234,24 +224,16 @@ def import_projecten_pdf(upload):
 
     c = conn()
     bestaand = pd.read_sql("SELECT naam, start FROM projecten", c)
-
-    nieuw = df.merge(
-        bestaand,
-        on=["naam", "start"],
-        how="left",
-        indicator=True
-    ).query("_merge == 'left_only'")
-
-    nieuw.drop(columns="_merge", inplace=True)
+    nieuw = df.merge(bestaand, on=["naam","start"], how="left", indicator=True)
+    nieuw = nieuw[nieuw["_merge"] == "left_only"].drop(columns="_merge")
     nieuw.to_sql("projecten", c, if_exists="append", index=False)
     c.close()
-
     return len(nieuw)
 
 # ================= UI =================
 st.title("🅿️ Parkeerbeheer Dashboard")
 
-tab_d, tab_u, tab_g, tab_c, tab_p, tab_w = st.tabs([
+tabs = st.tabs([
     "📊 Dashboard",
     "🅿️ Uitzonderingen",
     "♿ Gehandicapten",
@@ -260,70 +242,67 @@ tab_d, tab_u, tab_g, tab_c, tab_p, tab_w = st.tabs([
     "🛠️ Werkzaamheden"
 ])
 
-with tab_d:
+# DASHBOARD
+with tabs[0]:
     c = conn()
-    col1, col2, col3, col4, col5 = st.columns(5)
-
-    col1.metric(
-        "Uitzonderingen",
-        pd.read_sql("SELECT * FROM uitzonderingen", c).shape[0]
-    )
-    col2.metric(
-        "Gehandicapten",
-        pd.read_sql("SELECT * FROM gehandicapten", c).shape[0]
-    )
-    col3.metric(
-        "Contracten",
-        pd.read_sql("SELECT * FROM contracten", c).shape[0]
-    )
-    col4.metric(
-        "Projecten",
-        pd.read_sql("SELECT * FROM projecten", c).shape[0]
-    )
-    col5.metric(
-        "Werkzaamheden",
-        pd.read_sql("SELECT * FROM werkzaamheden", c).shape[0]
-    )
-
+    cols = st.columns(5)
+    cols[0].metric("Uitzonderingen", pd.read_sql("SELECT * FROM uitzonderingen", c).shape[0])
+    cols[1].metric("Gehandicapten", pd.read_sql("SELECT * FROM gehandicapten", c).shape[0])
+    cols[2].metric("Contracten", pd.read_sql("SELECT * FROM contracten", c).shape[0])
+    cols[3].metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
+    cols[4].metric("Werkzaamheden", pd.read_sql("SELECT * FROM werkzaamheden", c).shape[0])
     c.close()
 
-
-with tab_u:
+# UITZONDERINGEN
+with tabs[1]:
     crud_block("uitzonderingen",
         ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
         dropdowns={"type":["Bewoner","Bedrijf","Project"]})
 
-with tab_g:
+# GEHANDICAPTEN
+with tabs[2]:
     crud_block("gehandicapten",
         ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"],
         optional_dates=("geldig_tot",))
 
-with tab_c:
+# CONTRACTEN
+with tabs[3]:
     crud_block("contracten",
         ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"],
         optional_dates=("start","einde"))
 
-with tab_p:
-    st.subheader("📄 Projecten uit PDF importeren")
+# PROJECTEN
+with tabs[4]:
+    st.subheader("📄 Projecten importeren uit PDF")
     pdf = st.file_uploader("Upload projecten-PDF", type="pdf")
     if pdf and st.button("⬆️ Importeren"):
-        aantal = import_projecten_pdf(pdf)
-        st.success(f"✅ {aantal} projecten geïmporteerd")
+        st.success(f"{import_projecten_pdf(pdf)} projecten geïmporteerd")
         st.rerun()
 
     st.markdown("---")
-
     crud_block("projecten",
         ["naam","projectleider","start","einde","prio","status","opmerking"],
-        dropdowns={
-            "prio":["Hoog","Gemiddeld","Laag"],
-            "status":["Niet gestart","Actief","Afgerond"]
-        },
+        dropdowns={"prio":["Hoog","Gemiddeld","Laag"],
+                   "status":["Niet gestart","Actief","Afgerond"]},
         optional_dates=("start","einde"))
 
-with tab_w:
+# WERKZAAMHEDEN + KAART
+with tabs[5]:
     crud_block("werkzaamheden",
-        ["omschrijving","locatie","start","einde","status","uitvoerder","opmerking"],
+        ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
         dropdowns={"status":["Gepland","In uitvoering","Afgerond"]},
         optional_dates=("start","einde"))
 
+    st.markdown("### 📍 Werkzaamheden op kaart")
+    c = conn()
+    df_map = pd.read_sql("""
+        SELECT latitude, longitude
+        FROM werkzaamheden
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+    """, c)
+    c.close()
+
+    if not df_map.empty:
+        st.map(df_map)
+    else:
+        st.info("Geen GPS-locaties ingevoerd")
