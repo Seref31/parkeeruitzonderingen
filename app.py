@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-from datetime import date, datetime
+from datetime import datetime
 from io import BytesIO
 import hashlib
 import pdfplumber
@@ -124,8 +124,8 @@ init_db()
 # ================= LOGIN =================
 if "user" not in st.session_state:
     st.title("🔐 Inloggen")
-    u = st.text_input("Gebruiker")
-    p = st.text_input("Wachtwoord", type="password")
+    u = st.text_input("Gebruiker", key="login_user")
+    p = st.text_input("Wachtwoord", type="password", key="login_pw")
 
     if st.button("Inloggen"):
         c = conn()
@@ -142,7 +142,7 @@ if "user" not in st.session_state:
             audit("LOGIN")
             st.rerun()
         else:
-            st.error("Onjuiste inloggegevens")
+            st.error("Onjuiste gegevens of account geblokkeerd")
     st.stop()
 
 # ================= FORCE PASSWORD CHANGE =================
@@ -193,7 +193,7 @@ def export_pdf(df, title):
     doc.build([Paragraph(title, styles["Title"]), t])
     st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf", key=f"{title}_pdf")
 
-# ================= ZOEK & FILTER =================
+# ================= ZOEK =================
 def apply_search(df, search):
     if not search:
         return df
@@ -208,15 +208,14 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
     c = conn()
     df = pd.read_sql(f"SELECT * FROM {table}", c)
 
-    st.subheader(f"🔍 Zoeken in {table}")
-    search = st.text_input("Zoekterm", key=f"{table}_search")
+    search = st.text_input("🔍 Zoeken", key=f"{table}_search")
     df = apply_search(df, search)
 
     st.dataframe(df, use_container_width=True)
     export_excel(df, table)
     export_pdf(df, table)
 
-    if not has_role("admin", "editor"):
+    if not has_role("admin","editor"):
         c.close()
         return
 
@@ -230,8 +229,6 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
             val = record[f] if record is not None else ""
             if f in dropdowns:
                 values[f] = st.selectbox(f, dropdowns[f], key=key)
-            elif f in optional_dates:
-                values[f] = st.date_input(f, value=pd.to_datetime(val).date() if val else None, key=key)
             else:
                 values[f] = st.text_input(f, str(val) if val else "", key=key)
 
@@ -262,34 +259,9 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
 
     c.close()
 
-# ================= GEBRUIKERSBEHEER =================
-def user_management():
-    c = conn()
-    df = pd.read_sql("SELECT username, role, active, force_change FROM users", c)
-    st.dataframe(df, use_container_width=True)
-
-    st.subheader("➕ Gebruiker toevoegen / wijzigen")
-    with st.form("user_form"):
-        u = st.text_input("Gebruikersnaam")
-        pw = st.text_input("Wachtwoord", type="password")
-        role = st.selectbox("Rol", ["admin", "editor", "viewer"])
-        active = st.checkbox("Actief", True)
-        force = st.checkbox("Force password change", True)
-
-        if st.form_submit_button("Opslaan"):
-            c.execute("""
-                INSERT OR REPLACE INTO users
-                (username,password,role,active,force_change)
-                VALUES (?,?,?,?,?)
-            """, (u, hash_pw(pw), role, int(active), int(force)))
-            c.commit()
-            audit("USER_UPDATE")
-            st.success("Gebruiker opgeslagen")
-            st.rerun()
-    c.close()
-
-# ================= UI =================
+# ================= DASHBOARD =================
 tabs = st.tabs([
+    "📊 Dashboard",
     "🅿️ Uitzonderingen",
     "♿ Gehandicapten",
     "📄 Contracten",
@@ -300,40 +272,67 @@ tabs = st.tabs([
 ])
 
 with tabs[0]:
+    c = conn()
+    cols = st.columns(5)
+    cols[0].metric("Uitzonderingen", pd.read_sql("SELECT COUNT(*) c FROM uitzonderingen", c)["c"][0])
+    cols[1].metric("Gehandicapten", pd.read_sql("SELECT COUNT(*) c FROM gehandicapten", c)["c"][0])
+    cols[2].metric("Contracten", pd.read_sql("SELECT COUNT(*) c FROM contracten", c)["c"][0])
+    cols[3].metric("Projecten", pd.read_sql("SELECT COUNT(*) c FROM projecten", c)["c"][0])
+    cols[4].metric("Werkzaamheden", pd.read_sql("SELECT COUNT(*) c FROM werkzaamheden", c)["c"][0])
+
+    st.markdown("### 👤 Activiteiten per gebruiker")
+    act = pd.read_sql("""
+        SELECT user,
+               COUNT(*) AS acties,
+               MAX(timestamp) AS laatste_actie
+        FROM audit_log
+        GROUP BY user
+        ORDER BY acties DESC
+    """, c)
+    st.dataframe(act, use_container_width=True)
+
+    st.markdown("### 🧾 Laatste acties")
+    last = pd.read_sql("""
+        SELECT timestamp, user, action, table_name, record_id
+        FROM audit_log
+        ORDER BY id DESC
+        LIMIT 10
+    """, c)
+    st.dataframe(last, use_container_width=True)
+    c.close()
+
+with tabs[1]:
     crud_block("uitzonderingen",
         ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
         dropdowns={"type":["Bewoner","Bedrijf","Project"]})
 
-with tabs[1]:
-    crud_block("gehandicapten",
-        ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"],
-        optional_dates=("geldig_tot",))
-
 with tabs[2]:
-    crud_block("contracten",
-        ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"],
-        optional_dates=("start","einde"))
+    crud_block("gehandicapten",
+        ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"])
 
 with tabs[3]:
-    crud_block("projecten",
-        ["naam","projectleider","start","einde","prio","status","opmerking"],
-        dropdowns={"prio":["Hoog","Gemiddeld","Laag"],
-                   "status":["Niet gestart","Actief","Afgerond"]},
-        optional_dates=("start","einde"))
+    crud_block("contracten",
+        ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"])
 
 with tabs[4]:
-    crud_block("werkzaamheden",
-        ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
-        dropdowns={"status":["Gepland","In uitvoering","Afgerond"]},
-        optional_dates=("start","einde"))
+    crud_block("projecten",
+        ["naam","projectleider","start","einde","prio","status","opmerking"],
+        dropdowns={"prio":["Hoog","Gemiddeld","Laag"],"status":["Niet gestart","Actief","Afgerond"]})
 
 with tabs[5]:
-    if has_role("admin"):
-        user_management()
-    else:
-        st.warning("Alleen admins hebben toegang")
+    crud_block("werkzaamheden",
+        ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
+        dropdowns={"status":["Gepland","In uitvoering","Afgerond"]})
 
 with tabs[6]:
+    if has_role("admin"):
+        c = conn()
+        st.dataframe(pd.read_sql("SELECT username, role, active, force_change FROM users", c))
+        c.close()
+    else:
+        st.warning("Alleen admins")
+
+with tabs[7]:
     c = conn()
     st.dataframe(pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c))
     c.close()
