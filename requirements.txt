@@ -1,7 +1,8 @@
 streamlit
 pandas
-geopy
+sqlite3-binary
 folium
 streamlit-folium
+geopy
 reportlab
-tabula-py
+PyPDF2
