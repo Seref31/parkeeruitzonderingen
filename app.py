@@ -71,6 +71,16 @@ def init_db():
         record_id INTEGER
     )""")
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        subtitle TEXT,
+        url TEXT,
+        roles TEXT,
+        active INTEGER
+    )""")
+
     for u, (p, r) in START_USERS.items():
         cur.execute("""
             INSERT OR IGNORE INTO users
@@ -124,8 +134,8 @@ init_db()
 # ================= LOGIN =================
 if "user" not in st.session_state:
     st.title("🔐 Inloggen")
-    u = st.text_input("Gebruiker", key="login_user")
-    p = st.text_input("Wachtwoord", type="password", key="login_pw")
+    u = st.text_input("Gebruiker")
+    p = st.text_input("Wachtwoord", type="password")
 
     if st.button("Inloggen"):
         c = conn()
@@ -178,7 +188,7 @@ if st.sidebar.button("🚪 Uitloggen"):
 def export_excel(df, name):
     buf = BytesIO()
     df.to_excel(buf, index=False)
-    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx", key=f"{name}_excel")
+    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
 
 def export_pdf(df, title):
     buf = BytesIO()
@@ -191,7 +201,7 @@ def export_pdf(df, title):
         ("BACKGROUND",(0,0),(-1,0),colors.lightgrey)
     ]))
     doc.build([Paragraph(title, styles["Title"]), t])
-    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf", key=f"{title}_pdf")
+    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
 
 # ================= SEARCH =================
 def apply_search(df, search):
@@ -204,34 +214,32 @@ def apply_search(df, search):
 
 # ================= DASHBOARD SHORTCUTS =================
 def dashboard_shortcuts():
-    shortcuts = [
-        ("🗺️ Drechtmaps GeoApps", "GIS & kaarten", "https://drechtmaps.nl", ["admin","editor","viewer"]),
-        ("📄 eBesluitvorming", "Besluiten", "https://ebesluitvorming.nl", ["admin","editor"]),
-        ("📅 Agenda", "Outlook agenda", "https://outlook.office.com/calendar/", ["admin","editor","viewer"]),
-        ("📊 Power BI", "Dashboards", "https://app.powerbi.com", ["admin","editor"]),
-        ("📦 AFAS", "HR & Financiën", "https://afas.nl", ["admin"]),
-    ]
+    c = conn()
+    df = pd.read_sql("SELECT * FROM dashboard_shortcuts WHERE active=1", c)
+    c.close()
+
+    if df.empty:
+        st.info("Geen snelkoppelingen ingesteld")
+        return
 
     st.markdown("### 🚀 Snelkoppelingen")
     cols = st.columns(3)
     i = 0
 
-    for title, sub, url, roles in shortcuts:
+    for _, s in df.iterrows():
+        roles = [r.strip() for r in s["roles"].split(",")]
         if st.session_state.role not in roles:
             continue
         with cols[i]:
             st.markdown(f"""
-                <a href="{url}" target="_blank" style="text-decoration:none;">
-                <div style="
-                    border:1px solid #e0e0e0;
-                    border-radius:14px;
-                    padding:18px;
-                    margin-bottom:16px;
-                    background:white;
-                    box-shadow:0 4px 10px rgba(0,0,0,0.06);">
-                    <div style="font-size:22px;font-weight:600;">{title}</div>
-                    <div style="color:#666;margin-top:6px;">{sub}</div>
-                </div></a>
+            <a href="{s['url']}" target="_blank" style="text-decoration:none;">
+                <div style="border:1px solid #e0e0e0;border-radius:14px;
+                padding:18px;margin-bottom:16px;background:white;
+                box-shadow:0 4px 10px rgba(0,0,0,0.06);">
+                    <div style="font-size:22px;font-weight:600;">{s['title']}</div>
+                    <div style="color:#666;margin-top:6px;">{s['subtitle']}</div>
+                </div>
+            </a>
             """, unsafe_allow_html=True)
         i = (i + 1) % 3
 
@@ -318,18 +326,16 @@ with tabs[0]:
     st.markdown("---")
 
     st.markdown("### 👤 Activiteiten per gebruiker")
-    act = pd.read_sql("""
+    st.dataframe(pd.read_sql("""
         SELECT user, COUNT(*) acties, MAX(timestamp) laatste_actie
         FROM audit_log GROUP BY user ORDER BY acties DESC
-    """, c)
-    st.dataframe(act, use_container_width=True)
+    """, c), use_container_width=True)
 
     st.markdown("### 🧾 Laatste acties")
-    last = pd.read_sql("""
+    st.dataframe(pd.read_sql("""
         SELECT timestamp, user, action, table_name, record_id
         FROM audit_log ORDER BY id DESC LIMIT 10
-    """, c)
-    st.dataframe(last, use_container_width=True)
+    """, c), use_container_width=True)
     c.close()
 
 with tabs[1]:
@@ -355,15 +361,59 @@ with tabs[5]:
         ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
         {"status":["Gepland","In uitvoering","Afgerond"]})
 
-with tabs[6]:
-    if has_role("admin"):
-        c = conn()
-        st.dataframe(pd.read_sql("SELECT username, role, active, force_change FROM users", c))
-        c.close()
+    st.markdown("### 📍 Werkzaamheden op kaart")
+    c = conn()
+    df_map = pd.read_sql("""
+        SELECT latitude, longitude
+        FROM werkzaamheden
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+    """, c)
+    c.close()
+    if not df_map.empty:
+        st.map(df_map)
     else:
+        st.info("Geen GPS-locaties ingevoerd")
+
+with tabs[6]:
+    if not has_role("admin"):
         st.warning("Alleen admins")
+    else:
+        c = conn()
+        st.subheader("👥 Gebruikers")
+        st.dataframe(pd.read_sql(
+            "SELECT username, role, active, force_change FROM users", c
+        ), use_container_width=True)
+
+        st.markdown("---")
+        st.subheader("🚀 Dashboard snelkoppelingen")
+        st.dataframe(pd.read_sql("SELECT * FROM dashboard_shortcuts", c),
+                     use_container_width=True)
+
+        with st.form("shortcut_form"):
+            title = st.text_input("Titel (emoji toegestaan)")
+            subtitle = st.text_input("Subtitel")
+            url = st.text_input("URL")
+            roles = st.multiselect(
+                "Zichtbaar voor rollen",
+                ["admin","editor","viewer"],
+                default=["admin","editor","viewer"]
+            )
+            active = st.checkbox("Actief", True)
+
+            if st.form_submit_button("💾 Opslaan"):
+                c.execute("""
+                    INSERT INTO dashboard_shortcuts
+                    (title, subtitle, url, roles, active)
+                    VALUES (?,?,?,?,?)
+                """, (title, subtitle, url, ",".join(roles), int(active)))
+                c.commit()
+                audit("SHORTCUT_ADD")
+                st.success("Snelkoppeling toegevoegd")
+                st.rerun()
+        c.close()
 
 with tabs[7]:
     c = conn()
-    st.dataframe(pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c))
+    st.dataframe(pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c),
+                 use_container_width=True)
     c.close()
