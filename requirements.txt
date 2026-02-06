@@ -5,3 +5,5 @@ streamlit-folium
 geopy
 PyPDF2
 reportlab
+plotly
+pdfplumber
