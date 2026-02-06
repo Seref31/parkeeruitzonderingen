@@ -1,6 +1,5 @@
-streamlit
-pandas
-sqlite3
-openpyxl
-reportlab
-pdfplumber
+streamlit>=1.31
+pandas>=2.1
+openpyxl>=3.1
+reportlab>=4.0
+pdfplumber>=0.11
