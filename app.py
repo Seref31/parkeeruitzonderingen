@@ -12,7 +12,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
 # ================= CONFIG =================
-st.set_page_config("Parkeerbeheer Dashboard", layout="wide")
+st.set_page_config(page_title="Parkeerbeheer Dashboard", layout="wide")
 DB = "parkeeruitzonderingen.db"
 TODAY = date.today()
 
@@ -22,7 +22,7 @@ START_USERS = {
     "wout": ("Wout@7394", "lezer"),
 }
 
-# ================= DB =================
+# ================= DB HELPERS =================
 @contextmanager
 def get_conn():
     c = sqlite3.connect(DB, check_same_thread=False)
@@ -31,14 +31,19 @@ def get_conn():
     finally:
         c.close()
 
+def tabel_bestaat(conn, naam):
+    q = "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+    return conn.execute(q, (naam,)).fetchone() is not None
+
 def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
-# ================= INIT + MIGRATIE =================
+# ================= INIT & MIGRATIES =================
 def init_db():
     with get_conn() as c:
         cur = c.cursor()
 
+        # USERS
         cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -57,6 +62,7 @@ def init_db():
                 DO UPDATE SET role=excluded.role
             """, (u, hash_pw(pw), role))
 
+        # AUDIT
         cur.execute("""
         CREATE TABLE IF NOT EXISTS audit_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,12 +73,29 @@ def init_db():
             timestamp TEXT
         )""")
 
+        # DOMEIN TABELLEN
         tabellen = {
-            "uitzonderingen": "naam TEXT, kenteken TEXT, locatie TEXT, type TEXT, start DATE, einde DATE, toestemming TEXT, opmerking TEXT",
-            "gehandicapten": "naam TEXT, kaartnummer TEXT, adres TEXT, locatie TEXT, geldig_tot DATE, besluit_door TEXT, opmerking TEXT",
-            "contracten": "leverancier TEXT, contractnummer TEXT, start DATE, einde DATE, contactpersoon TEXT, opmerking TEXT",
-            "projecten": "naam TEXT, projectleider TEXT, start DATE, einde DATE, prio TEXT, status TEXT, opmerking TEXT",
-            "werkzaamheden": "omschrijving TEXT, locatie TEXT, start DATE, einde DATE, status TEXT, uitvoerder TEXT, latitude REAL, longitude REAL, opmerking TEXT"
+            "uitzonderingen": """
+                naam TEXT, kenteken TEXT, locatie TEXT, type TEXT,
+                start DATE, einde DATE, toestemming TEXT, opmerking TEXT
+            """,
+            "gehandicapten": """
+                naam TEXT, kaartnummer TEXT, adres TEXT, locatie TEXT,
+                geldig_tot DATE, besluit_door TEXT, opmerking TEXT
+            """,
+            "contracten": """
+                leverancier TEXT, contractnummer TEXT,
+                start DATE, einde DATE, contactpersoon TEXT, opmerking TEXT
+            """,
+            "projecten": """
+                naam TEXT, projectleider TEXT,
+                start DATE, einde DATE, prio TEXT, status TEXT, opmerking TEXT
+            """,
+            "werkzaamheden": """
+                omschrijving TEXT, locatie TEXT,
+                start DATE, einde DATE, status TEXT,
+                uitvoerder TEXT, latitude REAL, longitude REAL, opmerking TEXT
+            """
         }
 
         for t, cols in tabellen.items():
@@ -154,39 +177,34 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
     dropdowns = dropdowns or {}
 
     with get_conn() as c:
+        if not tabel_bestaat(c, table):
+            st.info("Nog geen gegevens.")
+            return
         df = pd.read_sql(f"SELECT * FROM {table}", c)
 
-    if "einde" in df.columns:
-        df["verlopen"] = df["einde"].apply(
-            lambda x: "Ja" if pd.notnull(x) and pd.to_datetime(x).date() < TODAY else "Nee"
-        )
-
-    st.dataframe(df, use_container_width=True)
-    export_excel(df, table)
-    export_pdf(df, table)
+    if df.empty:
+        st.info("Nog geen records.")
+    else:
+        if "einde" in df.columns:
+            df["verlopen"] = df["einde"].apply(
+                lambda x: "Ja" if pd.notnull(x) and pd.to_datetime(x).date() < TODAY else "Nee"
+            )
+        st.dataframe(df, use_container_width=True)
+        export_excel(df, table)
+        export_pdf(df, table)
 
     if "write" not in rechten():
-        st.info("🔒 Alleen-lezen")
         return
-
-    sel = st.selectbox(
-        "Selecteer record",
-        [None] + df["id"].tolist(),
-        key=f"{table}_select"
-    )
-
-    record = df[df.id == sel].iloc[0] if sel else None
 
     with st.form(key=f"{table}_form"):
         values = {}
         for f in fields:
-            val = record[f] if record is not None else ""
             if f in dropdowns:
                 values[f] = st.selectbox(f, dropdowns[f], key=f"{table}_{f}")
             elif f in optional_dates:
-                values[f] = st.date_input(f, value=pd.to_datetime(val).date() if val else None, key=f"{table}_{f}")
+                values[f] = st.date_input(f, key=f"{table}_{f}")
             else:
-                values[f] = st.text_input(f, value=str(val) if val else "", key=f"{table}_{f}")
+                values[f] = st.text_input(f, key=f"{table}_{f}")
 
         if st.form_submit_button("💾 Opslaan"):
             with get_conn() as c:
@@ -215,12 +233,12 @@ tabs = st.tabs([
 with tabs[0]:
     with get_conn() as c:
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Uitzonderingen", pd.read_sql("SELECT COUNT(*) c FROM uitzonderingen", c).iloc[0,0])
-        col2.metric("Gehandicapten", pd.read_sql("SELECT COUNT(*) c FROM gehandicapten", c).iloc[0,0])
-        col3.metric("Contracten", pd.read_sql("SELECT COUNT(*) c FROM contracten", c).iloc[0,0])
-        col4.metric("Projecten", pd.read_sql("SELECT COUNT(*) c FROM projecten", c).iloc[0,0])
+        col1.metric("Uitzonderingen", c.execute("SELECT COUNT(*) FROM uitzonderingen").fetchone()[0])
+        col2.metric("Gehandicapten", c.execute("SELECT COUNT(*) FROM gehandicapten").fetchone()[0])
+        col3.metric("Contracten", c.execute("SELECT COUNT(*) FROM contracten").fetchone()[0])
+        col4.metric("Projecten", c.execute("SELECT COUNT(*) FROM projecten").fetchone()[0])
 
-# CRUD tabs
+# CRUD TABS
 with tabs[1]:
     crud_block("uitzonderingen",
         ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
@@ -254,7 +272,14 @@ with tabs[5]:
         optional_dates=("start","einde")
     )
 
+# AUDIT (DEFENSIEF)
 with tabs[6]:
     with get_conn() as c:
-        audit = pd.read_sql("SELECT * FROM audit_log ORDER BY timestamp DESC", c)
-    st.dataframe(audit, use_container_width=True)
+        if tabel_bestaat(c, "audit_log"):
+            df = pd.read_sql("SELECT * FROM audit_log ORDER BY timestamp DESC", c)
+            if df.empty:
+                st.info("Nog geen audit-logs.")
+            else:
+                st.dataframe(df, use_container_width=True)
+        else:
+            st.info("Audit-log niet beschikbaar.")
