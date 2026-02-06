@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import date
 from io import BytesIO
 import hashlib
-import tabula
+import pdfplumber
 
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
@@ -55,11 +55,44 @@ def init_db():
         )
 
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS uitzonderingen(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT, kenteken TEXT, locatie TEXT,
+        type TEXT, start DATE, einde DATE,
+        toestemming TEXT, opmerking TEXT
+    )""")
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS gehandicapten(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT, kaartnummer TEXT, adres TEXT,
+        locatie TEXT, geldig_tot DATE,
+        besluit_door TEXT, opmerking TEXT
+    )""")
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS contracten(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        leverancier TEXT, contractnummer TEXT,
+        start DATE, einde DATE,
+        contactpersoon TEXT, opmerking TEXT
+    )""")
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS projecten(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         naam TEXT, projectleider TEXT,
         start DATE, einde DATE,
         prio TEXT, status TEXT, opmerking TEXT
+    )""")
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS werkzaamheden(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        omschrijving TEXT, locatie TEXT,
+        start DATE, einde DATE,
+        status TEXT, uitvoerder TEXT,
+        opmerking TEXT
     )""")
 
     c.commit()
@@ -72,12 +105,15 @@ if "user" not in st.session_state:
     st.title("🔐 Inloggen")
     u = st.text_input("Gebruiker")
     p = st.text_input("Wachtwoord", type="password")
+
     if st.button("Inloggen"):
         c = conn()
         r = c.execute(
-            "SELECT password FROM users WHERE username=?", (u,)
+            "SELECT password FROM users WHERE username=?",
+            (u,)
         ).fetchone()
         c.close()
+
         if r and r[0] == hash_pw(p):
             st.session_state.user = u
             st.rerun()
@@ -109,51 +145,144 @@ def export_pdf(df, title):
     doc.build([Paragraph(title, styles["Title"]), t])
     st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
 
-# ================= PDF IMPORT =================
-def import_projecten_pdf(upload):
-    with open("temp_projecten.pdf", "wb") as f:
-        f.write(upload.read())
+# ================= CRUD =================
+def crud_block(table, fields, dropdowns=None, optional_dates=()):
+    dropdowns = dropdowns or {}
+    c = conn()
+    df = pd.read_sql(f"SELECT * FROM {table}", c)
 
-    dfs = tabula.read_pdf("temp_projecten.pdf", pages="all", multiple_tables=True)
-    if not dfs:
+    sel = st.selectbox(
+        "✏️ Selecteer record",
+        [None] + df["id"].tolist(),
+        key=f"{table}_select"
+    )
+
+    record = df[df.id == sel].iloc[0] if sel else None
+
+    with st.form(f"{table}_form"):
+        values = {}
+        for f in fields:
+            val = record[f] if record is not None else ""
+            key = f"{table}_{f}"
+
+            if f in dropdowns:
+                values[f] = st.selectbox(f, dropdowns[f],
+                    index=dropdowns[f].index(val) if val in dropdowns[f] else 0,
+                    key=key)
+            elif f in optional_dates:
+                values[f] = st.date_input(
+                    f,
+                    value=pd.to_datetime(val).date() if val else None,
+                    key=key
+                )
+            else:
+                values[f] = st.text_input(f, value=str(val) if val else "", key=key)
+
+        col1, col2, col3 = st.columns(3)
+
+        if col1.form_submit_button("💾 Opslaan"):
+            c.execute(
+                f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
+                tuple(values.values())
+            )
+            c.commit()
+            st.success("Toegevoegd")
+            st.rerun()
+
+        if record is not None and col2.form_submit_button("✏️ Wijzigen"):
+            c.execute(
+                f"UPDATE {table} SET {','.join(f+'=?' for f in fields)} WHERE id=?",
+                (*values.values(), sel)
+            )
+            c.commit()
+            st.success("Gewijzigd")
+            st.rerun()
+
+        if record is not None and col3.form_submit_button("🗑️ Verwijderen"):
+            c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
+            c.commit()
+            st.warning("Verwijderd")
+            st.rerun()
+
+    st.dataframe(df, use_container_width=True)
+    export_excel(df, table)
+    export_pdf(df, table)
+    c.close()
+
+# ================= PDF IMPORT PROJECTEN =================
+def import_projecten_pdf(upload):
+    rows = []
+
+    with pdfplumber.open(upload) as pdf:
+        for page in pdf.pages:
+            table = page.extract_table()
+            if not table:
+                continue
+            headers = table[0]
+            for r in table[1:]:
+                rows.append(dict(zip(headers, r)))
+
+    if not rows:
         return 0
 
-    df = dfs[0]
-    df.columns = ["id","naam","projectleider","start","einde","prio","status","opmerking"]
+    df = pd.DataFrame(rows)
     df = df.replace({"None": None, "n.t.b.": None})
 
-    for col in ["start","einde"]:
-        df[col] = pd.to_datetime(df[col], errors="coerce")
+    for col in ["start", "einde"]:
+        if col in df:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
 
     c = conn()
-    bestaande = pd.read_sql("SELECT naam, start FROM projecten", c)
+    bestaand = pd.read_sql("SELECT naam, start FROM projecten", c)
 
     nieuw = df.merge(
-        bestaande, on=["naam","start"],
-        how="left", indicator=True
+        bestaand,
+        on=["naam", "start"],
+        how="left",
+        indicator=True
     ).query("_merge == 'left_only'")
 
-    nieuw.drop(columns=["_merge","id"], errors="ignore", inplace=True)
+    nieuw.drop(columns="_merge", inplace=True)
     nieuw.to_sql("projecten", c, if_exists="append", index=False)
-
     c.close()
+
     return len(nieuw)
 
 # ================= UI =================
 st.title("🅿️ Parkeerbeheer Dashboard")
 
-tab_d, tab_p = st.tabs(["📊 Dashboard", "🧩 Projecten"])
+tab_d, tab_u, tab_g, tab_c, tab_p, tab_w = st.tabs([
+    "📊 Dashboard",
+    "🅿️ Uitzonderingen",
+    "♿ Gehandicapten",
+    "📄 Contracten",
+    "🧩 Projecten",
+    "🛠️ Werkzaamheden"
+])
 
 with tab_d:
     c = conn()
     st.metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
     c.close()
 
+with tab_u:
+    crud_block("uitzonderingen",
+        ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
+        dropdowns={"type":["Bewoner","Bedrijf","Project"]})
+
+with tab_g:
+    crud_block("gehandicapten",
+        ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"],
+        optional_dates=("geldig_tot",))
+
+with tab_c:
+    crud_block("contracten",
+        ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"],
+        optional_dates=("start","einde"))
+
 with tab_p:
     st.subheader("📄 Projecten uit PDF importeren")
-
     pdf = st.file_uploader("Upload projecten-PDF", type="pdf")
-
     if pdf and st.button("⬆️ Importeren"):
         aantal = import_projecten_pdf(pdf)
         st.success(f"✅ {aantal} projecten geïmporteerd")
@@ -161,10 +290,16 @@ with tab_p:
 
     st.markdown("---")
 
-    c = conn()
-    df = pd.read_sql("SELECT * FROM projecten", c)
-    c.close()
+    crud_block("projecten",
+        ["naam","projectleider","start","einde","prio","status","opmerking"],
+        dropdowns={
+            "prio":["Hoog","Gemiddeld","Laag"],
+            "status":["Niet gestart","Actief","Afgerond"]
+        },
+        optional_dates=("start","einde"))
 
-    st.dataframe(df, use_container_width=True)
-    export_excel(df, "projecten")
-    export_pdf(df, "projecten")
+with tab_w:
+    crud_block("werkzaamheden",
+        ["omschrijving","locatie","start","einde","status","uitvoerder","opmerking"],
+        dropdowns={"status":["Gepland","In uitvoering","Afgerond"]},
+        optional_dates=("start","einde"))
