@@ -5,7 +5,6 @@ from datetime import date, datetime
 from io import BytesIO
 import hashlib
 from contextlib import contextmanager
-import plotly.express as px
 
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
@@ -32,7 +31,7 @@ def get_conn():
     finally:
         c.close()
 
-def hash_pw(pw: str) -> str:
+def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
 # ================= INIT + MIGRATIE =================
@@ -40,19 +39,16 @@ def init_db():
     with get_conn() as c:
         cur = c.cursor()
 
-        # USERS (basis)
         cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
             password TEXT NOT NULL
         )""")
 
-        # MIGRATIE: role
         cols = [r[1] for r in cur.execute("PRAGMA table_info(users)").fetchall()]
         if "role" not in cols:
             cur.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'lezer'")
 
-        # startgebruikers
         for u, (pw, role) in START_USERS.items():
             cur.execute("""
                 INSERT INTO users (username, password, role)
@@ -61,7 +57,6 @@ def init_db():
                 DO UPDATE SET role=excluded.role
             """, (u, hash_pw(pw), role))
 
-        # AUDIT
         cur.execute("""
         CREATE TABLE IF NOT EXISTS audit_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,34 +67,17 @@ def init_db():
             timestamp TEXT
         )""")
 
-        # DOMEIN TABELLEN
         tabellen = {
-            "uitzonderingen": """
-                naam TEXT, kenteken TEXT, locatie TEXT, type TEXT,
-                start DATE, einde DATE, toestemming TEXT, opmerking TEXT
-            """,
-            "gehandicapten": """
-                naam TEXT, kaartnummer TEXT, adres TEXT, locatie TEXT,
-                geldig_tot DATE, besluit_door TEXT, opmerking TEXT
-            """,
-            "contracten": """
-                leverancier TEXT, contractnummer TEXT,
-                start DATE, einde DATE, contactpersoon TEXT, opmerking TEXT
-            """,
-            "projecten": """
-                naam TEXT, projectleider TEXT,
-                start DATE, einde DATE, prio TEXT, status TEXT, opmerking TEXT
-            """,
-            "werkzaamheden": """
-                omschrijving TEXT, locatie TEXT,
-                start DATE, einde DATE, status TEXT,
-                uitvoerder TEXT, latitude REAL, longitude REAL, opmerking TEXT
-            """
+            "uitzonderingen": "naam TEXT, kenteken TEXT, locatie TEXT, type TEXT, start DATE, einde DATE, toestemming TEXT, opmerking TEXT",
+            "gehandicapten": "naam TEXT, kaartnummer TEXT, adres TEXT, locatie TEXT, geldig_tot DATE, besluit_door TEXT, opmerking TEXT",
+            "contracten": "leverancier TEXT, contractnummer TEXT, start DATE, einde DATE, contactpersoon TEXT, opmerking TEXT",
+            "projecten": "naam TEXT, projectleider TEXT, start DATE, einde DATE, prio TEXT, status TEXT, opmerking TEXT",
+            "werkzaamheden": "omschrijving TEXT, locatie TEXT, start DATE, einde DATE, status TEXT, uitvoerder TEXT, latitude REAL, longitude REAL, opmerking TEXT"
         }
 
-        for name, cols in tabellen.items():
+        for t, cols in tabellen.items():
             cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS {name} (
+            CREATE TABLE IF NOT EXISTS {t} (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 {cols}
             )""")
@@ -107,15 +85,6 @@ def init_db():
         c.commit()
 
 init_db()
-
-# ================= AUDIT =================
-def log_actie(user, actie, tabel, record_id=None):
-    with get_conn() as c:
-        c.execute(
-            "INSERT INTO audit_log VALUES (NULL,?,?,?,?,?)",
-            (user, actie, tabel, record_id, datetime.now().isoformat())
-        )
-        c.commit()
 
 # ================= AUTH =================
 def rechten():
@@ -125,29 +94,26 @@ def rechten():
         "beheerder": ["read", "write", "admin"]
     }.get(st.session_state.role, [])
 
+def log_actie(user, actie, tabel, record_id=None):
+    with get_conn() as c:
+        c.execute(
+            "INSERT INTO audit_log VALUES (NULL,?,?,?,?,?)",
+            (user, actie, tabel, record_id, datetime.now().isoformat())
+        )
+        c.commit()
+
 # ================= LOGIN =================
 if "user" not in st.session_state:
     st.title("🔐 Inloggen")
-    u = st.text_input("Gebruiker")
-    p = st.text_input("Wachtwoord", type="password")
+    u = st.text_input("Gebruiker", key="login_user")
+    p = st.text_input("Wachtwoord", type="password", key="login_pw")
 
     if st.button("Inloggen"):
         with get_conn() as c:
-            cur = c.cursor()
-            cols = [r[1] for r in cur.execute("PRAGMA table_info(users)").fetchall()]
-
-            if "role" in cols:
-                r = cur.execute(
-                    "SELECT password, role FROM users WHERE username=?",
-                    (u,)
-                ).fetchone()
-            else:
-                r = cur.execute(
-                    "SELECT password FROM users WHERE username=?",
-                    (u,)
-                ).fetchone()
-                if r:
-                    r = (r[0], "lezer")
+            r = c.execute(
+                "SELECT password, role FROM users WHERE username=?",
+                (u,)
+            ).fetchone()
 
         if r and r[0] == hash_pw(p):
             st.session_state.user = u
@@ -168,46 +134,34 @@ if st.sidebar.button("🚪 Uitloggen"):
 def export_excel(df, name):
     buf = BytesIO()
     df.to_excel(buf, index=False)
-    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
+    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx", key=f"xls_{name}")
 
 def export_pdf(df, title):
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4)
     styles = getSampleStyleSheet()
     data = [df.columns.tolist()] + df.fillna("").astype(str).values.tolist()
-    t = Table(data, repeatRows=1)
+    t = Table(data)
     t.setStyle(TableStyle([
         ("GRID",(0,0),(-1,-1),0.5,colors.grey),
         ("BACKGROUND",(0,0),(-1,0),colors.lightgrey)
     ]))
     doc.build([Paragraph(title, styles["Title"]), t])
-    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
+    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf", key=f"pdf_{title}")
 
 # ================= CRUD =================
-def markeer_verlopen(df):
-    if "einde" in df.columns:
-        df["verlopen"] = df["einde"].apply(
-            lambda x: "Ja" if pd.notnull(x) and pd.to_datetime(x).date() < TODAY else "Nee"
-        )
-    return df
-
 def crud_block(table, fields, dropdowns=None, optional_dates=()):
     dropdowns = dropdowns or {}
 
     with get_conn() as c:
         df = pd.read_sql(f"SELECT * FROM {table}", c)
 
-    df = markeer_verlopen(df)
+    if "einde" in df.columns:
+        df["verlopen"] = df["einde"].apply(
+            lambda x: "Ja" if pd.notnull(x) and pd.to_datetime(x).date() < TODAY else "Nee"
+        )
 
-    st.dataframe(
-        df.style.apply(
-            lambda r: ["background-color:#ffd6d6"]*len(r)
-            if "verlopen" in r and r["verlopen"]=="Ja" else [""],
-            axis=1
-        ),
-        use_container_width=True
-    )
-
+    st.dataframe(df, use_container_width=True)
     export_excel(df, table)
     export_pdf(df, table)
 
@@ -215,19 +169,24 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
         st.info("🔒 Alleen-lezen")
         return
 
-    sel = st.selectbox("Record", [None] + df["id"].tolist())
+    sel = st.selectbox(
+        "Selecteer record",
+        [None] + df["id"].tolist(),
+        key=f"{table}_select"
+    )
+
     record = df[df.id == sel].iloc[0] if sel else None
 
-    with st.form(f"{table}_form"):
+    with st.form(key=f"{table}_form"):
         values = {}
         for f in fields:
             val = record[f] if record is not None else ""
             if f in dropdowns:
-                values[f] = st.selectbox(f, dropdowns[f])
+                values[f] = st.selectbox(f, dropdowns[f], key=f"{table}_{f}")
             elif f in optional_dates:
-                values[f] = st.date_input(f, value=pd.to_datetime(val).date() if val else None)
+                values[f] = st.date_input(f, value=pd.to_datetime(val).date() if val else None, key=f"{table}_{f}")
             else:
-                values[f] = st.text_input(f, value=str(val) if val else "")
+                values[f] = st.text_input(f, value=str(val) if val else "", key=f"{table}_{f}")
 
         if st.form_submit_button("💾 Opslaan"):
             with get_conn() as c:
@@ -237,13 +196,6 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
                 )
                 c.commit()
             log_actie(st.session_state.user, "insert", table)
-            st.rerun()
-
-        if record is not None and st.form_submit_button("🗑️ Verwijderen"):
-            with get_conn() as c:
-                c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
-                c.commit()
-            log_actie(st.session_state.user, "delete", table, sel)
             st.rerun()
 
 # ================= UI =================
@@ -259,21 +211,14 @@ tabs = st.tabs([
     "🧾 Audit"
 ])
 
-# DASHBOARD
+# DASHBOARD (CIJFERMATIG)
 with tabs[0]:
     with get_conn() as c:
-        data = {
-            "Uitzonderingen": pd.read_sql("SELECT * FROM uitzonderingen", c),
-            "Contracten": pd.read_sql("SELECT * FROM contracten", c),
-            "Projecten": pd.read_sql("SELECT * FROM projecten", c),
-        }
-
-    fig = px.bar(
-        x=list(data.keys()),
-        y=[len(v) for v in data.values()],
-        title="Aantal records per categorie"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Uitzonderingen", pd.read_sql("SELECT COUNT(*) c FROM uitzonderingen", c).iloc[0,0])
+        col2.metric("Gehandicapten", pd.read_sql("SELECT COUNT(*) c FROM gehandicapten", c).iloc[0,0])
+        col3.metric("Contracten", pd.read_sql("SELECT COUNT(*) c FROM contracten", c).iloc[0,0])
+        col4.metric("Projecten", pd.read_sql("SELECT COUNT(*) c FROM projecten", c).iloc[0,0])
 
 # CRUD tabs
 with tabs[1]:
@@ -309,7 +254,6 @@ with tabs[5]:
         optional_dates=("start","einde")
     )
 
-# AUDIT
 with tabs[6]:
     with get_conn() as c:
         audit = pd.read_sql("SELECT * FROM audit_log ORDER BY timestamp DESC", c)
