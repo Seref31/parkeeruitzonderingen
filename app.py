@@ -43,19 +43,25 @@ def init_db():
     with get_conn() as c:
         cur = c.cursor()
 
-        # USERS
+        # USERS (basis)
         cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
-            password TEXT NOT NULL,
-            role TEXT NOT NULL
+            password TEXT NOT NULL
         )""")
 
+        # ➕ MIGRATIE: role-kolom toevoegen indien ontbreekt
+        cols = [r[1] for r in cur.execute("PRAGMA table_info(users)").fetchall()]
+        if "role" not in cols:
+            cur.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'lezer'")
+
+        # Startgebruikers invoegen
         for u, (pw, role) in START_USERS.items():
-            cur.execute(
-                "INSERT OR IGNORE INTO users VALUES (?,?,?)",
-                (u, hash_pw(pw), role)
-            )
+            cur.execute("""
+                INSERT INTO users (username, password, role)
+                VALUES (?,?,?)
+                ON CONFLICT(username) DO UPDATE SET role=excluded.role
+            """, (u, hash_pw(pw), role))
 
         # AUDIT LOG
         cur.execute("""
@@ -127,6 +133,7 @@ def init_db():
             )""")
 
         c.commit()
+
 
 
 init_db()
@@ -326,4 +333,5 @@ with tabs[6]:
     with get_conn() as c:
         audit = pd.read_sql("SELECT * FROM audit_log ORDER BY timestamp DESC", c)
     st.dataframe(audit, use_container_width=True)
+
 
