@@ -38,6 +38,16 @@ def hash_pw(pw):
 
 # ================= DB INIT =================
 def init_db():
+        # ---- MIGRATIE: GPS-kolommen werkzaamheden ----
+    cur.execute("PRAGMA table_info(werkzaamheden)")
+    cols = [r[1] for r in cur.fetchall()]
+
+    if "latitude" not in cols:
+        cur.execute("ALTER TABLE werkzaamheden ADD COLUMN latitude REAL")
+
+    if "longitude" not in cols:
+        cur.execute("ALTER TABLE werkzaamheden ADD COLUMN longitude REAL")
+
     c = conn()
     cur = c.cursor()
 
@@ -295,14 +305,19 @@ with tabs[5]:
 
     st.markdown("### 📍 Werkzaamheden op kaart")
     c = conn()
+try:
     df_map = pd.read_sql("""
         SELECT latitude, longitude
         FROM werkzaamheden
         WHERE latitude IS NOT NULL AND longitude IS NOT NULL
     """, c)
+except Exception:
+    df_map = pd.DataFrame()
+
     c.close()
 
     if not df_map.empty:
         st.map(df_map)
     else:
         st.info("Geen GPS-locaties ingevoerd")
+
