@@ -36,21 +36,12 @@ def conn():
 def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
-# ================= DB INIT =================
+# ================= DB INIT + MIGRATIES =================
 def init_db():
-        # ---- MIGRATIE: GPS-kolommen werkzaamheden ----
-    cur.execute("PRAGMA table_info(werkzaamheden)")
-    cols = [r[1] for r in cur.fetchall()]
-
-    if "latitude" not in cols:
-        cur.execute("ALTER TABLE werkzaamheden ADD COLUMN latitude REAL")
-
-    if "longitude" not in cols:
-        cur.execute("ALTER TABLE werkzaamheden ADD COLUMN longitude REAL")
-
     c = conn()
     cur = c.cursor()
 
+    # USERS
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         username TEXT PRIMARY KEY,
@@ -64,6 +55,7 @@ def init_db():
             (u, hash_pw(p))
         )
 
+    # UITZONDERINGEN
     cur.execute("""
     CREATE TABLE IF NOT EXISTS uitzonderingen(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,6 +64,7 @@ def init_db():
         toestemming TEXT, opmerking TEXT
     )""")
 
+    # GEHANDICAPTEN
     cur.execute("""
     CREATE TABLE IF NOT EXISTS gehandicapten(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,6 +73,7 @@ def init_db():
         besluit_door TEXT, opmerking TEXT
     )""")
 
+    # CONTRACTEN
     cur.execute("""
     CREATE TABLE IF NOT EXISTS contracten(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,6 +82,7 @@ def init_db():
         contactpersoon TEXT, opmerking TEXT
     )""")
 
+    # PROJECTEN
     cur.execute("""
     CREATE TABLE IF NOT EXISTS projecten(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,6 +91,7 @@ def init_db():
         prio TEXT, status TEXT, opmerking TEXT
     )""")
 
+    # WERKZAAMHEDEN (basis)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS werkzaamheden(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,10 +101,17 @@ def init_db():
         einde DATE,
         status TEXT,
         uitvoerder TEXT,
-        latitude REAL,
-        longitude REAL,
         opmerking TEXT
     )""")
+
+    # MIGRATIE: GPS
+    cur.execute("PRAGMA table_info(werkzaamheden)")
+    cols = [r[1] for r in cur.fetchall()]
+
+    if "latitude" not in cols:
+        cur.execute("ALTER TABLE werkzaamheden ADD COLUMN latitude REAL")
+    if "longitude" not in cols:
+        cur.execute("ALTER TABLE werkzaamheden ADD COLUMN longitude REAL")
 
     c.commit()
     c.close()
@@ -176,15 +179,20 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
             key = f"{table}_{f}"
 
             if f in dropdowns:
-                values[f] = st.selectbox(f, dropdowns[f],
+                values[f] = st.selectbox(
+                    f, dropdowns[f],
                     index=dropdowns[f].index(val) if val in dropdowns[f] else 0,
-                    key=key)
+                    key=key
+                )
             elif f in optional_dates:
-                values[f] = st.date_input(f, value=pd.to_datetime(val).date() if val else None, key=key)
+                values[f] = st.date_input(
+                    f, value=pd.to_datetime(val).date() if val else None, key=key
+                )
             else:
                 values[f] = st.text_input(f, value=str(val) if val else "", key=key)
 
         col1, col2, col3 = st.columns(3)
+
         if col1.form_submit_button("💾 Opslaan"):
             c.execute(
                 f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
@@ -225,8 +233,7 @@ def import_projecten_pdf(upload):
     if not rows:
         return 0
 
-    df = pd.DataFrame(rows)
-    df = df.replace({"None": None, "n.t.b.": None})
+    df = pd.DataFrame(rows).replace({"None": None, "n.t.b.": None})
 
     for col in ["start", "einde"]:
         if col in df:
@@ -234,10 +241,15 @@ def import_projecten_pdf(upload):
 
     c = conn()
     bestaand = pd.read_sql("SELECT naam, start FROM projecten", c)
-    nieuw = df.merge(bestaand, on=["naam","start"], how="left", indicator=True)
+
+    nieuw = df.merge(
+        bestaand, on=["naam","start"],
+        how="left", indicator=True
+    )
     nieuw = nieuw[nieuw["_merge"] == "left_only"].drop(columns="_merge")
     nieuw.to_sql("projecten", c, if_exists="append", index=False)
     c.close()
+
     return len(nieuw)
 
 # ================= UI =================
@@ -265,21 +277,27 @@ with tabs[0]:
 
 # UITZONDERINGEN
 with tabs[1]:
-    crud_block("uitzonderingen",
+    crud_block(
+        "uitzonderingen",
         ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
-        dropdowns={"type":["Bewoner","Bedrijf","Project"]})
+        dropdowns={"type":["Bewoner","Bedrijf","Project"]}
+    )
 
 # GEHANDICAPTEN
 with tabs[2]:
-    crud_block("gehandicapten",
+    crud_block(
+        "gehandicapten",
         ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"],
-        optional_dates=("geldig_tot",))
+        optional_dates=("geldig_tot",)
+    )
 
 # CONTRACTEN
 with tabs[3]:
-    crud_block("contracten",
+    crud_block(
+        "contracten",
         ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"],
-        optional_dates=("start","einde"))
+        optional_dates=("start","einde")
+    )
 
 # PROJECTEN
 with tabs[4]:
@@ -290,34 +308,38 @@ with tabs[4]:
         st.rerun()
 
     st.markdown("---")
-    crud_block("projecten",
+    crud_block(
+        "projecten",
         ["naam","projectleider","start","einde","prio","status","opmerking"],
-        dropdowns={"prio":["Hoog","Gemiddeld","Laag"],
-                   "status":["Niet gestart","Actief","Afgerond"]},
-        optional_dates=("start","einde"))
+        dropdowns={
+            "prio":["Hoog","Gemiddeld","Laag"],
+            "status":["Niet gestart","Actief","Afgerond"]
+        },
+        optional_dates=("start","einde")
+    )
 
 # WERKZAAMHEDEN + KAART
 with tabs[5]:
-    crud_block("werkzaamheden",
+    crud_block(
+        "werkzaamheden",
         ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
         dropdowns={"status":["Gepland","In uitvoering","Afgerond"]},
-        optional_dates=("start","einde"))
+        optional_dates=("start","einde")
+    )
 
     st.markdown("### 📍 Werkzaamheden op kaart")
     c = conn()
-try:
-    df_map = pd.read_sql("""
-        SELECT latitude, longitude
-        FROM werkzaamheden
-        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-    """, c)
-except Exception:
-    df_map = pd.DataFrame()
-
+    try:
+        df_map = pd.read_sql("""
+            SELECT latitude, longitude
+            FROM werkzaamheden
+            WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+        """, c)
+    except Exception:
+        df_map = pd.DataFrame()
     c.close()
 
     if not df_map.empty:
         st.map(df_map)
     else:
         st.info("Geen GPS-locaties ingevoerd")
-
