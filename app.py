@@ -1,10 +1,9 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-from datetime import date
-from io import BytesIO
 import hashlib
-import pdfplumber
+from datetime import datetime, date
+from io import BytesIO
 
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
@@ -31,6 +30,22 @@ def hash_pw(pw):
 def has_role(*roles):
     return st.session_state.role in roles
 
+def audit(action, table=None, record_id=None):
+    c = conn()
+    c.execute("""
+        INSERT INTO audit_log
+        (timestamp, user, action, table_name, record_id)
+        VALUES (?,?,?,?,?)
+    """, (
+        datetime.now().isoformat(timespec="seconds"),
+        st.session_state.user,
+        action,
+        table,
+        record_id
+    ))
+    c.commit()
+    c.close()
+
 # ================= DB INIT =================
 def init_db():
     c = conn()
@@ -43,12 +58,22 @@ def init_db():
         role TEXT,
         active INTEGER,
         force_change INTEGER
-    )
-    """)
+    )""")
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT,
+        user TEXT,
+        action TEXT,
+        table_name TEXT,
+        record_id INTEGER
+    )""")
 
     for u, (p, r) in START_USERS.items():
         cur.execute("""
             INSERT OR IGNORE INTO users
+            (username,password,role,active,force_change)
             VALUES (?,?,?,?,1)
         """, (u, hash_pw(p), r, 1))
 
@@ -98,13 +123,13 @@ init_db()
 # ================= LOGIN =================
 if "user" not in st.session_state:
     st.title("🔐 Inloggen")
-    u = st.text_input("Gebruiker")
-    p = st.text_input("Wachtwoord", type="password")
+    u = st.text_input("Gebruiker", key="login_user")
+    p = st.text_input("Wachtwoord", type="password", key="login_pw")
 
     if st.button("Inloggen"):
         c = conn()
         r = c.execute("""
-            SELECT password, role, active
+            SELECT password, role, active, force_change
             FROM users WHERE username=?
         """, (u,)).fetchone()
         c.close()
@@ -112,17 +137,40 @@ if "user" not in st.session_state:
         if r and r[0] == hash_pw(p) and r[2] == 1:
             st.session_state.user = u
             st.session_state.role = r[1]
+            st.session_state.force_change = r[3]
+            audit("LOGIN")
             st.rerun()
         else:
-            st.error("Onjuiste inloggegevens of account geblokkeerd")
+            st.error("Onjuiste gegevens of account geblokkeerd")
+    st.stop()
+
+# ================= FORCE PASSWORD CHANGE =================
+if st.session_state.force_change == 1:
+    st.title("🔑 Wachtwoord wijzigen (verplicht)")
+    npw = st.text_input("Nieuw wachtwoord", type="password", key="new_pw")
+    npw2 = st.text_input("Herhaal wachtwoord", type="password", key="new_pw2")
+
+    if st.button("Wijzigen"):
+        if npw != npw2 or len(npw) < 8:
+            st.error("Wachtwoorden ongelijk of te kort")
+        else:
+            c = conn()
+            c.execute("""
+                UPDATE users
+                SET password=?, force_change=0
+                WHERE username=?
+            """, (hash_pw(npw), st.session_state.user))
+            c.commit()
+            c.close()
+            audit("PASSWORD_CHANGE")
+            st.session_state.force_change = 0
+            st.success("Wachtwoord gewijzigd")
+            st.rerun()
     st.stop()
 
 # ================= SIDEBAR =================
-st.sidebar.success(
-    f"👤 {st.session_state.user}\n🔑 Rol: {st.session_state.role}"
-)
-
-if st.sidebar.button("🚪 Uitloggen"):
+st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
+if st.sidebar.button("Uitloggen"):
     st.session_state.clear()
     st.rerun()
 
@@ -130,7 +178,7 @@ if st.sidebar.button("🚪 Uitloggen"):
 def export_excel(df, name):
     buf = BytesIO()
     df.to_excel(buf, index=False)
-    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
+    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx", key=f"{name}_excel")
 
 def export_pdf(df, title):
     buf = BytesIO()
@@ -143,7 +191,7 @@ def export_pdf(df, title):
         ("BACKGROUND",(0,0),(-1,0),colors.lightgrey)
     ]))
     doc.build([Paragraph(title, styles["Title"]), t])
-    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
+    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf", key=f"{title}_pdf")
 
 # ================= CRUD =================
 def crud_block(table, fields, dropdowns=None, optional_dates=()):
@@ -155,30 +203,42 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
     export_excel(df, table)
     export_pdf(df, table)
 
-    if not has_role("admin", "editor"):
+    if not has_role("admin","editor"):
         c.close()
         return
 
-    sel = st.selectbox("✏️ Selecteer record", [None] + df["id"].tolist())
+    sel = st.selectbox(
+        "✏️ Selecteer record",
+        [None] + df["id"].tolist(),
+        key=f"{table}_select"
+    )
+
     record = df[df.id == sel].iloc[0] if sel else None
 
     with st.form(f"{table}_form"):
         values = {}
         for f in fields:
+            key = f"{table}_{f}"
             val = record[f] if record is not None else ""
             if f in dropdowns:
-                values[f] = st.selectbox(f, dropdowns[f])
+                values[f] = st.selectbox(f, dropdowns[f], key=key)
             elif f in optional_dates:
-                values[f] = st.date_input(f, value=pd.to_datetime(val).date() if val else None)
+                values[f] = st.date_input(
+                    f,
+                    value=pd.to_datetime(val).date() if val else None,
+                    key=key
+                )
             else:
-                values[f] = st.text_input(f, value=str(val) if val else "")
+                values[f] = st.text_input(f, str(val) if val else "", key=key)
 
         if st.form_submit_button("💾 Opslaan"):
             c.execute(
                 f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
                 tuple(values.values())
             )
+            rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
             c.commit()
+            audit("INSERT", table, rid)
             st.rerun()
 
         if record is not None and st.form_submit_button("✏️ Wijzigen"):
@@ -187,85 +247,56 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
                 (*values.values(), sel)
             )
             c.commit()
+            audit("UPDATE", table, sel)
             st.rerun()
 
         if has_role("admin") and record is not None and st.form_submit_button("🗑️ Verwijderen"):
             c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
             c.commit()
+            audit("DELETE", table, sel)
             st.rerun()
 
-    c.close()
-
-# ================= GEBRUIKERSBEHEER =================
-def user_management():
-    c = conn()
-    df = pd.read_sql("SELECT username, role, active FROM users", c)
-
-    st.dataframe(df)
-
-    with st.form("user_form"):
-        u = st.text_input("Gebruiker")
-        pw = st.text_input("Nieuw wachtwoord")
-        role = st.selectbox("Rol", ["admin", "editor", "viewer"])
-        active = st.checkbox("Actief", True)
-
-        if st.form_submit_button("Opslaan"):
-            c.execute("""
-                INSERT OR REPLACE INTO users
-                VALUES (?,?,?,?,0)
-            """, (u, hash_pw(pw), role, int(active)))
-            c.commit()
-            st.success("Gebruiker opgeslagen")
-            st.rerun()
     c.close()
 
 # ================= UI =================
 tabs = st.tabs([
-    "📊 Dashboard",
     "🅿️ Uitzonderingen",
     "♿ Gehandicapten",
     "📄 Contracten",
     "🧩 Projecten",
     "🛠️ Werkzaamheden",
-    "👥 Gebruikersbeheer"
+    "🧾 Audit log"
 ])
 
 with tabs[0]:
-    c = conn()
-    for t in ["uitzonderingen","gehandicapten","contracten","projecten","werkzaamheden"]:
-        st.metric(t, pd.read_sql(f"SELECT * FROM {t}", c).shape[0])
-    c.close()
-
-with tabs[1]:
     crud_block("uitzonderingen",
         ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
         dropdowns={"type":["Bewoner","Bedrijf","Project"]})
 
-with tabs[2]:
+with tabs[1]:
     crud_block("gehandicapten",
         ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"],
         optional_dates=("geldig_tot",))
 
-with tabs[3]:
+with tabs[2]:
     crud_block("contracten",
         ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"],
         optional_dates=("start","einde"))
 
-with tabs[4]:
+with tabs[3]:
     crud_block("projecten",
         ["naam","projectleider","start","einde","prio","status","opmerking"],
         dropdowns={"prio":["Hoog","Gemiddeld","Laag"],
                    "status":["Niet gestart","Actief","Afgerond"]},
         optional_dates=("start","einde"))
 
-with tabs[5]:
+with tabs[4]:
     crud_block("werkzaamheden",
         ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
         dropdowns={"status":["Gepland","In uitvoering","Afgerond"]},
         optional_dates=("start","einde"))
 
-with tabs[6]:
-    if has_role("admin"):
-        user_management()
-    else:
-        st.warning("Alleen admins hebben toegang tot gebruikersbeheer")
+with tabs[5]:
+    c = conn()
+    st.dataframe(pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c))
+    c.close()
