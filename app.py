@@ -193,7 +193,7 @@ def export_pdf(df, title):
     doc.build([Paragraph(title, styles["Title"]), t])
     st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf", key=f"{title}_pdf")
 
-# ================= ZOEK =================
+# ================= SEARCH =================
 def apply_search(df, search):
     if not search:
         return df
@@ -202,8 +202,41 @@ def apply_search(df, search):
     ).any(axis=1)
     return df[mask]
 
+# ================= DASHBOARD SHORTCUTS =================
+def dashboard_shortcuts():
+    shortcuts = [
+        ("🗺️ Drechtmaps GeoApps", "GIS & kaarten", "https://drechtmaps.nl", ["admin","editor","viewer"]),
+        ("📄 eBesluitvorming", "Besluiten", "https://ebesluitvorming.nl", ["admin","editor"]),
+        ("📅 Agenda", "Outlook agenda", "https://outlook.office.com/calendar/", ["admin","editor","viewer"]),
+        ("📊 Power BI", "Dashboards", "https://app.powerbi.com", ["admin","editor"]),
+        ("📦 AFAS", "HR & Financiën", "https://afas.nl", ["admin"]),
+    ]
+
+    st.markdown("### 🚀 Snelkoppelingen")
+    cols = st.columns(3)
+    i = 0
+
+    for title, sub, url, roles in shortcuts:
+        if st.session_state.role not in roles:
+            continue
+        with cols[i]:
+            st.markdown(f"""
+                <a href="{url}" target="_blank" style="text-decoration:none;">
+                <div style="
+                    border:1px solid #e0e0e0;
+                    border-radius:14px;
+                    padding:18px;
+                    margin-bottom:16px;
+                    background:white;
+                    box-shadow:0 4px 10px rgba(0,0,0,0.06);">
+                    <div style="font-size:22px;font-weight:600;">{title}</div>
+                    <div style="color:#666;margin-top:6px;">{sub}</div>
+                </div></a>
+            """, unsafe_allow_html=True)
+        i = (i + 1) % 3
+
 # ================= CRUD =================
-def crud_block(table, fields, dropdowns=None, optional_dates=()):
+def crud_block(table, fields, dropdowns=None):
     dropdowns = dropdowns or {}
     c = conn()
     df = pd.read_sql(f"SELECT * FROM {table}", c)
@@ -259,7 +292,7 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
 
     c.close()
 
-# ================= DASHBOARD =================
+# ================= UI =================
 tabs = st.tabs([
     "📊 Dashboard",
     "🅿️ Uitzonderingen",
@@ -280,23 +313,21 @@ with tabs[0]:
     cols[3].metric("Projecten", pd.read_sql("SELECT COUNT(*) c FROM projecten", c)["c"][0])
     cols[4].metric("Werkzaamheden", pd.read_sql("SELECT COUNT(*) c FROM werkzaamheden", c)["c"][0])
 
+    st.markdown("---")
+    dashboard_shortcuts()
+    st.markdown("---")
+
     st.markdown("### 👤 Activiteiten per gebruiker")
     act = pd.read_sql("""
-        SELECT user,
-               COUNT(*) AS acties,
-               MAX(timestamp) AS laatste_actie
-        FROM audit_log
-        GROUP BY user
-        ORDER BY acties DESC
+        SELECT user, COUNT(*) acties, MAX(timestamp) laatste_actie
+        FROM audit_log GROUP BY user ORDER BY acties DESC
     """, c)
     st.dataframe(act, use_container_width=True)
 
     st.markdown("### 🧾 Laatste acties")
     last = pd.read_sql("""
         SELECT timestamp, user, action, table_name, record_id
-        FROM audit_log
-        ORDER BY id DESC
-        LIMIT 10
+        FROM audit_log ORDER BY id DESC LIMIT 10
     """, c)
     st.dataframe(last, use_container_width=True)
     c.close()
@@ -304,7 +335,7 @@ with tabs[0]:
 with tabs[1]:
     crud_block("uitzonderingen",
         ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
-        dropdowns={"type":["Bewoner","Bedrijf","Project"]})
+        {"type":["Bewoner","Bedrijf","Project"]})
 
 with tabs[2]:
     crud_block("gehandicapten",
@@ -317,12 +348,12 @@ with tabs[3]:
 with tabs[4]:
     crud_block("projecten",
         ["naam","projectleider","start","einde","prio","status","opmerking"],
-        dropdowns={"prio":["Hoog","Gemiddeld","Laag"],"status":["Niet gestart","Actief","Afgerond"]})
+        {"prio":["Hoog","Gemiddeld","Laag"],"status":["Niet gestart","Actief","Afgerond"]})
 
 with tabs[5]:
     crud_block("werkzaamheden",
         ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
-        dropdowns={"status":["Gepland","In uitvoering","Afgerond"]})
+        {"status":["Gepland","In uitvoering","Afgerond"]})
 
 with tabs[6]:
     if has_role("admin"):
