@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import date
 from io import BytesIO
 import hashlib
-import tabula
+import pdfplumber
 
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
@@ -168,3 +168,4 @@ with tab_p:
     st.dataframe(df, use_container_width=True)
     export_excel(df, "projecten")
     export_pdf(df, "projecten")
+
