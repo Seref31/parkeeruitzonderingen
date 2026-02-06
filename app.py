@@ -111,33 +111,56 @@ def export_pdf(df, title):
 
 # ================= PDF IMPORT =================
 def import_projecten_pdf(upload):
-    with open("temp_projecten.pdf", "wb") as f:
-        f.write(upload.read())
+    rows = []
 
-    dfs = tabula.read_pdf("temp_projecten.pdf", pages="all", multiple_tables=True)
-    if not dfs:
+    with pdfplumber.open(upload) as pdf:
+        for page in pdf.pages:
+            table = page.extract_table()
+            if not table:
+                continue
+
+            headers = table[0]
+            for r in table[1:]:
+                rows.append(dict(zip(headers, r)))
+
+    if not rows:
         return 0
 
-    df = dfs[0]
-    df.columns = ["id","naam","projectleider","start","einde","prio","status","opmerking"]
+    df = pd.DataFrame(rows)
+
+    # Kolommen normaliseren
+    df = df.rename(columns={
+        "naam": "naam",
+        "projectleider": "projectleider",
+        "start": "start",
+        "einde": "einde",
+        "prio": "prio",
+        "status": "status",
+        "opmerking": "opmerking"
+    })
+
     df = df.replace({"None": None, "n.t.b.": None})
 
-    for col in ["start","einde"]:
+    for col in ["start", "einde"]:
         df[col] = pd.to_datetime(df[col], errors="coerce")
 
     c = conn()
-    bestaande = pd.read_sql("SELECT naam, start FROM projecten", c)
+    bestaand = pd.read_sql("SELECT naam, start FROM projecten", c)
 
     nieuw = df.merge(
-        bestaande, on=["naam","start"],
-        how="left", indicator=True
+        bestaand,
+        on=["naam", "start"],
+        how="left",
+        indicator=True
     ).query("_merge == 'left_only'")
 
-    nieuw.drop(columns=["_merge","id"], errors="ignore", inplace=True)
-    nieuw.to_sql("projecten", c, if_exists="append", index=False)
+    nieuw.drop(columns="_merge", inplace=True)
 
+    nieuw.to_sql("projecten", c, if_exists="append", index=False)
     c.close()
+
     return len(nieuw)
+
 
 # ================= UI =================
 st.title("🅿️ Parkeerbeheer Dashboard")
@@ -168,4 +191,5 @@ with tab_p:
     st.dataframe(df, use_container_width=True)
     export_excel(df, "projecten")
     export_pdf(df, "projecten")
+
 
