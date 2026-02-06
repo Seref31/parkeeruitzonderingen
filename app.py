@@ -262,8 +262,31 @@ tab_d, tab_u, tab_g, tab_c, tab_p, tab_w = st.tabs([
 
 with tab_d:
     c = conn()
-    st.metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    col1.metric(
+        "Uitzonderingen",
+        pd.read_sql("SELECT * FROM uitzonderingen", c).shape[0]
+    )
+    col2.metric(
+        "Gehandicapten",
+        pd.read_sql("SELECT * FROM gehandicapten", c).shape[0]
+    )
+    col3.metric(
+        "Contracten",
+        pd.read_sql("SELECT * FROM contracten", c).shape[0]
+    )
+    col4.metric(
+        "Projecten",
+        pd.read_sql("SELECT * FROM projecten", c).shape[0]
+    )
+    col5.metric(
+        "Werkzaamheden",
+        pd.read_sql("SELECT * FROM werkzaamheden", c).shape[0]
+    )
+
     c.close()
+
 
 with tab_u:
     crud_block("uitzonderingen",
@@ -303,3 +326,4 @@ with tab_w:
         ["omschrijving","locatie","start","einde","status","uitvoerder","opmerking"],
         dropdowns={"status":["Gepland","In uitvoering","Afgerond"]},
         optional_dates=("start","einde"))
+
