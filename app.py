@@ -43,11 +43,12 @@ def init_db():
     with get_conn() as c:
         cur = c.cursor()
 
+        # USERS
         cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
-            password TEXT,
-            role TEXT
+            password TEXT NOT NULL,
+            role TEXT NOT NULL
         )""")
 
         for u, (pw, role) in START_USERS.items():
@@ -56,6 +57,7 @@ def init_db():
                 (u, hash_pw(pw), role)
             )
 
+        # AUDIT LOG
         cur.execute("""
         CREATE TABLE IF NOT EXISTS audit_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,20 +68,66 @@ def init_db():
             timestamp TEXT
         )""")
 
-        for tbl in {
-            "uitzonderingen": "naam TEXT, kenteken TEXT, locatie TEXT, type TEXT, start DATE, einde DATE, toestemming TEXT, opmerking TEXT",
-            "gehandicapten": "naam TEXT, kaartnummer TEXT, adres TEXT, locatie TEXT, geldig_tot DATE, besluit_door TEXT, opmerking TEXT",
-            "contracten": "leverancier TEXT, contractnummer TEXT, start DATE, einde DATE, contactpersoon TEXT, opmerking TEXT",
-            "projecten": "naam TEXT, projectleider TEXT, start DATE, einde DATE, prio TEXT, status TEXT, opmerking TEXT",
-            "werkzaamheden": "omschrijving TEXT, locatie TEXT, start DATE, einde DATE, status TEXT, uitvoerder TEXT, latitude REAL, longitude REAL, opmerking TEXT"
-        }.items():
+        # DOMEIN TABELLEN
+        tabellen = {
+            "uitzonderingen": """
+                naam TEXT,
+                kenteken TEXT,
+                locatie TEXT,
+                type TEXT,
+                start DATE,
+                einde DATE,
+                toestemming TEXT,
+                opmerking TEXT
+            """,
+            "gehandicapten": """
+                naam TEXT,
+                kaartnummer TEXT,
+                adres TEXT,
+                locatie TEXT,
+                geldig_tot DATE,
+                besluit_door TEXT,
+                opmerking TEXT
+            """,
+            "contracten": """
+                leverancier TEXT,
+                contractnummer TEXT,
+                start DATE,
+                einde DATE,
+                contactpersoon TEXT,
+                opmerking TEXT
+            """,
+            "projecten": """
+                naam TEXT,
+                projectleider TEXT,
+                start DATE,
+                einde DATE,
+                prio TEXT,
+                status TEXT,
+                opmerking TEXT
+            """,
+            "werkzaamheden": """
+                omschrijving TEXT,
+                locatie TEXT,
+                start DATE,
+                einde DATE,
+                status TEXT,
+                uitvoerder TEXT,
+                latitude REAL,
+                longitude REAL,
+                opmerking TEXT
+            """
+        }
+
+        for table_name, cols in tabellen.items():
             cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS {tbl} (
+            CREATE TABLE IF NOT EXISTS {table_name} (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 {cols}
             )""")
 
         c.commit()
+
 
 init_db()
 
@@ -278,3 +326,4 @@ with tabs[6]:
     with get_conn() as c:
         audit = pd.read_sql("SELECT * FROM audit_log ORDER BY timestamp DESC", c)
     st.dataframe(audit, use_container_width=True)
+
