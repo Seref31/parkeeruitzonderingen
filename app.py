@@ -1,4 +1,4 @@
-import streamlit as st
+\import streamlit as st
 import sqlite3
 import pandas as pd
 from datetime import date, datetime
@@ -124,8 +124,8 @@ init_db()
 # ================= LOGIN =================
 if "user" not in st.session_state:
     st.title("🔐 Inloggen")
-    u = st.text_input("Gebruiker", key="login_user")
-    p = st.text_input("Wachtwoord", type="password", key="login_pw")
+    u = st.text_input("Gebruiker")
+    p = st.text_input("Wachtwoord", type="password")
 
     if st.button("Inloggen"):
         c = conn()
@@ -193,11 +193,24 @@ def export_pdf(df, title):
     doc.build([Paragraph(title, styles["Title"]), t])
     st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf", key=f"{title}_pdf")
 
+# ================= ZOEK & FILTER =================
+def apply_search(df, search):
+    if not search:
+        return df
+    mask = df.astype(str).apply(
+        lambda x: x.str.contains(search, case=False, na=False)
+    ).any(axis=1)
+    return df[mask]
+
 # ================= CRUD =================
 def crud_block(table, fields, dropdowns=None, optional_dates=()):
     dropdowns = dropdowns or {}
     c = conn()
     df = pd.read_sql(f"SELECT * FROM {table}", c)
+
+    st.subheader(f"🔍 Zoeken in {table}")
+    search = st.text_input("Zoekterm", key=f"{table}_search")
+    df = apply_search(df, search)
 
     st.dataframe(df, use_container_width=True)
     export_excel(df, table)
@@ -207,12 +220,7 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
         c.close()
         return
 
-    sel = st.selectbox(
-        "✏️ Selecteer record",
-        [None] + df["id"].tolist(),
-        key=f"{table}_select"
-    )
-
+    sel = st.selectbox("✏️ Selecteer record", [None] + df["id"].tolist(), key=f"{table}_select")
     record = df[df.id == sel].iloc[0] if sel else None
 
     with st.form(f"{table}_form"):
@@ -223,11 +231,7 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
             if f in dropdowns:
                 values[f] = st.selectbox(f, dropdowns[f], key=key)
             elif f in optional_dates:
-                values[f] = st.date_input(
-                    f,
-                    value=pd.to_datetime(val).date() if val else None,
-                    key=key
-                )
+                values[f] = st.date_input(f, value=pd.to_datetime(val).date() if val else None, key=key)
             else:
                 values[f] = st.text_input(f, str(val) if val else "", key=key)
 
@@ -258,102 +262,76 @@ def crud_block(table, fields, dropdowns=None, optional_dates=()):
 
     c.close()
 
-# ================= PDF IMPORT PROJECTEN =================
-def import_projecten_pdf(upload):
-    rows = []
-    with pdfplumber.open(upload) as pdf:
-        for page in pdf.pages:
-            table = page.extract_table()
-            if table:
-                headers = table[0]
-                for r in table[1:]:
-                    rows.append(dict(zip(headers, r)))
-
-    if not rows:
-        return 0
-
-    df = pd.DataFrame(rows).replace({"None": None, "n.t.b.": None})
-    for col in ["start", "einde"]:
-        if col in df:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
-
+# ================= GEBRUIKERSBEHEER =================
+def user_management():
     c = conn()
-    bestaand = pd.read_sql("SELECT naam, start FROM projecten", c)
-    nieuw = df.merge(bestaand, on=["naam","start"], how="left", indicator=True)
-    nieuw = nieuw[nieuw["_merge"] == "left_only"].drop(columns="_merge")
-    nieuw.to_sql("projecten", c, if_exists="append", index=False)
+    df = pd.read_sql("SELECT username, role, active, force_change FROM users", c)
+    st.dataframe(df, use_container_width=True)
+
+    st.subheader("➕ Gebruiker toevoegen / wijzigen")
+    with st.form("user_form"):
+        u = st.text_input("Gebruikersnaam")
+        pw = st.text_input("Wachtwoord", type="password")
+        role = st.selectbox("Rol", ["admin", "editor", "viewer"])
+        active = st.checkbox("Actief", True)
+        force = st.checkbox("Force password change", True)
+
+        if st.form_submit_button("Opslaan"):
+            c.execute("""
+                INSERT OR REPLACE INTO users
+                (username,password,role,active,force_change)
+                VALUES (?,?,?,?,?)
+            """, (u, hash_pw(pw), role, int(active), int(force)))
+            c.commit()
+            audit("USER_UPDATE")
+            st.success("Gebruiker opgeslagen")
+            st.rerun()
     c.close()
-    return len(nieuw)
 
 # ================= UI =================
-st.title("🅿️ Parkeerbeheer Dashboard")
-
 tabs = st.tabs([
-    "📊 Dashboard",
     "🅿️ Uitzonderingen",
     "♿ Gehandicapten",
     "📄 Contracten",
     "🧩 Projecten",
     "🛠️ Werkzaamheden",
+    "👥 Gebruikersbeheer",
     "🧾 Audit log"
 ])
 
 with tabs[0]:
-    c = conn()
-    cols = st.columns(5)
-    cols[0].metric("Uitzonderingen", pd.read_sql("SELECT * FROM uitzonderingen", c).shape[0])
-    cols[1].metric("Gehandicapten", pd.read_sql("SELECT * FROM gehandicapten", c).shape[0])
-    cols[2].metric("Contracten", pd.read_sql("SELECT * FROM contracten", c).shape[0])
-    cols[3].metric("Projecten", pd.read_sql("SELECT * FROM projecten", c).shape[0])
-    cols[4].metric("Werkzaamheden", pd.read_sql("SELECT * FROM werkzaamheden", c).shape[0])
-    c.close()
-
-with tabs[1]:
     crud_block("uitzonderingen",
         ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
         dropdowns={"type":["Bewoner","Bedrijf","Project"]})
 
-with tabs[2]:
+with tabs[1]:
     crud_block("gehandicapten",
         ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"],
         optional_dates=("geldig_tot",))
 
-with tabs[3]:
+with tabs[2]:
     crud_block("contracten",
         ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"],
         optional_dates=("start","einde"))
 
-with tabs[4]:
-    st.subheader("📄 Projecten importeren uit PDF")
-    pdf = st.file_uploader("Upload projecten-PDF", type="pdf", key="project_pdf")
-    if pdf and st.button("⬆️ Importeren"):
-        st.success(f"{import_projecten_pdf(pdf)} projecten geïmporteerd")
-        st.rerun()
-    st.markdown("---")
+with tabs[3]:
     crud_block("projecten",
         ["naam","projectleider","start","einde","prio","status","opmerking"],
         dropdowns={"prio":["Hoog","Gemiddeld","Laag"],
                    "status":["Niet gestart","Actief","Afgerond"]},
         optional_dates=("start","einde"))
 
-with tabs[5]:
+with tabs[4]:
     crud_block("werkzaamheden",
         ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
         dropdowns={"status":["Gepland","In uitvoering","Afgerond"]},
         optional_dates=("start","einde"))
 
-    st.markdown("### 📍 Werkzaamheden op kaart")
-    c = conn()
-    df_map = pd.read_sql("""
-        SELECT latitude, longitude
-        FROM werkzaamheden
-        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-    """, c)
-    c.close()
-    if not df_map.empty:
-        st.map(df_map)
+with tabs[5]:
+    if has_role("admin"):
+        user_management()
     else:
-        st.info("Geen GPS-locaties ingevoerd")
+        st.warning("Alleen admins hebben toegang")
 
 with tabs[6]:
     c = conn()
