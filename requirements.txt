@@ -1,9 +1,6 @@
 streamlit
 pandas
-folium
-streamlit-folium
-geopy
-PyPDF2
+sqlite3
+openpyxl
 reportlab
-plotly
 pdfplumber
