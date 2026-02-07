@@ -1,10 +1,10 @@
+# ================= IMPORTS =================
 import streamlit as st
 import sqlite3
 import pandas as pd
 from datetime import datetime
 from io import BytesIO
 import hashlib
-import pdfplumber
 
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
@@ -81,7 +81,7 @@ def init_db():
         active INTEGER
     )""")
 
-    # ✅ AGENDA TABEL
+    # ✅ AGENDA
     cur.execute("""
     CREATE TABLE IF NOT EXISTS agenda (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,13 +94,6 @@ def init_db():
         aangemaakt_door TEXT,
         aangemaakt_op TEXT
     )""")
-
-    for u, (p, r) in START_USERS.items():
-        cur.execute("""
-            INSERT OR IGNORE INTO users
-            (username,password,role,active,force_change)
-            VALUES (?,?,?,?,1)
-        """, (u, hash_pw(p), r, 1))
 
     tables = {
         "uitzonderingen": """
@@ -140,6 +133,12 @@ def init_db():
     for t, ddl in tables.items():
         cur.execute(f"CREATE TABLE IF NOT EXISTS {t} ({ddl})")
 
+    for u, (p, r) in START_USERS.items():
+        cur.execute("""
+            INSERT OR IGNORE INTO users
+            VALUES (?,?,?,?,1)
+        """, (u, hash_pw(p), r, 1))
+
     c.commit()
     c.close()
 
@@ -166,37 +165,11 @@ if "user" not in st.session_state:
             audit("LOGIN")
             st.rerun()
         else:
-            st.error("Onjuiste gegevens of account geblokkeerd")
-    st.stop()
-
-# ================= FORCE PASSWORD CHANGE =================
-if st.session_state.force_change == 1:
-    st.title("🔑 Wachtwoord wijzigen (verplicht)")
-    pw1 = st.text_input("Nieuw wachtwoord", type="password")
-    pw2 = st.text_input("Herhaal wachtwoord", type="password")
-
-    if st.button("Wijzigen"):
-        if pw1 != pw2 or len(pw1) < 8:
-            st.error("Wachtwoord ongeldig")
-        else:
-            c = conn()
-            c.execute("""
-                UPDATE users
-                SET password=?, force_change=0
-                WHERE username=?
-            """, (hash_pw(pw1), st.session_state.user))
-            c.commit()
-            c.close()
-            audit("PASSWORD_CHANGE")
-            st.session_state.force_change = 0
-            st.rerun()
+            st.error("Onjuiste gegevens")
     st.stop()
 
 # ================= SIDEBAR =================
 st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
-
-if st.sidebar.button("📅 Agenda"):
-    st.session_state.jump_to_agenda = True
 
 if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
@@ -221,27 +194,54 @@ def export_pdf(df, title):
     doc.build([Paragraph(title, styles["Title"]), t])
     st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
 
+# ================= CRUD =================
+def crud_block(table, fields):
+    c = conn()
+    df = pd.read_sql(f"SELECT * FROM {table}", c)
+
+    st.dataframe(df, use_container_width=True)
+    export_excel(df, table)
+    export_pdf(df, table)
+
+    if not has_role("admin", "editor"):
+        c.close()
+        return
+
+    sel = st.selectbox("Selecteer record", [None] + df["id"].tolist())
+    record = df[df.id == sel].iloc[0] if sel else None
+
+    with st.form(f"{table}_form"):
+        values = {}
+        for f in fields:
+            values[f] = st.text_input(f, record[f] if record is not None else "")
+
+        if st.form_submit_button("💾 Opslaan"):
+            c.execute(
+                f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
+                tuple(values.values())
+            )
+            c.commit()
+            audit("INSERT", table)
+            st.rerun()
+
+    c.close()
+
 # ================= AGENDA =================
 def agenda_block():
     c = conn()
     df = pd.read_sql("SELECT * FROM agenda ORDER BY datum, starttijd", c)
 
     st.subheader("📅 Agenda")
+    st.dataframe(df, use_container_width=True)
 
-    if not df.empty:
-        st.dataframe(df, use_container_width=True)
-        export_excel(df, "agenda")
-        export_pdf(df, "Agenda")
-    else:
-        st.info("Geen agenda-items")
+    export_excel(df, "agenda")
+    export_pdf(df, "Agenda")
 
     if not has_role("admin", "editor"):
         c.close()
         return
 
-    st.markdown("### ➕ Agenda-item")
-
-    sel = st.selectbox("Selecteer item", [None] + df["id"].tolist() if not df.empty else [None])
+    sel = st.selectbox("Selecteer agenda-item", [None] + df["id"].tolist())
     record = df[df.id == sel].iloc[0] if sel else None
 
     with st.form("agenda_form"):
@@ -266,22 +266,6 @@ def agenda_block():
             audit("AGENDA_ADD", "agenda")
             st.rerun()
 
-        if record is not None and st.form_submit_button("✏️ Wijzigen"):
-            c.execute("""
-                UPDATE agenda
-                SET titel=?, datum=?, starttijd=?, eindtijd=?, locatie=?, beschrijving=?
-                WHERE id=?
-            """, (titel, datum, starttijd, eindtijd, locatie, beschrijving, sel))
-            c.commit()
-            audit("AGENDA_UPDATE", "agenda", sel)
-            st.rerun()
-
-        if record is not None and has_role("admin") and st.form_submit_button("🗑️ Verwijderen"):
-            c.execute("DELETE FROM agenda WHERE id=?", (sel,))
-            c.commit()
-            audit("AGENDA_DELETE", "agenda", sel)
-            st.rerun()
-
     c.close()
 
 # ================= UI =================
@@ -293,9 +277,31 @@ tabs = st.tabs([
     "🧩 Projecten",
     "🛠️ Werkzaamheden",
     "📅 Agenda",
-    "👥 Gebruikersbeheer",
     "🧾 Audit log"
 ])
 
+with tabs[0]:
+    st.info("Dashboard werkt")
+
+with tabs[1]:
+    crud_block("uitzonderingen", ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"])
+
+with tabs[2]:
+    crud_block("gehandicapten", ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"])
+
+with tabs[3]:
+    crud_block("contracten", ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"])
+
+with tabs[4]:
+    crud_block("projecten", ["naam","projectleider","start","einde","prio","status","opmerking"])
+
+with tabs[5]:
+    crud_block("werkzaamheden", ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"])
+
 with tabs[6]:
     agenda_block()
+
+with tabs[7]:
+    c = conn()
+    st.dataframe(pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c))
+    c.close()
