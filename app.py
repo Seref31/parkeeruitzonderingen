@@ -11,6 +11,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
+
 # ================= CONFIG =================
 st.set_page_config("Parkeerbeheer Dashboard", layout="wide")
 
@@ -22,15 +23,19 @@ START_USERS = {
     "wout": ("Wout@7394", "viewer"),
 }
 
+
 # ================= HULP =================
 def conn():
     return sqlite3.connect(DB, check_same_thread=False)
 
+
 def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
+
 def has_role(*roles):
     return st.session_state.role in roles
+
 
 def audit(action, table=None, record_id=None):
     c = conn()
@@ -49,6 +54,7 @@ def audit(action, table=None, record_id=None):
     )
     c.commit()
     c.close()
+
 
 # ================= DB INIT =================
 def init_db():
@@ -164,11 +170,14 @@ def init_db():
     c.commit()
     c.close()
 
+
 init_db()
+
 
 # ================= LOGIN =================
 if "user" not in st.session_state:
     st.title("🔐 Inloggen")
+
     u = st.text_input("Gebruiker")
     p = st.text_input("Wachtwoord", type="password")
 
@@ -177,7 +186,8 @@ if "user" not in st.session_state:
         r = c.execute(
             """
             SELECT password, role, active, force_change
-            FROM users WHERE username=?
+            FROM users
+            WHERE username=?
             """,
             (u,),
         ).fetchone()
@@ -194,9 +204,11 @@ if "user" not in st.session_state:
 
     st.stop()
 
+
 # ================= FORCE PASSWORD CHANGE =================
 if st.session_state.force_change == 1:
     st.title("🔑 Wachtwoord wijzigen (verplicht)")
+
     pw1 = st.text_input("Nieuw wachtwoord", type="password")
     pw2 = st.text_input("Herhaal wachtwoord", type="password")
 
@@ -207,19 +219,20 @@ if st.session_state.force_change == 1:
             c = conn()
             c.execute(
                 """
-                UPDATE users SET password=?, force_change=0
+                UPDATE users
+                SET password=?, force_change=0
                 WHERE username=?
                 """,
                 (hash_pw(pw1), st.session_state.user),
             )
             c.commit()
             c.close()
-
             audit("PASSWORD_CHANGE")
             st.session_state.force_change = 0
             st.rerun()
 
     st.stop()
+
 
 # ================= SIDEBAR =================
 st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
@@ -228,11 +241,13 @@ if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
     st.rerun()
 
+
 # ================= EXPORT =================
 def export_excel(df, name):
     buf = BytesIO()
     df.to_excel(buf, index=False)
     st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
+
 
 def export_pdf(df, title):
     buf = BytesIO()
@@ -240,8 +255,8 @@ def export_pdf(df, title):
     styles = getSampleStyleSheet()
 
     data = [df.columns.tolist()] + df.astype(str).values.tolist()
-    table = Table(data, repeatRows=1)
-    table.setStyle(
+    t = Table(data, repeatRows=1)
+    t.setStyle(
         TableStyle(
             [
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
@@ -250,8 +265,9 @@ def export_pdf(df, title):
         )
     )
 
-    doc.build([Paragraph(title, styles["Title"]), table])
+    doc.build([Paragraph(title, styles["Title"]), t])
     st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
+
 
 # ================= SEARCH =================
 def apply_search(df, search):
@@ -265,12 +281,11 @@ def apply_search(df, search):
     )
     return df[mask]
 
+
 # ================= DASHBOARD SHORTCUTS =================
 def dashboard_shortcuts():
     c = conn()
-    df = pd.read_sql(
-        "SELECT * FROM dashboard_shortcuts WHERE active=1", c
-    )
+    df = pd.read_sql("SELECT * FROM dashboard_shortcuts WHERE active=1", c)
     c.close()
 
     if df.empty:
@@ -290,19 +305,112 @@ def dashboard_shortcuts():
             st.markdown(
                 f"""
                 <a href="{s['url']}" target="_blank" style="text-decoration:none;">
-                  <div style="border:1px solid #e0e0e0;border-radius:14px;
-                              padding:18px;margin-bottom:16px;background:white;
-                              box-shadow:0 4px 10px rgba(0,0,0,0.06);">
-                    <div style="font-size:22px;font-weight:600;">
-                      {s['title']}
+                    <div style="border:1px solid #e0e0e0;border-radius:14px;
+                                padding:18px;margin-bottom:16px;background:white;
+                                box-shadow:0 4px 10px rgba(0,0,0,0.06);">
+                        <div style="font-size:22px;font-weight:600;">
+                            {s['title']}
+                        </div>
+                        <div style="color:#666;margin-top:6px;">
+                            {s['subtitle']}
+                        </div>
                     </div>
-                    <div style="color:#666;margin-top:6px;">
-                      {s['subtitle']}
-                    </div>
-                  </div>
                 </a>
                 """,
                 unsafe_allow_html=True,
             )
-
         i = (i + 1) % 3
+
+
+# ================= CRUD =================
+def crud_block(table, fields, dropdowns=None):
+    dropdowns = dropdowns or {}
+    c = conn()
+
+    df = pd.read_sql(f"SELECT * FROM {table}", c)
+
+    search = st.text_input("🔍 Zoeken", key=f"{table}_search")
+    df = apply_search(df, search)
+
+    st.dataframe(df, use_container_width=True)
+    export_excel(df, table)
+    export_pdf(df, table)
+
+    if not has_role("admin", "editor"):
+        c.close()
+        return
+
+    sel = st.selectbox(
+        "✏️ Selecteer record",
+        [None] + df["id"].tolist(),
+        key=f"{table}_select",
+    )
+
+    record = df[df.id == sel].iloc[0] if sel else None
+
+    with st.form(f"{table}_form"):
+        values = {}
+
+        for f in fields:
+            key = f"{table}_{f}"
+            val = record[f] if record is not None else ""
+
+            if f in dropdowns:
+                values[f] = st.selectbox(f, dropdowns[f], key=key)
+            else:
+                values[f] = st.text_input(
+                    f, str(val) if val else "", key=key
+                )
+
+        if st.form_submit_button("💾 Opslaan"):
+            c.execute(
+                f"""
+                INSERT INTO {table} ({','.join(fields)})
+                VALUES ({','.join('?' * len(fields))})
+                """,
+                tuple(values.values()),
+            )
+            rid = c.execute(
+                "SELECT last_insert_rowid()"
+            ).fetchone()[0]
+            c.commit()
+            audit("INSERT", table, rid)
+            st.rerun()
+
+        if record is not None and st.form_submit_button("✏️ Wijzigen"):
+            c.execute(
+                f"""
+                UPDATE {table}
+                SET {','.join(f + '=?' for f in fields)}
+                WHERE id=?
+                """,
+                (*values.values(), sel),
+            )
+            c.commit()
+            audit("UPDATE", table, sel)
+            st.rerun()
+
+        if has_role("admin") and record is not None and st.form_submit_button(
+            "🗑️ Verwijderen"
+        ):
+            c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
+            c.commit()
+            audit("DELETE", table, sel)
+            st.rerun()
+
+    c.close()
+
+
+# ================= UI =================
+tabs = st.tabs(
+    [
+        "📊 Dashboard",
+        "🅿️ Uitzonderingen",
+        "♿ Gehandicapten",
+        "📄 Contracten",
+        "🧩 Projecten",
+        "🛠️ Werkzaamheden",
+        "👥 Gebruikersbeheer",
+        "🧾 Audit log",
+    ]
+)
