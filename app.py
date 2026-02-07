@@ -82,14 +82,12 @@ def init_db():
         )
     """)
 
-    # Gebruikers seed
     for u, (p, r) in START_USERS.items():
         cur.execute("""
-            INSERT OR IGNORE INTO users (username,password,role,active,force_change)
+            INSERT OR IGNORE INTO users (username, password, role, active, force_change)
             VALUES (?,?,?,?,1)
         """, (u, hash_pw(p), r, 1))
 
-    # Bestaande functionele tabellen
     tables = {
         "uitzonderingen": """
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,16 +114,6 @@ def init_db():
             omschrijving TEXT, locatie TEXT, start DATE, einde DATE,
             status TEXT, uitvoerder TEXT, latitude REAL,
             longitude REAL, opmerking TEXT
-        """,
-        # === NIEUW: Agenda voor activiteitenbeheer ===
-        "agenda": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            onderwerp TEXT,
-            locatie TEXT,
-            start DATETIME,
-            einde DATETIME,
-            status TEXT,
-            opmerking TEXT
         """
     }
 
@@ -191,43 +179,6 @@ if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
     st.rerun()
 
-# === NIEUW: Komende activiteiten (links op scherm) ===
-st.sidebar.markdown("### 📅 Komende activiteiten")
-try:
-    c = conn()
-    df_agenda_sidebar = pd.read_sql("""
-        SELECT id, onderwerp, start, locatie, status
-        FROM agenda
-        WHERE date(start) >= date('now')
-        ORDER BY start ASC
-        LIMIT 8
-    """, c)
-    c.close()
-
-    if df_agenda_sidebar.empty:
-        st.sidebar.info("Geen komende activiteiten")
-    else:
-        for _, r in df_agenda_sidebar.iterrows():
-            # Robuuste datumweergave
-            try:
-                dt = pd.to_datetime(r["start"])
-                dag = dt.strftime("%d %b %Y")
-                tijd = dt.strftime("%H:%M") if not pd.isna(dt.hour) else ""
-                dagen_rest = (dt.date() - datetime.now().date()).days
-                badge = f"{dagen_rest}d" if dagen_rest >= 0 else ""
-            except Exception:
-                dag, tijd, badge = str(r["start"]), "", ""
-
-            st.sidebar.markdown(
-                f"- **{r['onderwerp']}**  \n"
-                f"  🗓️ {dag} {('om ' + tijd) if tijd else ''} "
-                f"{' · ' + r['locatie'] if r['locatie'] else ''} "
-                f"{' · ' + r['status'] if r['status'] else ''} "
-                f"{' · ⏳ ' + badge if badge else ''}"
-            )
-except Exception as e:
-    st.sidebar.warning(f"Agenda kon niet geladen worden: {e}")
-
 # ================= EXPORT =================
 def export_excel(df, name):
     buf = BytesIO()
@@ -277,15 +228,14 @@ def dashboard_shortcuts():
             continue
 
         with cols[i]:
-            # Let op: HTML is bewust ongewijzigd t.o.v. jouw script
             st.markdown(f"""
-                &lt;a href="{s['url']}" target="_blank" style="text-decoration:none;"&gt;
-                &lt;div style="border:1px solid #e0e0e0;border-radius:14px;
+                <a href="{s['url']}" target="_blank" style="text-decoration:none;">
+                <div style="border:1px solid #e0e0e0;border-radius:14px;
                 padding:18px;margin-bottom:16px;background:white;
-                box-shadow:0 4px 10px rgba(0,0,0,0.06);"&gt;
-                &lt;div style="font-size:22px;font-weight:600;"&gt;{s['title']}&lt;/div&gt;
-                &lt;div style="color:#666;margin-top:6px;"&gt;{s['subtitle']}&lt;/div&gt;
-                &lt;/div&gt;&lt;/a&gt;
+                box-shadow:0 4px 10px rgba(0,0,0,0.06);">
+                <div style="font-size:22px;font-weight:600;">{s['title']}</div>
+                <div style="color:#666;margin-top:6px;">{s['subtitle']}</div>
+                </div></a>
             """, unsafe_allow_html=True)
 
         i = (i + 1) % 3
@@ -359,7 +309,6 @@ tabs = st.tabs([
     "📄 Contracten",
     "🧩 Projecten",
     "🛠️ Werkzaamheden",
-    "📅 Agenda",            # <=== NIEUW TABBLAD
     "👥 Gebruikersbeheer",
     "🧾 Audit log"
 ])
@@ -439,15 +388,7 @@ with tabs[5]:
     else:
         st.info("Geen GPS-locaties ingevoerd")
 
-# === NIEUW: Tabblad Agenda (CRUD) ===
 with tabs[6]:
-    crud_block(
-        "agenda",
-        ["onderwerp","locatie","start","einde","status","opmerking"],
-        {"status":["Gepland","Bevestigd","Afgerond","Geannuleerd"]}
-    )
-
-with tabs[7]:
     if not has_role("admin"):
         st.warning("Alleen admins")
     else:
@@ -489,11 +430,10 @@ with tabs[7]:
 
         c.close()
 
-with tabs[8]:
+with tabs[7]:
     c = conn()
     st.dataframe(
         pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c),
         use_container_width=True
     )
     c.close()
-``
