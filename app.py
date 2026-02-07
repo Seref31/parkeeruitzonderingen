@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date, time
 from io import BytesIO
 import hashlib
 import pdfplumber
@@ -82,12 +82,14 @@ def init_db():
         )
     """)
 
+    # Seed users
     for u, (p, r) in START_USERS.items():
         cur.execute("""
             INSERT OR IGNORE INTO users (username,password,role,active,force_change)
             VALUES (?,?,?,?,1)
         """, (u, hash_pw(p), r, 1))
 
+    # Functionele tabellen
     tables = {
         "uitzonderingen": """
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,15 +117,17 @@ def init_db():
             status TEXT, uitvoerder TEXT, latitude REAL,
             longitude REAL, opmerking TEXT
         """,
-        # === NIEUW: Agenda ===
+        # === Agenda met jouw (gespotte) schema ===
         "agenda": """
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            onderwerp TEXT,
+            titel TEXT,
+            datum DATE,
+            starttijd TEXT,
+            eindtijd TEXT,
             locatie TEXT,
-            start DATETIME,
-            einde DATETIME,
-            status TEXT,
-            opmerking TEXT
+            beschrijving TEXT,
+            aangemaakt_door TEXT,
+            aangemaakt_op TEXT
         """
     }
 
@@ -189,15 +193,16 @@ if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
     st.rerun()
 
-# === NIEUW: Komende activiteiten in de sidebar ===
+# === Komende activiteiten (links op scherm) ===
 st.sidebar.markdown("### 📅 Komende activiteiten")
 try:
     c = conn()
+    # Filter op datum vanaf vandaag, oplopend op datum + starttijd
     df_agenda_sidebar = pd.read_sql("""
-        SELECT id, onderwerp, start, locatie, status
+        SELECT id, titel, datum, starttijd, locatie
         FROM agenda
-        WHERE date(start) >= date('now')
-        ORDER BY start ASC
+        WHERE date(datum) >= date('now')
+        ORDER BY date(datum) ASC, time(COALESCE(starttijd, '00:00')) ASC
         LIMIT 8
     """, c)
     c.close()
@@ -206,19 +211,35 @@ try:
         st.sidebar.info("Geen komende activiteiten")
     else:
         for _, r in df_agenda_sidebar.iterrows():
+            # Robuuste datum/tijd opmaak
+            dag_txt = ""
+            tijd_txt = ""
             try:
-                dt = pd.to_datetime(r["start"])
-                dag = dt.strftime("%d %b %Y")
-                tijd = dt.strftime("%H:%M")
-                dagen_rest = (dt.date() - datetime.now().date()).days
-                badge = f"{dagen_rest}d" if dagen_rest >= 0 else ""
+                dag_dt = pd.to_datetime(r["datum"]).date()
+                dag_txt = dag_dt.strftime("%d %b %Y")
             except Exception:
-                dag, tijd, badge = str(r["start"]), "", ""
+                dag_txt = str(r["datum"] or "")
+
+            try:
+                if pd.notna(r["starttijd"]) and str(r["starttijd"]).strip():
+                    tijd_txt = pd.to_datetime(r["starttijd"]).strftime("%H:%M")
+            except Exception:
+                tijd_txt = str(r["starttijd"] or "")
+
+            # Badge met D-dagen
+            try:
+                if isinstance(dag_dt, date):
+                    delta = (dag_dt - date.today()).days
+                    badge = f"{delta}d" if delta >= 0 else ""
+                else:
+                    badge = ""
+            except Exception:
+                badge = ""
+
             st.sidebar.markdown(
-                f"- **{r['onderwerp']}**  \n"
-                f"  🗓️ {dag} om {tijd} "
-                f"{' · ' + r['locatie'] if r['locatie'] else ''} "
-                f"{' · ' + r['status'] if r['status'] else ''} "
+                f"- **{r['titel']}**  \n"
+                f"  🗓️ {dag_txt}{(' om ' + tijd_txt) if tijd_txt else ''}"
+                f"{' · ' + r['locatie'] if r['locatie'] else ''}"
                 f"{' · ⏳ ' + badge if badge else ''}"
             )
 except Exception as e:
@@ -270,21 +291,24 @@ def dashboard_shortcuts():
             continue
 
         with cols[i]:
-            # HERSTELDE f-string (geen '{s['...'') fout meer)
-            st.markdown(f"""
-                &lt;a href="{s['url']}" target="_blank" style="text-decoration:none;"&gt;
-                &lt;div style="border:1px solid #e0e0e0;border-radius:14px;
-                padding:18px;margin-bottom:16px;background:white;
-                box-shadow:0 4px 10px rgba(0,0,0,0.06);"&gt;
-                &lt;div style="font-size:22px;font-weight:600;"&gt;{s['title']}&lt;/div&gt;
-                &lt;div style="color:#666;margin-top:6px;"&gt;{s['subtitle']}&lt;/div&gt;
-                &lt;/div&gt;
-                &lt;/a&gt;
-            """, unsafe_allow_html=True)
+            # LET OP: hier ECHTE HTML-tags, niet &lt; &gt;
+            st.markdown(
+                f"""
+<a href="{s['url']}" target="_blank" style="text-decoration:none;">
+  <div style="border:1px solid #e0e0e0;border-radius:14px;
+              padding:18px;margin-bottom:16px;background:white;
+              box-shadow:0 4px 10px rgba(0,0,0,0.06);">
+    <div style="font-size:22px;font-weight:600;">{s['title']}</div>
+    <div style="color:#666;margin-top:6px;">{s['subtitle']}</div>
+  </div>
+</a>
+                """,
+                unsafe_allow_html=True
+            )
 
         i = (i + 1) % 3
 
-# ================= CRUD =================
+# ================= GENERIEKE CRUD =================
 def crud_block(table, fields, dropdowns=None):
     dropdowns = dropdowns or {}
     c = conn()
@@ -310,9 +334,9 @@ def crud_block(table, fields, dropdowns=None):
         values = {}
         for f in fields:
             key = f"{table}_{f}"
-            val = record[f] if record is not None else ""
+            val = record[f] if record is not None and f in record.index else ""
             if f in dropdowns:
-                values[f] = st.selectbox(f, dropdowns[f], key=key)
+                values[f] = st.selectbox(f, dropdowns[f], key=key, index=(dropdowns[f].index(val) if val in dropdowns[f] else 0))
             else:
                 values[f] = st.text_input(f, str(val) if val else "", key=key)
 
@@ -343,6 +367,117 @@ def crud_block(table, fields, dropdowns=None):
 
     c.close()
 
+# ================= SPECIFIEKE CRUD VOOR AGENDA =================
+def agenda_block():
+    c = conn()
+    df = pd.read_sql("SELECT * FROM agenda", c)
+    c.close()
+
+    # Zoekfilter
+    search = st.text_input("🔍 Zoeken", key="agenda_search")
+    df = apply_search(df, search)
+
+    # Toon tabel
+    st.dataframe(df, use_container_width=True)
+    export_excel(df, "agenda")
+    export_pdf(df, "Agenda")
+
+    if not has_role("admin", "editor"):
+        return
+
+    # Keuze record
+    sel = st.selectbox("✏️ Selecteer record", [None] + df["id"].astype(int).tolist(), key="agenda_select")
+    record = df[df.id == sel].iloc[0] if sel else None
+
+    # Form
+    with st.form("agenda_form"):
+        titel = st.text_input("Titel", value=(record["titel"] if record is not None else ""))
+        # datum
+        if record is not None and pd.notna(record.get("datum", None)):
+            try:
+                d_default = pd.to_datetime(record["datum"]).date()
+            except Exception:
+                d_default = date.today()
+        else:
+            d_default = date.today()
+        datum_val = st.date_input("Datum", value=d_default)
+
+        # starttijd
+        def parse_time(v, default_h=9, default_m=0):
+            try:
+                t = pd.to_datetime(str(v)).time()
+                return time(t.hour, t.minute)
+            except Exception:
+                return time(default_h, default_m)
+
+        starttijd_val = st.time_input(
+            "Starttijd",
+            value=parse_time(record["starttijd"]) if record is not None else time(9, 0)
+        )
+        eindtijd_val = st.time_input(
+            "Eindtijd",
+            value=parse_time(record["eindtijd"], 10, 0) if record is not None else time(10, 0)
+        )
+
+        locatie = st.text_input("Locatie", value=(record["locatie"] if record is not None else ""))
+        beschrijving = st.text_area("Beschrijving", value=(record["beschrijving"] if record is not None else ""))
+
+        submit_new = st.form_submit_button("💾 Opslaan (nieuw)")
+        submit_edit = st.form_submit_button("✏️ Wijzigen")
+        submit_del = st.form_submit_button("🗑️ Verwijderen")
+
+        if submit_new:
+            c = conn()
+            c.execute("""
+                INSERT INTO agenda (titel, datum, starttijd, eindtijd, locatie, beschrijving, aangemaakt_door, aangemaakt_op)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (
+                titel,
+                datum_val.isoformat(),
+                starttijd_val.strftime("%H:%M"),
+                eindtijd_val.strftime("%H:%M"),
+                locatie,
+                beschrijving,
+                st.session_state.user,
+                datetime.now().isoformat(timespec="seconds")
+            ))
+            rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+            c.commit()
+            c.close()
+            audit("INSERT", "agenda", rid)
+            st.success("Activiteit toegevoegd")
+            st.rerun()
+
+        if record is not None and submit_edit:
+            c = conn()
+            c.execute("""
+                UPDATE agenda
+                SET titel=?, datum=?, starttijd=?, eindtijd=?, locatie=?, beschrijving=?
+                WHERE id=?
+            """, (
+                titel,
+                datum_val.isoformat(),
+                starttijd_val.strftime("%H:%M"),
+                eindtijd_val.strftime("%H:%M"),
+                locatie,
+                beschrijving,
+                int(sel)
+            ))
+            c.commit()
+            c.close()
+            audit("UPDATE", "agenda", int(sel))
+            st.success("Activiteit bijgewerkt")
+            st.rerun()
+
+        if has_role("admin") and record is not None and submit_del:
+            c = conn()
+            c.execute("DELETE FROM agenda WHERE id=?", (int(sel),))
+            c.commit()
+            c.close()
+            audit("DELETE", "agenda", int(sel))
+            st.success("Activiteit verwijderd")
+            st.rerun()
+
 # ================= UI =================
 tabs = st.tabs([
     "📊 Dashboard",
@@ -359,6 +494,7 @@ tabs = st.tabs([
 with tabs[0]:
     c = conn()
     cols = st.columns(5)
+
     cols[0].metric("Uitzonderingen", pd.read_sql("SELECT COUNT(*) c FROM uitzonderingen", c)["c"][0])
     cols[1].metric("Gehandicapten", pd.read_sql("SELECT COUNT(*) c FROM gehandicapten", c)["c"][0])
     cols[2].metric("Contracten", pd.read_sql("SELECT COUNT(*) c FROM contracten", c)["c"][0])
@@ -423,18 +559,15 @@ with tabs[5]:
         WHERE latitude IS NOT NULL AND longitude IS NOT NULL
     """, c)
     c.close()
+
     if not df_map.empty:
         st.map(df_map)
     else:
         st.info("Geen GPS-locaties ingevoerd")
 
-# === NIEUW: Tabblad Agenda (CRUD) ===
+# === NIEUW: Tabblad Agenda (CRUD afgestemd op jouw kolommen) ===
 with tabs[6]:
-    crud_block(
-        "agenda",
-        ["onderwerp","locatie","start","einde","status","opmerking"],
-        {"status":["Gepland","Bevestigd","Afgerond","Geannuleerd"]}
-    )
+    agenda_block()
 
 with tabs[7]:
     if not has_role("admin"):
