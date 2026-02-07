@@ -81,6 +81,20 @@ def init_db():
         active INTEGER
     )""")
 
+    # ✅ AGENDA TABEL
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS agenda (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titel TEXT,
+        datum DATE,
+        starttijd TEXT,
+        eindtijd TEXT,
+        locatie TEXT,
+        beschrijving TEXT,
+        aangemaakt_door TEXT,
+        aangemaakt_op TEXT
+    )""")
+
     for u, (p, r) in START_USERS.items():
         cur.execute("""
             INSERT OR IGNORE INTO users
@@ -180,6 +194,10 @@ if st.session_state.force_change == 1:
 
 # ================= SIDEBAR =================
 st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
+
+if st.sidebar.button("📅 Agenda"):
+    st.session_state.jump_to_agenda = True
+
 if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
     st.rerun()
@@ -203,99 +221,65 @@ def export_pdf(df, title):
     doc.build([Paragraph(title, styles["Title"]), t])
     st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
 
-# ================= SEARCH =================
-def apply_search(df, search):
-    if not search:
-        return df
-    mask = df.astype(str).apply(
-        lambda x: x.str.contains(search, case=False, na=False)
-    ).any(axis=1)
-    return df[mask]
-
-# ================= DASHBOARD SHORTCUTS =================
-def dashboard_shortcuts():
+# ================= AGENDA =================
+def agenda_block():
     c = conn()
-    df = pd.read_sql("SELECT * FROM dashboard_shortcuts WHERE active=1", c)
-    c.close()
+    df = pd.read_sql("SELECT * FROM agenda ORDER BY datum, starttijd", c)
 
-    if df.empty:
-        st.info("Geen snelkoppelingen ingesteld")
-        return
+    st.subheader("📅 Agenda")
 
-    st.markdown("### 🚀 Snelkoppelingen")
-    cols = st.columns(3)
-    i = 0
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+        export_excel(df, "agenda")
+        export_pdf(df, "Agenda")
+    else:
+        st.info("Geen agenda-items")
 
-    for _, s in df.iterrows():
-        roles = [r.strip() for r in s["roles"].split(",")]
-        if st.session_state.role not in roles:
-            continue
-        with cols[i]:
-            st.markdown(f"""
-            <a href="{s['url']}" target="_blank" style="text-decoration:none;">
-                <div style="border:1px solid #e0e0e0;border-radius:14px;
-                padding:18px;margin-bottom:16px;background:white;
-                box-shadow:0 4px 10px rgba(0,0,0,0.06);">
-                    <div style="font-size:22px;font-weight:600;">{s['title']}</div>
-                    <div style="color:#666;margin-top:6px;">{s['subtitle']}</div>
-                </div>
-            </a>
-            """, unsafe_allow_html=True)
-        i = (i + 1) % 3
-
-# ================= CRUD =================
-def crud_block(table, fields, dropdowns=None):
-    dropdowns = dropdowns or {}
-    c = conn()
-    df = pd.read_sql(f"SELECT * FROM {table}", c)
-
-    search = st.text_input("🔍 Zoeken", key=f"{table}_search")
-    df = apply_search(df, search)
-
-    st.dataframe(df, use_container_width=True)
-    export_excel(df, table)
-    export_pdf(df, table)
-
-    if not has_role("admin","editor"):
+    if not has_role("admin", "editor"):
         c.close()
         return
 
-    sel = st.selectbox("✏️ Selecteer record", [None] + df["id"].tolist(), key=f"{table}_select")
+    st.markdown("### ➕ Agenda-item")
+
+    sel = st.selectbox("Selecteer item", [None] + df["id"].tolist() if not df.empty else [None])
     record = df[df.id == sel].iloc[0] if sel else None
 
-    with st.form(f"{table}_form"):
-        values = {}
-        for f in fields:
-            key = f"{table}_{f}"
-            val = record[f] if record is not None else ""
-            if f in dropdowns:
-                values[f] = st.selectbox(f, dropdowns[f], key=key)
-            else:
-                values[f] = st.text_input(f, str(val) if val else "", key=key)
+    with st.form("agenda_form"):
+        titel = st.text_input("Titel", record["titel"] if record is not None else "")
+        datum = st.date_input("Datum", pd.to_datetime(record["datum"]).date() if record is not None else datetime.today())
+        starttijd = st.text_input("Starttijd", record["starttijd"] if record is not None else "")
+        eindtijd = st.text_input("Eindtijd", record["eindtijd"] if record is not None else "")
+        locatie = st.text_input("Locatie", record["locatie"] if record is not None else "")
+        beschrijving = st.text_area("Beschrijving", record["beschrijving"] if record is not None else "")
 
         if st.form_submit_button("💾 Opslaan"):
-            c.execute(
-                f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
-                tuple(values.values())
-            )
-            rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+            c.execute("""
+                INSERT INTO agenda
+                (titel, datum, starttijd, eindtijd, locatie, beschrijving, aangemaakt_door, aangemaakt_op)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (
+                titel, datum, starttijd, eindtijd, locatie, beschrijving,
+                st.session_state.user,
+                datetime.now().isoformat(timespec="seconds")
+            ))
             c.commit()
-            audit("INSERT", table, rid)
+            audit("AGENDA_ADD", "agenda")
             st.rerun()
 
         if record is not None and st.form_submit_button("✏️ Wijzigen"):
-            c.execute(
-                f"UPDATE {table} SET {','.join(f+'=?' for f in fields)} WHERE id=?",
-                (*values.values(), sel)
-            )
+            c.execute("""
+                UPDATE agenda
+                SET titel=?, datum=?, starttijd=?, eindtijd=?, locatie=?, beschrijving=?
+                WHERE id=?
+            """, (titel, datum, starttijd, eindtijd, locatie, beschrijving, sel))
             c.commit()
-            audit("UPDATE", table, sel)
+            audit("AGENDA_UPDATE", "agenda", sel)
             st.rerun()
 
-        if has_role("admin") and record is not None and st.form_submit_button("🗑️ Verwijderen"):
-            c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
+        if record is not None and has_role("admin") and st.form_submit_button("🗑️ Verwijderen"):
+            c.execute("DELETE FROM agenda WHERE id=?", (sel,))
             c.commit()
-            audit("DELETE", table, sel)
+            audit("AGENDA_DELETE", "agenda", sel)
             st.rerun()
 
     c.close()
@@ -308,112 +292,10 @@ tabs = st.tabs([
     "📄 Contracten",
     "🧩 Projecten",
     "🛠️ Werkzaamheden",
+    "📅 Agenda",
     "👥 Gebruikersbeheer",
     "🧾 Audit log"
 ])
 
-with tabs[0]:
-    c = conn()
-    cols = st.columns(5)
-    cols[0].metric("Uitzonderingen", pd.read_sql("SELECT COUNT(*) c FROM uitzonderingen", c)["c"][0])
-    cols[1].metric("Gehandicapten", pd.read_sql("SELECT COUNT(*) c FROM gehandicapten", c)["c"][0])
-    cols[2].metric("Contracten", pd.read_sql("SELECT COUNT(*) c FROM contracten", c)["c"][0])
-    cols[3].metric("Projecten", pd.read_sql("SELECT COUNT(*) c FROM projecten", c)["c"][0])
-    cols[4].metric("Werkzaamheden", pd.read_sql("SELECT COUNT(*) c FROM werkzaamheden", c)["c"][0])
-
-    st.markdown("---")
-    dashboard_shortcuts()
-    st.markdown("---")
-
-    st.markdown("### 👤 Activiteiten per gebruiker")
-    st.dataframe(pd.read_sql("""
-        SELECT user, COUNT(*) acties, MAX(timestamp) laatste_actie
-        FROM audit_log GROUP BY user ORDER BY acties DESC
-    """, c), use_container_width=True)
-
-    st.markdown("### 🧾 Laatste acties")
-    st.dataframe(pd.read_sql("""
-        SELECT timestamp, user, action, table_name, record_id
-        FROM audit_log ORDER BY id DESC LIMIT 10
-    """, c), use_container_width=True)
-    c.close()
-
-with tabs[1]:
-    crud_block("uitzonderingen",
-        ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
-        {"type":["Bewoner","Bedrijf","Project"]})
-
-with tabs[2]:
-    crud_block("gehandicapten",
-        ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"])
-
-with tabs[3]:
-    crud_block("contracten",
-        ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"])
-
-with tabs[4]:
-    crud_block("projecten",
-        ["naam","projectleider","start","einde","prio","status","opmerking"],
-        {"prio":["Hoog","Gemiddeld","Laag"],"status":["Niet gestart","Actief","Afgerond"]})
-
-with tabs[5]:
-    crud_block("werkzaamheden",
-        ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
-        {"status":["Gepland","In uitvoering","Afgerond"]})
-
-    st.markdown("### 📍 Werkzaamheden op kaart")
-    c = conn()
-    df_map = pd.read_sql("""
-        SELECT latitude, longitude
-        FROM werkzaamheden
-        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-    """, c)
-    c.close()
-    if not df_map.empty:
-        st.map(df_map)
-    else:
-        st.info("Geen GPS-locaties ingevoerd")
-
 with tabs[6]:
-    if not has_role("admin"):
-        st.warning("Alleen admins")
-    else:
-        c = conn()
-        st.subheader("👥 Gebruikers")
-        st.dataframe(pd.read_sql(
-            "SELECT username, role, active, force_change FROM users", c
-        ), use_container_width=True)
-
-        st.markdown("---")
-        st.subheader("🚀 Dashboard snelkoppelingen")
-        st.dataframe(pd.read_sql("SELECT * FROM dashboard_shortcuts", c),
-                     use_container_width=True)
-
-        with st.form("shortcut_form"):
-            title = st.text_input("Titel (emoji toegestaan)")
-            subtitle = st.text_input("Subtitel")
-            url = st.text_input("URL")
-            roles = st.multiselect(
-                "Zichtbaar voor rollen",
-                ["admin","editor","viewer"],
-                default=["admin","editor","viewer"]
-            )
-            active = st.checkbox("Actief", True)
-
-            if st.form_submit_button("💾 Opslaan"):
-                c.execute("""
-                    INSERT INTO dashboard_shortcuts
-                    (title, subtitle, url, roles, active)
-                    VALUES (?,?,?,?,?)
-                """, (title, subtitle, url, ",".join(roles), int(active)))
-                c.commit()
-                audit("SHORTCUT_ADD")
-                st.success("Snelkoppeling toegevoegd")
-                st.rerun()
-        c.close()
-
-with tabs[7]:
-    c = conn()
-    st.dataframe(pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c),
-                 use_container_width=True)
-    c.close()
+    agenda_block()
