@@ -12,7 +12,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
 # ================= CONFIG =================
-st.set_page_config(page_title="Parkeerbeheer Dashboard", layout="wide")
+st.set_page_config("Parkeerbeheer Dashboard", layout="wide")
 
 DB = "parkeeruitzonderingen.db"
 
@@ -175,7 +175,10 @@ if "user" not in st.session_state:
     if st.button("Inloggen"):
         c = conn()
         r = c.execute(
-            "SELECT password, role, active, force_change FROM users WHERE username=?",
+            """
+            SELECT password, role, active, force_change
+            FROM users WHERE username=?
+            """,
             (u,),
         ).fetchone()
         c.close()
@@ -203,13 +206,103 @@ if st.session_state.force_change == 1:
         else:
             c = conn()
             c.execute(
-                "UPDATE users SET password=?, force_change=0 WHERE username=?",
+                """
+                UPDATE users SET password=?, force_change=0
+                WHERE username=?
+                """,
                 (hash_pw(pw1), st.session_state.user),
             )
             c.commit()
             c.close()
+
             audit("PASSWORD_CHANGE")
             st.session_state.force_change = 0
             st.rerun()
 
     st.stop()
+
+# ================= SIDEBAR =================
+st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
+
+if st.sidebar.button("🚪 Uitloggen"):
+    st.session_state.clear()
+    st.rerun()
+
+# ================= EXPORT =================
+def export_excel(df, name):
+    buf = BytesIO()
+    df.to_excel(buf, index=False)
+    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
+
+def export_pdf(df, title):
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4)
+    styles = getSampleStyleSheet()
+
+    data = [df.columns.tolist()] + df.astype(str).values.tolist()
+    table = Table(data, repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+            ]
+        )
+    )
+
+    doc.build([Paragraph(title, styles["Title"]), table])
+    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
+
+# ================= SEARCH =================
+def apply_search(df, search):
+    if not search:
+        return df
+
+    mask = (
+        df.astype(str)
+        .apply(lambda x: x.str.contains(search, case=False, na=False))
+        .any(axis=1)
+    )
+    return df[mask]
+
+# ================= DASHBOARD SHORTCUTS =================
+def dashboard_shortcuts():
+    c = conn()
+    df = pd.read_sql(
+        "SELECT * FROM dashboard_shortcuts WHERE active=1", c
+    )
+    c.close()
+
+    if df.empty:
+        st.info("Geen snelkoppelingen ingesteld")
+        return
+
+    st.markdown("### 🚀 Snelkoppelingen")
+    cols = st.columns(3)
+    i = 0
+
+    for _, s in df.iterrows():
+        roles = [r.strip() for r in s["roles"].split(",")]
+        if st.session_state.role not in roles:
+            continue
+
+        with cols[i]:
+            st.markdown(
+                f"""
+                <a href="{s['url']}" target="_blank" style="text-decoration:none;">
+                  <div style="border:1px solid #e0e0e0;border-radius:14px;
+                              padding:18px;margin-bottom:16px;background:white;
+                              box-shadow:0 4px 10px rgba(0,0,0,0.06);">
+                    <div style="font-size:22px;font-weight:600;">
+                      {s['title']}
+                    </div>
+                    <div style="color:#666;margin-top:6px;">
+                      {s['subtitle']}
+                    </div>
+                  </div>
+                </a>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        i = (i + 1) % 3
