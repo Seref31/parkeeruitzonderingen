@@ -12,7 +12,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
 # ================= CONFIG =================
-st.set_page_config("Parkeerbeheer Dashboard", layout="wide")
+st.set_page_config(page_title="Parkeerbeheer Dashboard", layout="wide")
 
 DB = "parkeeruitzonderingen.db"
 
