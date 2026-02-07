@@ -72,17 +72,6 @@ def init_db():
     )""")
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT,
-        subtitle TEXT,
-        url TEXT,
-        roles TEXT,
-        active INTEGER
-    )""")
-
-    # ✅ AGENDA
-    cur.execute("""
     CREATE TABLE IF NOT EXISTS agenda (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         titel TEXT,
@@ -96,48 +85,18 @@ def init_db():
     )""")
 
     tables = {
-        "uitzonderingen": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            naam TEXT, kenteken TEXT, locatie TEXT,
-            type TEXT, start DATE, einde DATE,
-            toestemming TEXT, opmerking TEXT
-        """,
-        "gehandicapten": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            naam TEXT, kaartnummer TEXT, adres TEXT,
-            locatie TEXT, geldig_tot DATE,
-            besluit_door TEXT, opmerking TEXT
-        """,
-        "contracten": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            leverancier TEXT, contractnummer TEXT,
-            start DATE, einde DATE,
-            contactpersoon TEXT, opmerking TEXT
-        """,
-        "projecten": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            naam TEXT, projectleider TEXT,
-            start DATE, einde DATE,
-            prio TEXT, status TEXT, opmerking TEXT
-        """,
-        "werkzaamheden": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            omschrijving TEXT, locatie TEXT,
-            start DATE, einde DATE,
-            status TEXT, uitvoerder TEXT,
-            latitude REAL, longitude REAL,
-            opmerking TEXT
-        """
+        "uitzonderingen": "naam TEXT, kenteken TEXT, locatie TEXT, type TEXT, start DATE, einde DATE, toestemming TEXT, opmerking TEXT",
+        "gehandicapten": "naam TEXT, kaartnummer TEXT, adres TEXT, locatie TEXT, geldig_tot DATE, besluit_door TEXT, opmerking TEXT",
+        "contracten": "leverancier TEXT, contractnummer TEXT, start DATE, einde DATE, contactpersoon TEXT, opmerking TEXT",
+        "projecten": "naam TEXT, projectleider TEXT, start DATE, einde DATE, prio TEXT, status TEXT, opmerking TEXT",
+        "werkzaamheden": "omschrijving TEXT, locatie TEXT, start DATE, einde DATE, status TEXT, uitvoerder TEXT, latitude REAL, longitude REAL, opmerking TEXT"
     }
 
-    for t, ddl in tables.items():
-        cur.execute(f"CREATE TABLE IF NOT EXISTS {t} ({ddl})")
+    for t, cols in tables.items():
+        cur.execute(f"CREATE TABLE IF NOT EXISTS {t} (id INTEGER PRIMARY KEY AUTOINCREMENT, {cols})")
 
     for u, (p, r) in START_USERS.items():
-        cur.execute("""
-            INSERT OR IGNORE INTO users
-            VALUES (?,?,?,?,1)
-        """, (u, hash_pw(p), r, 1))
+        cur.execute("INSERT OR IGNORE INTO users VALUES (?,?,?,?,1)", (u, hash_pw(p), r, 1))
 
     c.commit()
     c.close()
@@ -152,16 +111,11 @@ if "user" not in st.session_state:
 
     if st.button("Inloggen"):
         c = conn()
-        r = c.execute("""
-            SELECT password, role, active, force_change
-            FROM users WHERE username=?
-        """, (u,)).fetchone()
+        r = c.execute("SELECT password, role, active FROM users WHERE username=?", (u,)).fetchone()
         c.close()
-
         if r and r[0] == hash_pw(p) and r[2] == 1:
             st.session_state.user = u
             st.session_state.role = r[1]
-            st.session_state.force_change = r[3]
             audit("LOGIN")
             st.rerun()
         else:
@@ -170,7 +124,6 @@ if "user" not in st.session_state:
 
 # ================= SIDEBAR =================
 st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
-
 if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
     st.rerun()
@@ -179,20 +132,19 @@ if st.sidebar.button("🚪 Uitloggen"):
 def export_excel(df, name):
     buf = BytesIO()
     df.to_excel(buf, index=False)
-    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
+    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx", key=f"excel_{name}")
 
 def export_pdf(df, title):
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4)
-    styles = getSampleStyleSheet()
     data = [df.columns.tolist()] + df.astype(str).values.tolist()
     t = Table(data, repeatRows=1)
     t.setStyle(TableStyle([
         ("GRID",(0,0),(-1,-1),0.5,colors.grey),
         ("BACKGROUND",(0,0),(-1,0),colors.lightgrey)
     ]))
-    doc.build([Paragraph(title, styles["Title"]), t])
-    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
+    doc.build([Paragraph(title, getSampleStyleSheet()["Title"]), t])
+    st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf", key=f"pdf_{title}")
 
 # ================= CRUD =================
 def crud_block(table, fields):
@@ -207,13 +159,22 @@ def crud_block(table, fields):
         c.close()
         return
 
-    sel = st.selectbox("Selecteer record", [None] + df["id"].tolist())
+    sel = st.selectbox(
+        "Selecteer record",
+        [None] + df["id"].tolist(),
+        key=f"{table}_select"
+    )
+
     record = df[df.id == sel].iloc[0] if sel else None
 
     with st.form(f"{table}_form"):
         values = {}
         for f in fields:
-            values[f] = st.text_input(f, record[f] if record is not None else "")
+            values[f] = st.text_input(
+                f,
+                record[f] if record is not None else "",
+                key=f"{table}_{f}"
+            )
 
         if st.form_submit_button("💾 Opslaan"):
             c.execute(
@@ -229,28 +190,23 @@ def crud_block(table, fields):
 # ================= AGENDA =================
 def agenda_block():
     c = conn()
-    df = pd.read_sql("SELECT * FROM agenda ORDER BY datum, starttijd", c)
+    df = pd.read_sql("SELECT * FROM agenda ORDER BY datum", c)
 
-    st.subheader("📅 Agenda")
     st.dataframe(df, use_container_width=True)
-
     export_excel(df, "agenda")
-    export_pdf(df, "Agenda")
+    export_pdf(df, "agenda")
 
     if not has_role("admin", "editor"):
         c.close()
         return
 
-    sel = st.selectbox("Selecteer agenda-item", [None] + df["id"].tolist())
-    record = df[df.id == sel].iloc[0] if sel else None
-
     with st.form("agenda_form"):
-        titel = st.text_input("Titel", record["titel"] if record is not None else "")
-        datum = st.date_input("Datum", pd.to_datetime(record["datum"]).date() if record is not None else datetime.today())
-        starttijd = st.text_input("Starttijd", record["starttijd"] if record is not None else "")
-        eindtijd = st.text_input("Eindtijd", record["eindtijd"] if record is not None else "")
-        locatie = st.text_input("Locatie", record["locatie"] if record is not None else "")
-        beschrijving = st.text_area("Beschrijving", record["beschrijving"] if record is not None else "")
+        titel = st.text_input("Titel")
+        datum = st.date_input("Datum")
+        starttijd = st.text_input("Starttijd")
+        eindtijd = st.text_input("Eindtijd")
+        locatie = st.text_input("Locatie")
+        beschrijving = st.text_area("Beschrijving")
 
         if st.form_submit_button("💾 Opslaan"):
             c.execute("""
@@ -279,9 +235,6 @@ tabs = st.tabs([
     "📅 Agenda",
     "🧾 Audit log"
 ])
-
-with tabs[0]:
-    st.info("Dashboard werkt")
 
 with tabs[1]:
     crud_block("uitzonderingen", ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"])
