@@ -84,7 +84,7 @@ def init_db():
 
     for u, (p, r) in START_USERS.items():
         cur.execute("""
-            INSERT OR IGNORE INTO users (username, password, role, active, force_change)
+            INSERT OR IGNORE INTO users (username,password,role,active,force_change)
             VALUES (?,?,?,?,1)
         """, (u, hash_pw(p), r, 1))
 
@@ -114,6 +114,16 @@ def init_db():
             omschrijving TEXT, locatie TEXT, start DATE, einde DATE,
             status TEXT, uitvoerder TEXT, latitude REAL,
             longitude REAL, opmerking TEXT
+        """,
+        # === NIEUW: Agenda ===
+        "agenda": """
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            onderwerp TEXT,
+            locatie TEXT,
+            start DATETIME,
+            einde DATETIME,
+            status TEXT,
+            opmerking TEXT
         """
     }
 
@@ -179,6 +189,41 @@ if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
     st.rerun()
 
+# === NIEUW: Komende activiteiten in de sidebar ===
+st.sidebar.markdown("### 📅 Komende activiteiten")
+try:
+    c = conn()
+    df_agenda_sidebar = pd.read_sql("""
+        SELECT id, onderwerp, start, locatie, status
+        FROM agenda
+        WHERE date(start) >= date('now')
+        ORDER BY start ASC
+        LIMIT 8
+    """, c)
+    c.close()
+
+    if df_agenda_sidebar.empty:
+        st.sidebar.info("Geen komende activiteiten")
+    else:
+        for _, r in df_agenda_sidebar.iterrows():
+            try:
+                dt = pd.to_datetime(r["start"])
+                dag = dt.strftime("%d %b %Y")
+                tijd = dt.strftime("%H:%M")
+                dagen_rest = (dt.date() - datetime.now().date()).days
+                badge = f"{dagen_rest}d" if dagen_rest >= 0 else ""
+            except Exception:
+                dag, tijd, badge = str(r["start"]), "", ""
+            st.sidebar.markdown(
+                f"- **{r['onderwerp']}**  \n"
+                f"  🗓️ {dag} om {tijd} "
+                f"{' · ' + r['locatie'] if r['locatie'] else ''} "
+                f"{' · ' + r['status'] if r['status'] else ''} "
+                f"{' · ⏳ ' + badge if badge else ''}"
+            )
+except Exception as e:
+    st.sidebar.warning(f"Agenda kon niet geladen worden: {e}")
+
 # ================= EXPORT =================
 def export_excel(df, name):
     buf = BytesIO()
@@ -189,15 +234,12 @@ def export_pdf(df, title):
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4)
     styles = getSampleStyleSheet()
-
     data = [df.columns.tolist()] + df.astype(str).values.tolist()
-
     t = Table(data, repeatRows=1)
     t.setStyle(TableStyle([
         ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
         ("BACKGROUND", (0,0), (-1,0), colors.lightgrey)
     ]))
-
     doc.build([Paragraph(title, styles["Title"]), t])
     st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
 
@@ -228,14 +270,16 @@ def dashboard_shortcuts():
             continue
 
         with cols[i]:
+            # HERSTELDE f-string (geen '{s['...'') fout meer)
             st.markdown(f"""
-                <a href="{s['url']}" target="_blank" style="text-decoration:none;">
-                <div style="border:1px solid #e0e0e0;border-radius:14px;
+                &lt;a href="{s['url']}" target="_blank" style="text-decoration:none;"&gt;
+                &lt;div style="border:1px solid #e0e0e0;border-radius:14px;
                 padding:18px;margin-bottom:16px;background:white;
-                box-shadow:0 4px 10px rgba(0,0,0,0.06);">
-                <div style="font-size:22px;font-weight:600;">{s['title']}</div>
-                <div style="color:#666;margin-top:6px;">{s['subtitle']}</div>
-                </div></a>
+                box-shadow:0 4px 10px rgba(0,0,0,0.06);"&gt;
+                &lt;div style="font-size:22px;font-weight:600;"&gt;{s['title']}&lt;/div&gt;
+                &lt;div style="color:#666;margin-top:6px;"&gt;{s['subtitle']}&lt;/div&gt;
+                &lt;/div&gt;
+                &lt;/a&gt;
             """, unsafe_allow_html=True)
 
         i = (i + 1) % 3
@@ -267,7 +311,6 @@ def crud_block(table, fields, dropdowns=None):
         for f in fields:
             key = f"{table}_{f}"
             val = record[f] if record is not None else ""
-
             if f in dropdowns:
                 values[f] = st.selectbox(f, dropdowns[f], key=key)
             else:
@@ -275,8 +318,7 @@ def crud_block(table, fields, dropdowns=None):
 
         if st.form_submit_button("💾 Opslaan"):
             c.execute(
-                f"INSERT INTO {table} ({','.join(fields)}) "
-                f"VALUES ({','.join('?'*len(fields))})",
+                f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
                 tuple(values.values())
             )
             rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -309,6 +351,7 @@ tabs = st.tabs([
     "📄 Contracten",
     "🧩 Projecten",
     "🛠️ Werkzaamheden",
+    "📅 Agenda",            # NIEUW
     "👥 Gebruikersbeheer",
     "🧾 Audit log"
 ])
@@ -316,7 +359,6 @@ tabs = st.tabs([
 with tabs[0]:
     c = conn()
     cols = st.columns(5)
-
     cols[0].metric("Uitzonderingen", pd.read_sql("SELECT COUNT(*) c FROM uitzonderingen", c)["c"][0])
     cols[1].metric("Gehandicapten", pd.read_sql("SELECT COUNT(*) c FROM gehandicapten", c)["c"][0])
     cols[2].metric("Contracten", pd.read_sql("SELECT COUNT(*) c FROM contracten", c)["c"][0])
@@ -375,31 +417,35 @@ with tabs[5]:
     )
 
     st.markdown("### 📍 Werkzaamheden op kaart")
-
     c = conn()
     df_map = pd.read_sql("""
         SELECT latitude, longitude FROM werkzaamheden
         WHERE latitude IS NOT NULL AND longitude IS NOT NULL
     """, c)
     c.close()
-
     if not df_map.empty:
         st.map(df_map)
     else:
         st.info("Geen GPS-locaties ingevoerd")
 
+# === NIEUW: Tabblad Agenda (CRUD) ===
 with tabs[6]:
+    crud_block(
+        "agenda",
+        ["onderwerp","locatie","start","einde","status","opmerking"],
+        {"status":["Gepland","Bevestigd","Afgerond","Geannuleerd"]}
+    )
+
+with tabs[7]:
     if not has_role("admin"):
         st.warning("Alleen admins")
     else:
         c = conn()
-
         st.subheader("👥 Gebruikers")
         st.dataframe(
             pd.read_sql("SELECT username, role, active, force_change FROM users", c),
             use_container_width=True
         )
-
         st.markdown("---")
         st.subheader("🚀 Dashboard snelkoppelingen")
         st.dataframe(
@@ -430,7 +476,7 @@ with tabs[6]:
 
         c.close()
 
-with tabs[7]:
+with tabs[8]:
     c = conn()
     st.dataframe(
         pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c),
