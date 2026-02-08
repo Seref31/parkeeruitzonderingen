@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, date, time
 from io import BytesIO
 import hashlib
+import re
 import pdfplumber
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
@@ -34,7 +35,7 @@ START_USERS = {
     "seref": ("Seref#2026", "admin"),
 }
 
-# === NIEUW: tab-config (labels + sleutels) ===
+# === TAB CONFIG ===
 def all_tabs_config():
     return [
         ("📊 Dashboard", "dashboard"),
@@ -48,22 +49,17 @@ def all_tabs_config():
         ("🧾 Audit log", "audit"),
     ]
 
-# === NIEUW: standaard tabrechten per rol ===
 def role_default_permissions():
     keys = [k for _, k in all_tabs_config()]
-    admin = {k: True for k in keys}  # admin mag alles
+    admin = {k: True for k in keys}
     editor = {k: True for k in keys}
-    editor["gebruikers"] = False     # editors mogen geen gebruikers beheren
+    editor["gebruikers"] = False
     viewer = {k: False for k in keys}
-    for k in ["dashboard", "uitzonderingen", "gehandicapten", "contracten", "projecten", "werkzaamheden", "agenda"]:
+    for k in ["dashboard","uitzonderingen","gehandicapten","contracten","projecten","werkzaamheden","agenda"]:
         viewer[k] = True
     viewer["gebruikers"] = False
     viewer["audit"] = False
-    return {
-        "admin": admin,
-        "editor": editor,
-        "viewer": viewer
-    }
+    return {"admin": admin, "editor": editor, "viewer": viewer}
 
 # ================= HULP =================
 def conn():
@@ -90,34 +86,131 @@ def audit(action, table=None, record_id=None):
     c.commit()
     c.close()
 
-# === NIEUW: rechten laden (per gebruiker, fallback op rol-standaard) ===
-def load_user_permissions(username, role):
+# --------- KENTEKEN VALIDATIE + CLEANING (B) ---------
+def clean_kenteken(raw: str) -> str:
     """
-    Retourneert dict {tab_key: bool} voor deze gebruiker.
-    Als er GEEN regels zijn in 'permissions' voor deze user, gebruik rol-standaarden.
-    Als er WÉL regels zijn, gebruik deze (en zet alles dat niet expliciet voorkomt op False).
+    Normaliseer kenteken:
+    - Uppercase
+    - Alleen letters/cijfers
+    - Verwijder spaties, -, ., etc.
     """
-    c = conn()
-    try:
-        df = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=?", c, params=[username])
-    finally:
-        c.close()
-    defaults = role_default_permissions().get(role, {})
-    if df.empty:
-        return dict(defaults)
-    else:
-        keys = [k for _, k in all_tabs_config()]
-        user_map = {k: False for k in keys}
-        for _, r in df.iterrows():
-            user_map[str(r["tab_key"])] = bool(int(r["allowed"]))
-        return user_map
+    if not isinstance(raw, str):
+        return ""
+    s = raw.upper()
+    s = re.sub(r"[^A-Z0-9]", "", s)
+    return s
 
-def is_tab_allowed(tab_key):
-    perms = st.session_state.get("_tab_perms_cache")
-    if perms is None:
-        perms = load_user_permissions(st.session_state.user, st.session_state.role)
-        st.session_state["_tab_perms_cache"] = perms
-    return perms.get(tab_key, False)
+def is_valid_kenteken(raw: str) -> bool:
+    """
+    Basale validatie voor NL-kenteken:
+    - 5..8 tekens
+    - bevat zowel letters als cijfers
+    - alleen alfanumeriek
+    (Dit is bewust pragmatisch; de volledige RDW-sidecodes zijn complexer.)
+    """
+    s = clean_kenteken(raw)
+    if len(s) < 5 or len(s) > 8:
+        return False
+    if not s.isalnum():
+        return False
+    has_letter = bool(re.search(r"[A-Z]", s))
+    has_digit = bool(re.search(r"[0-9]", s))
+    return has_letter and has_digit
+
+def parse_iso_date(v, default=None):
+    """Parseer datumstring naar ISO (YYYY-MM-DD). Retourneert None bij failure."""
+    try:
+        if v is None or str(v).strip() == "":
+            return default
+        d = pd.to_datetime(str(v), errors="coerce")
+        if pd.isna(d):
+            return None
+        return d.date().isoformat()
+    except Exception:
+        return None
+
+def detect_overlapping_uitzondering(kenteken_raw: str, start_val: str, einde_val: str, exclude_id=None):
+    """
+    Check of er in 'uitzonderingen' overlappende periode(s) bestaan voor hetzelfde kenteken.
+    - Vergelijk op REPLACE(UPPER(kenteken), '-', '') = clean_kenteken(...)
+    - Overlap: (start_db <= einde_val) EN (einde_db >= start_val)
+      waarbij lege start/einde in DB behandeld worden als open (0001.. / 9999..)
+    """
+    k_clean = clean_kenteken(kenteken_raw)
+    start_iso = parse_iso_date(start_val, default="0001-01-01")
+    einde_iso = parse_iso_date(einde_val, default="9999-12-31")
+    if start_iso is None or einde_iso is None:
+        return pd.DataFrame([{"fout": "Ongeldige datum (start/einde)"}])
+
+    q = """
+        SELECT id, naam, kenteken, locatie, type, start, einde
+        FROM uitzonderingen
+        WHERE REPLACE(UPPER(kenteken), '-', '') = ?
+          AND date(COALESCE(start, '0001-01-01')) <= date(?)
+          AND date(COALESCE(einde, '9999-12-31')) >= date(?)
+    """
+    params = [k_clean, einde_iso, start_iso]
+
+    c = conn()
+    df = pd.read_sql(q, c, params=params)
+    c.close()
+
+    if exclude_id is not None and not df.empty:
+        df = df[df["id"] != int(exclude_id)]
+
+    return df
+
+# --------- GLOBALE ZOEK (A) ---------
+def global_search_block():
+    st.markdown("### 🔎 Globale zoekopdracht")
+    q = st.text_input("Zoek in alle tabellen (naam, kenteken, locatie, …)", key="global_search_q", placeholder="bijv. 'Dordrecht' of '12-AB-3C'")
+    if not q:
+        st.caption("Tip: zoekterm is **case-insensitive** en doorzoekt alleen tabbladen waar je toegang toe hebt.")
+        return
+
+    # welke tabellen + kolommen tonen
+    search_targets = {
+        "uitzonderingen": ["id","naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
+        "gehandicapten": ["id","naam","kaartnummer","adres","locatie","geldig_tot","opmerking"],
+        "contracten": ["id","leverancier","contractnummer","start","einde","contactpersoon","opmerking"],
+        "projecten": ["id","naam","projectleider","start","einde","prio","status","opmerking"],
+        "werkzaamheden": ["id","omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
+        "agenda": ["id","titel","datum","starttijd","eindtijd","locatie","beschrijving","aangemaakt_door","aangemaakt_op"]
+    }
+
+    key_map = {
+        "uitzonderingen": "uitzonderingen",
+        "gehandicapten": "gehandicapten",
+        "contracten": "contracten",
+        "projecten": "projecten",
+        "werkzaamheden": "werkzaamheden",
+        "agenda": "agenda"
+    }
+
+    c = conn()
+    any_hit = False
+    for table, cols in search_targets.items():
+        # alleen tabellen tonen als de user toegang heeft tot het bijbehorende tabblad
+        tab_key = key_map.get(table)
+        if tab_key and not is_tab_allowed(tab_key):
+            continue
+
+        df = pd.read_sql(f"SELECT * FROM {table}", c)
+        if df.empty:
+            continue
+
+        # client-side filter
+        mask = df.astype(str).apply(lambda x: x.str.contains(q, case=False, na=False)).any(axis=1)
+        df_res = df[mask]
+        if not df_res.empty:
+            any_hit = True
+            subset_cols = [c for c in cols if c in df_res.columns]
+            st.markdown(f"#### 🗂️ {table.capitalize()}  \t<span style='color:#888'>({len(df_res)})</span>", unsafe_allow_html=True)
+            st.dataframe(df_res[subset_cols] if subset_cols else df_res, use_container_width=True)
+
+    c.close()
+    if not any_hit:
+        st.info("Geen resultaten gevonden.")
 
 # ================= DB INIT =================
 def init_db():
@@ -156,7 +249,6 @@ def init_db():
         )
     """)
 
-    # per-gebruiker tab-permissies
     cur.execute("""
         CREATE TABLE IF NOT EXISTS permissions (
             username TEXT,
@@ -166,14 +258,12 @@ def init_db():
         )
     """)
 
-    # Seed users
     for u, (p, r) in START_USERS.items():
         cur.execute("""
             INSERT OR IGNORE INTO users (username,password,role,active,force_change)
             VALUES (?,?,?,?,1)
         """, (u, hash_pw(p), r, 1))
 
-    # Functionele tabellen
     tables = {
         "uitzonderingen": """
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -381,16 +471,16 @@ def export_pdf(df, title):
     doc.build([Paragraph(title, styles["Title"]), t])
     st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
 
-# ================= SEARCH =================
+# ================= SEARCH HELPERS =================
 def apply_search(df, search):
     if not search:
         return df
     mask = df.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
     return df[mask]
 
-# ================= DASHBOARD SHORTCUTS =================
+# ================= DASHBOARD SHORTCUTS (fixed) =================
 def dashboard_shortcuts():
-    from html import escape  # veilig escapen van invoer
+    from html import escape
 
     c = conn()
     df = pd.read_sql("SELECT * FROM dashboard_shortcuts WHERE active=1", c)
@@ -405,7 +495,6 @@ def dashboard_shortcuts():
     i = 0
 
     for _, s in df.iterrows():
-        # rolfilter
         roles = [r.strip() for r in str(s.get("roles", "")).split(",") if r.strip()]
         if st.session_state.role not in roles:
             continue
@@ -426,7 +515,6 @@ def dashboard_shortcuts():
 """
         with cols[i]:
             st.markdown(html, unsafe_allow_html=True)
-
         i = (i + 1) % 3
 
 # ================= GENERIEKE CRUD =================
@@ -468,26 +556,61 @@ def crud_block(table, fields, dropdowns=None):
         submit_edit = col2.form_submit_button("✏️ Wijzigen")
         submit_del = col3.form_submit_button("🗑️ Verwijderen")
 
-        if submit_new:
-            c.execute(
-                f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
-                tuple(values.values())
+        # --------- EXTRA VALIDATIES voor Uitzonderingen (B) ---------
+        def validate_and_check_duplicates(is_update=False, current_id=None):
+            if table != "uitzonderingen":
+                return True  # geen extra checks nodig
+
+            # kenteken validatie
+            k_raw = values.get("kenteken", "")
+            if not is_valid_kenteken(k_raw):
+                st.error("Kenteken ongeldig. Gebruik letters/cijfers (5–8 tekens), bijv. AB123C of 12ABC3.")
+                return False
+
+            # datums valideren en overlap checken
+            start_iso = parse_iso_date(values.get("start"))
+            einde_iso = parse_iso_date(values.get("einde"))
+            if start_iso is None or einde_iso is None:
+                st.error("Start/einde datum onjuist. Gebruik formaat YYYY-MM-DD.")
+                return False
+            if start_iso > einde_iso:
+                st.error("Start mag niet later zijn dan Einde.")
+                return False
+
+            dup_df = detect_overlapping_uitzondering(
+                k_raw, start_iso, einde_iso, exclude_id=(current_id if is_update else None)
             )
-            rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
-            c.commit()
-            audit("INSERT", table, rid)
-            st.success("Record toegevoegd")
-            st.rerun()
+            if not dup_df.empty and "fout" not in dup_df.columns:
+                st.error("Er bestaat al een uitzondering voor dit kenteken met overlappende periode.")
+                st.dataframe(dup_df, use_container_width=True)
+                return False
+
+            # normaliseer opslagvorm van kenteken (upper, bewaar eventuele '-')
+            values["kenteken"] = values["kenteken"].upper().strip()
+            return True
+
+        if submit_new:
+            if validate_and_check_duplicates(is_update=False):
+                c.execute(
+                    f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
+                    tuple(values.values())
+                )
+                rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+                c.commit()
+                audit("INSERT", table, rid)
+                st.success("Record toegevoegd")
+                st.rerun()
 
         if record is not None and submit_edit:
-            c.execute(
-                f"UPDATE {table} SET {','.join(f+'=?' for f in fields)} WHERE id=?",
-                (*values.values(), sel)
-            )
-            c.commit()
-            audit("UPDATE", table, sel)
-            st.success("Record bijgewerkt")
-            st.rerun()
+            if validate_and_check_duplicates(is_update=True, current_id=sel):
+                c.execute(
+                    f"UPDATE {table} SET {','.join(f+'=?' for f in fields)} WHERE id=?",
+                    (*values.values(), sel)
+                )
+                c.commit()
+                audit("UPDATE", table, sel)
+                st.success("Record bijgewerkt")
+                st.rerun()
 
         if has_role("admin") and record is not None and submit_del:
             c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
@@ -776,9 +899,11 @@ def users_block():
 
 # ================= RENDER FUNCTIES PER TAB =================
 def render_dashboard():
+    # --- Globale zoekbalk (A) ---
+    global_search_block()
+
     c = conn()
     cols = st.columns(5)
-
     cols[0].metric("Uitzonderingen", pd.read_sql("SELECT COUNT(*) c FROM uitzonderingen", c)["c"][0])
     cols[1].metric("Gehandicapten", pd.read_sql("SELECT COUNT(*) c FROM gehandicapten", c)["c"][0])
     cols[2].metric("Contracten", pd.read_sql("SELECT COUNT(*) c FROM contracten", c)["c"][0])
@@ -789,7 +914,7 @@ def render_dashboard():
     dashboard_shortcuts()
     st.markdown("---")
 
-    # Audit-overzichten zijn verplaatst naar render_audit()
+    # Audit-overzichten staan in render_audit()
     c.close()
 
 def render_uitzonderingen():
@@ -825,18 +950,61 @@ def render_werkzaamheden():
         {"status":["Gepland","In uitvoering","Afgerond"]}
     )
 
-    st.markdown("### 📍 Werkzaamheden op kaart")
+    st.markdown("### 🗺️ Werkzaamheden op kaart (cluster)")
+
     c = conn()
     df_map = pd.read_sql("""
-        SELECT latitude, longitude FROM werkzaamheden
+        SELECT id, omschrijving, status, locatie, start, einde, latitude, longitude
+        FROM werkzaamheden
         WHERE latitude IS NOT NULL AND longitude IS NOT NULL
     """, c)
     c.close()
 
-    if not df_map.empty:
-        st.map(df_map)
-    else:
+    if df_map.empty:
         st.info("Geen GPS-locaties ingevoerd")
+        return
+
+    # ---- Folium kaart met clustering (D) ----
+    try:
+        import folium
+        from folium.plugins import MarkerCluster
+        from streamlit.components.v1 import html as st_html
+
+        # map center
+        lat_mean = df_map["latitude"].astype(float).mean()
+        lon_mean = df_map["longitude"].astype(float).mean()
+        center = [lat_mean if pd.notna(lat_mean) else 51.81, lon_mean if pd.notna(lon_mean) else 4.66]
+
+        m = folium.Map(location=center, zoom_start=12, control_scale=True)
+
+        cluster = MarkerCluster().add_to(m)
+        color_map = {
+            "Gepland": "blue",
+            "In uitvoering": "orange",
+            "Afgerond": "green"
+        }
+
+        for _, r in df_map.iterrows():
+            color = color_map.get(str(r["status"]), "gray")
+            popup_html = f"""
+<b>{r.get('omschrijving','(zonder omschrijving)')}</b><br>
+Status: {r.get('status','')}<br>
+Locatie: {r.get('locatie','')}<br>
+Periode: {r.get('start','?')} – {r.get('einde','?')}<br>
+ID: {r.get('id','')}
+"""
+            folium.Marker(
+                location=[float(r["latitude"]), float(r["longitude"])],
+                icon=folium.Icon(color=color, icon="wrench", prefix="fa"),
+                popup=folium.Popup(popup_html, max_width=300)
+            ).add_to(cluster)
+
+        st_html(m._repr_html_(), height=520)
+
+    except Exception as e:
+        st.warning(f"Kaartweergave vereist het pakket 'folium'. Fout: {e}")
+        st.info("Installeer met: pip install folium")
+        st.map(df_map.rename(columns={"latitude":"lat","longitude":"lon"})[["lat","lon"]])
 
 def render_agenda():
     agenda_block()
@@ -847,7 +1015,6 @@ def render_gebruikers():
 def render_audit():
     c = conn()
 
-    # 1) Activiteiten per gebruiker
     st.markdown("### 👤 Activiteiten per gebruiker")
     df_per_user = pd.read_sql("""
         SELECT user, COUNT(*) AS acties, MAX(timestamp) AS laatste_actie
@@ -859,7 +1026,6 @@ def render_audit():
 
     st.markdown("---")
 
-    # 2) Laatste acties
     st.markdown("### 🧾 Laatste acties")
     df_last = pd.read_sql("""
         SELECT timestamp, user, action, table_name, record_id
@@ -871,12 +1037,35 @@ def render_audit():
 
     st.markdown("---")
 
-    # 3) Volledig audit log
     st.markdown("### 📚 Volledig audit log")
     df_full = pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c)
     st.dataframe(df_full, use_container_width=True)
 
     c.close()
+
+# ================= RECHTEN =================
+def load_user_permissions(username, role):
+    c = conn()
+    try:
+        df = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=?", c, params=[username])
+    finally:
+        c.close()
+    defaults = role_default_permissions().get(role, {})
+    if df.empty:
+        return dict(defaults)
+    else:
+        keys = [k for _, k in all_tabs_config()]
+        user_map = {k: False for k in keys}
+        for _, r in df.iterrows():
+            user_map[str(r["tab_key"])] = bool(int(r["allowed"]))
+        return user_map
+
+def is_tab_allowed(tab_key):
+    perms = st.session_state.get("_tab_perms_cache")
+    if perms is None:
+        perms = load_user_permissions(st.session_state.user, st.session_state.role)
+        st.session_state["_tab_perms_cache"] = perms
+    return perms.get(tab_key, False)
 
 # ================= UI: TABS DYNAMISCH OP BASIS VAN RECHTEN =================
 tab_funcs = {
@@ -891,7 +1080,6 @@ tab_funcs = {
     "audit": render_audit
 }
 
-# Bepaal toegestane tabs voor de ingelogde gebruiker
 allowed_items = [(lbl, key) for (lbl, key) in all_tabs_config() if is_tab_allowed(key)]
 
 if not allowed_items:
