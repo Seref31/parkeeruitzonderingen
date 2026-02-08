@@ -20,6 +20,39 @@ START_USERS = {
     "wout": ("Wout@7394", "viewer"),
 }
 
+# === NIEUW: tab-config (labels + sleutels) ===
+def all_tabs_config():
+    return [
+        ("📊 Dashboard", "dashboard"),
+        ("🅿️ Uitzonderingen", "uitzonderingen"),
+        ("♿ Gehandicapten", "gehandicapten"),
+        ("📄 Contracten", "contracten"),
+        ("🧩 Projecten", "projecten"),
+        ("🛠️ Werkzaamheden", "werkzaamheden"),
+        ("📅 Agenda", "agenda"),
+        ("👥 Gebruikersbeheer", "gebruikers"),
+        ("🧾 Audit log", "audit"),
+    ]
+
+# === NIEUW: standaard tabrechten per rol (kun je zelf tweaken) ===
+def role_default_permissions():
+    keys = [k for _, k in all_tabs_config()]
+    admin = {k: True for k in keys}  # admin mag alles
+    editor = {k: True for k in keys}
+    editor["gebruikers"] = False     # editors mogen geen gebruikers beheren
+    # Laat editors audit zien (read-only: bewerken is toch met role-checks afgeschermd)
+    viewer = {k: False for k in keys}
+    for k in ["dashboard", "uitzonderingen", "gehandicapten", "contracten", "projecten", "werkzaamheden", "agenda"]:
+        viewer[k] = True
+    # Geen toegang voor viewer tot gebruikers en audit
+    viewer["gebruikers"] = False
+    viewer["audit"] = False
+    return {
+        "admin": admin,
+        "editor": editor,
+        "viewer": viewer
+    }
+
 # ================= HULP =================
 def conn():
     return sqlite3.connect(DB, check_same_thread=False)
@@ -44,6 +77,37 @@ def audit(action, table=None, record_id=None):
     ))
     c.commit()
     c.close()
+
+# === NIEUW: rechten laden (per gebruiker, fallback op rol-standaard) ===
+def load_user_permissions(username, role):
+    """
+    Retourneert dict {tab_key: bool} voor deze gebruiker.
+    Als er GEEN regels zijn in 'permissions' voor deze user, gebruik rol-standaarden.
+    Als er WÉL regels zijn, gebruik deze (en zet alles dat niet expliciet voorkomt op False).
+    """
+    c = conn()
+    try:
+        df = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=?", c, params=[username])
+    finally:
+        c.close()
+    defaults = role_default_permissions().get(role, {})
+    if df.empty:
+        # geen specifieke user-permissions: rol-standaard
+        return dict(defaults)
+    else:
+        # expliciete user-permissions
+        keys = [k for _, k in all_tabs_config()]
+        user_map = {k: False for k in keys}
+        for _, r in df.iterrows():
+            user_map[str(r["tab_key"])] = bool(int(r["allowed"]))
+        return user_map
+
+def is_tab_allowed(tab_key):
+    perms = st.session_state.get("_tab_perms_cache")
+    if perms is None:
+        perms = load_user_permissions(st.session_state.user, st.session_state.role)
+        st.session_state["_tab_perms_cache"] = perms
+    return perms.get(tab_key, False)
 
 # ================= DB INIT =================
 def init_db():
@@ -82,6 +146,16 @@ def init_db():
         )
     """)
 
+    # === NIEUW: per-gebruiker tab-permissies ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS permissions (
+            username TEXT,
+            tab_key TEXT,
+            allowed INTEGER,
+            PRIMARY KEY (username, tab_key)
+        )
+    """)
+
     # Seed users
     for u, (p, r) in START_USERS.items():
         cur.execute("""
@@ -117,7 +191,7 @@ def init_db():
             status TEXT, uitvoerder TEXT, latitude REAL,
             longitude REAL, opmerking TEXT
         """,
-        # === Agenda met jouw (gespotte) schema ===
+        # === Agenda ===
         "agenda": """
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             titel TEXT,
@@ -156,6 +230,8 @@ if "user" not in st.session_state:
             st.session_state.user = u
             st.session_state.role = r[1]
             st.session_state.force_change = r[3]
+            # reset cache van tabrechten per login
+            st.session_state["_tab_perms_cache"] = None
             audit("LOGIN")
             st.rerun()
         else:
@@ -171,7 +247,7 @@ if st.session_state.force_change == 1:
 
     if st.button("Wijzigen"):
         if pw1 != pw2 or len(pw1) < 8:
-            st.error("Wachtwoord ongeldig")
+            st.error("Wachtwoord ongeldig (min. 8 tekens en beide velden gelijk)")
         else:
             c = conn()
             c.execute("""
@@ -197,7 +273,6 @@ if st.sidebar.button("🚪 Uitloggen"):
 st.sidebar.markdown("### 📅 Komende activiteiten")
 try:
     c = conn()
-    # Filter op datum vanaf vandaag, oplopend op datum + starttijd
     df_agenda_sidebar = pd.read_sql("""
         SELECT id, titel, datum, starttijd, locatie
         FROM agenda
@@ -211,7 +286,6 @@ try:
         st.sidebar.info("Geen komende activiteiten")
     else:
         for _, r in df_agenda_sidebar.iterrows():
-            # Robuuste datum/tijd opmaak
             dag_txt = ""
             tijd_txt = ""
             try:
@@ -226,7 +300,6 @@ try:
             except Exception:
                 tijd_txt = str(r["starttijd"] or "")
 
-            # Badge met D-dagen
             try:
                 if isinstance(dag_dt, date):
                     delta = (dag_dt - date.today()).days
@@ -239,7 +312,7 @@ try:
             st.sidebar.markdown(
                 f"- **{r['titel']}**  \n"
                 f"  🗓️ {dag_txt}{(' om ' + tijd_txt) if tijd_txt else ''}"
-                f"{' · ' + r['locatie'] if r['locatie'] else ''}"
+                f"{' · ' + (r['locatie'] or '') if r['locatie'] else ''}"
                 f"{' · ⏳ ' + badge if badge else ''}"
             )
 except Exception as e:
@@ -291,7 +364,6 @@ def dashboard_shortcuts():
             continue
 
         with cols[i]:
-            # LET OP: hier ECHTE HTML-tags, niet &lt; &gt;
             st.markdown(
                 f"""
 <a href="{s['url']}" target="_blank" style="text-decoration:none;">
@@ -305,7 +377,6 @@ def dashboard_shortcuts():
                 """,
                 unsafe_allow_html=True
             )
-
         i = (i + 1) % 3
 
 # ================= GENERIEKE CRUD =================
@@ -326,7 +397,8 @@ def crud_block(table, fields, dropdowns=None):
         c.close()
         return
 
-    sel = st.selectbox("✏️ Selecteer record", [None] + df["id"].tolist(),
+    # selecteer bestaand record voor bewerken/verwijderen
+    sel = st.selectbox("✏️ Selecteer record", [None] + df.get("id", pd.Series([], dtype="int")).astype(int).tolist(),
                        key=f"{table}_select")
     record = df[df.id == sel].iloc[0] if sel else None
 
@@ -336,11 +408,18 @@ def crud_block(table, fields, dropdowns=None):
             key = f"{table}_{f}"
             val = record[f] if record is not None and f in record.index else ""
             if f in dropdowns:
-                values[f] = st.selectbox(f, dropdowns[f], key=key, index=(dropdowns[f].index(val) if val in dropdowns[f] else 0))
+                options = dropdowns[f]
+                default_idx = options.index(val) if val in options else 0
+                values[f] = st.selectbox(f, options, key=key, index=default_idx)
             else:
                 values[f] = st.text_input(f, str(val) if val else "", key=key)
 
-        if st.form_submit_button("💾 Opslaan"):
+        col1, col2, col3 = st.columns(3)
+        submit_new = col1.form_submit_button("💾 Opslaan (nieuw)")
+        submit_edit = col2.form_submit_button("✏️ Wijzigen")
+        submit_del = col3.form_submit_button("🗑️ Verwijderen")
+
+        if submit_new:
             c.execute(
                 f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
                 tuple(values.values())
@@ -348,21 +427,24 @@ def crud_block(table, fields, dropdowns=None):
             rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
             c.commit()
             audit("INSERT", table, rid)
+            st.success("Record toegevoegd")
             st.rerun()
 
-        if record is not None and st.form_submit_button("✏️ Wijzigen"):
+        if record is not None and submit_edit:
             c.execute(
                 f"UPDATE {table} SET {','.join(f+'=?' for f in fields)} WHERE id=?",
                 (*values.values(), sel)
             )
             c.commit()
             audit("UPDATE", table, sel)
+            st.success("Record bijgewerkt")
             st.rerun()
 
-        if has_role("admin") and record is not None and st.form_submit_button("🗑️ Verwijderen"):
+        if has_role("admin") and record is not None and submit_del:
             c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
             c.commit()
             audit("DELETE", table, sel)
+            st.success("Record verwijderd")
             st.rerun()
 
     c.close()
@@ -373,11 +455,9 @@ def agenda_block():
     df = pd.read_sql("SELECT * FROM agenda", c)
     c.close()
 
-    # Zoekfilter
     search = st.text_input("🔍 Zoeken", key="agenda_search")
     df = apply_search(df, search)
 
-    # Toon tabel
     st.dataframe(df, use_container_width=True)
     export_excel(df, "agenda")
     export_pdf(df, "Agenda")
@@ -385,14 +465,12 @@ def agenda_block():
     if not has_role("admin", "editor"):
         return
 
-    # Keuze record
-    sel = st.selectbox("✏️ Selecteer record", [None] + df["id"].astype(int).tolist(), key="agenda_select")
+    sel = st.selectbox("✏️ Selecteer record", [None] + df.get("id", pd.Series([], dtype="int")).astype(int).tolist(), key="agenda_select")
     record = df[df.id == sel].iloc[0] if sel else None
 
-    # Form
     with st.form("agenda_form"):
         titel = st.text_input("Titel", value=(record["titel"] if record is not None else ""))
-        # datum
+
         if record is not None and pd.notna(record.get("datum", None)):
             try:
                 d_default = pd.to_datetime(record["datum"]).date()
@@ -402,7 +480,6 @@ def agenda_block():
             d_default = date.today()
         datum_val = st.date_input("Datum", value=d_default)
 
-        # starttijd
         def parse_time(v, default_h=9, default_m=0):
             try:
                 t = pd.to_datetime(str(v)).time()
@@ -422,9 +499,10 @@ def agenda_block():
         locatie = st.text_input("Locatie", value=(record["locatie"] if record is not None else ""))
         beschrijving = st.text_area("Beschrijving", value=(record["beschrijving"] if record is not None else ""))
 
-        submit_new = st.form_submit_button("💾 Opslaan (nieuw)")
-        submit_edit = st.form_submit_button("✏️ Wijzigen")
-        submit_del = st.form_submit_button("🗑️ Verwijderen")
+        col1, col2, col3 = st.columns(3)
+        submit_new = col1.form_submit_button("💾 Opslaan (nieuw)")
+        submit_edit = col2.form_submit_button("✏️ Wijzigen")
+        submit_del = col3.form_submit_button("🗑️ Verwijderen")
 
         if submit_new:
             c = conn()
@@ -478,20 +556,183 @@ def agenda_block():
             st.success("Activiteit verwijderd")
             st.rerun()
 
-# ================= UI =================
-tabs = st.tabs([
-    "📊 Dashboard",
-    "🅿️ Uitzonderingen",
-    "♿ Gehandicapten",
-    "📄 Contracten",
-    "🧩 Projecten",
-    "🛠️ Werkzaamheden",
-    "📅 Agenda",            # NIEUW
-    "👥 Gebruikersbeheer",
-    "🧾 Audit log"
-])
+# ================= GEBRUIKERSBEHEER (NIEUW) =================
+def users_block():
+    if not has_role("admin"):
+        st.warning("Alleen admins")
+        return
 
-with tabs[0]:
+    c = conn()
+    st.subheader("👥 Gebruikers")
+    df_users = pd.read_sql("SELECT username, role, active, force_change FROM users ORDER BY username", c)
+    st.dataframe(df_users, use_container_width=True)
+
+    st.markdown("### ➕ Gebruiker toevoegen")
+    with st.form("user_add_form"):
+        new_username = st.text_input("Gebruikersnaam (uniek)")
+        new_password = st.text_input("Initieel wachtwoord", type="password")
+        new_role = st.selectbox("Rol", ["admin", "editor", "viewer"])
+        new_active = st.checkbox("Actief", True)
+        force_change = st.checkbox("Wachtwoord wijzigen bij eerste login (aanbevolen)", True)
+
+        if st.form_submit_button("💾 Toevoegen"):
+            if not new_username or not new_password or len(new_password) < 8:
+                st.error("Geef een unieke gebruikersnaam en een wachtwoord van minimaal 8 tekens.")
+            else:
+                try:
+                    c.execute("""
+                        INSERT INTO users (username, password, role, active, force_change)
+                        VALUES (?,?,?,?,?)
+                    """, (new_username, hash_pw(new_password), new_role, int(new_active), int(force_change)))
+                    c.commit()
+                    audit("USER_CREATE", "users", new_username)
+                    st.success(f"Gebruiker '{new_username}' toegevoegd")
+                    st.session_state["_tab_perms_cache"] = None
+                    st.rerun()
+                except sqlite3.IntegrityError:
+                    st.error("Gebruikersnaam bestaat al.")
+
+    st.markdown("### ✏️ Gebruiker bewerken/verwijderen")
+    df_usernames = df_users["username"].tolist()
+    sel_user = st.selectbox("Selecteer gebruiker", [None] + df_usernames, key="user_edit_select")
+
+    if sel_user:
+        # huidige waarden
+        cur = c.execute("SELECT username, role, active, force_change FROM users WHERE username=?", (sel_user,))
+        row = cur.fetchone()
+        if row:
+            _, role_cur, active_cur, force_cur = row
+            with st.form("user_edit_form"):
+                role_new = st.selectbox("Rol", ["admin", "editor", "viewer"], index=["admin","editor","viewer"].index(role_cur))
+                active_new = st.checkbox("Actief", bool(active_cur))
+                force_new = st.checkbox("Forceer wachtwoordwijziging", bool(force_cur))
+                pw_reset = st.checkbox("Wachtwoord resetten?")
+                pw_new = st.text_input("Nieuw wachtwoord", type="password", disabled=not pw_reset)
+
+                col1, col2 = st.columns(2)
+                do_save = col1.form_submit_button("💾 Opslaan wijzigingen")
+                do_delete = col2.form_submit_button("🗑️ Verwijderen")
+
+                if do_save:
+                    # valideer evt nieuw wachtwoord
+                    if pw_reset and len(pw_new) < 8:
+                        st.error("Nieuw wachtwoord moet minstens 8 tekens zijn.")
+                    else:
+                        if pw_reset:
+                            c.execute("""
+                                UPDATE users SET role=?, active=?, force_change=?, password=?
+                                WHERE username=?
+                            """, (role_new, int(active_new), int(force_new), hash_pw(pw_new), sel_user))
+                            audit("USER_UPDATE_RESET_PW", "users", sel_user)
+                        else:
+                            c.execute("""
+                                UPDATE users SET role=?, active=?, force_change=?
+                                WHERE username=?
+                            """, (role_new, int(active_new), int(force_new), sel_user))
+                            audit("USER_UPDATE", "users", sel_user)
+                        c.commit()
+                        st.success("Gebruiker bijgewerkt")
+                        st.session_state["_tab_perms_cache"] = None
+                        st.rerun()
+
+                if do_delete:
+                    # verwijder permissies van deze user
+                    c.execute("DELETE FROM permissions WHERE username=?", (sel_user,))
+                    c.execute("DELETE FROM users WHERE username=?", (sel_user,))
+                    c.commit()
+                    audit("USER_DELETE", "users", sel_user)
+                    st.success("Gebruiker verwijderd")
+                    st.session_state["_tab_perms_cache"] = None
+                    st.rerun()
+
+    st.markdown("---")
+    st.subheader("🔐 Tab-toegang per gebruiker")
+    sel_perm_user = st.selectbox("Kies gebruiker voor tabrechten", [None] + df_usernames, key="perm_user_select")
+
+    if sel_perm_user:
+        # Bepaal huidige rechten
+        df_perm = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=?", c, params=[sel_perm_user])
+        has_custom = not df_perm.empty
+
+        use_role_defaults = st.checkbox("Gebruik rol-standaardrechten (geen maatwerk)", value=not has_custom)
+
+        labels_keys = all_tabs_config()
+        tab_keys = [k for _, k in labels_keys]
+        labels_map = {k: lbl for (lbl, k) in labels_keys}
+
+        if use_role_defaults:
+            st.info("Rol-standaardrechten zijn actief. Eventuele maatwerkrechten worden verwijderd bij opslaan.")
+            if st.button("💾 Opslaan (rol-standaard gebruiken)", key="perm_save_role_defaults"):
+                c.execute("DELETE FROM permissions WHERE username=?", (sel_perm_user,))
+                c.commit()
+                audit("PERMISSIONS_CLEAR", "permissions", sel_perm_user)
+                st.success("Maatwerk tabrechten verwijderd; rol-standaard is nu actief.")
+                if sel_perm_user == st.session_state.user:
+                    st.session_state["_tab_perms_cache"] = None
+                st.rerun()
+        else:
+            # Toon multiselect met alle tabs en huidige selectie
+            current_allowed = set(df_perm[df_perm["allowed"] == 1]["tab_key"].tolist()) if has_custom else set()
+            default_for_role = role_default_permissions().get(
+                c.execute("SELECT role FROM users WHERE username=?", (sel_perm_user,)).fetchone()[0],
+                {}
+            )
+            help_txt = "Selecteer de tabbladen waar deze gebruiker bij mag. Niet-geselecteerd = geen toegang."
+            selected_labels = st.multiselect(
+                "Toegestane tabbladen",
+                [lbl for (lbl, _) in labels_keys],
+                default=[labels_map[k] for k in (current_allowed if has_custom else {k for k, v in default_for_role.items() if v})],
+                help=help_txt
+            )
+            selected_keys = {k for (lbl, k) in labels_keys if lbl in selected_labels}
+
+            if st.button("💾 Opslaan tabrechten", key="perm_save_custom"):
+                # Overschrijf volledige set: voor elke tab_key expliciet allowed (1/0)
+                c.execute("DELETE FROM permissions WHERE username=?", (sel_perm_user,))
+                for k in tab_keys:
+                    c.execute(
+                        "INSERT INTO permissions (username, tab_key, allowed) VALUES (?,?,?)",
+                        (sel_perm_user, k, int(k in selected_keys))
+                    )
+                c.commit()
+                audit("PERMISSIONS_SET", "permissions", sel_perm_user)
+                st.success("Tabrechten opgeslagen")
+                if sel_perm_user == st.session_state.user:
+                    st.session_state["_tab_perms_cache"] = None
+                st.rerun()
+
+    st.markdown("---")
+    st.subheader("🚀 Dashboard snelkoppelingen")
+    st.dataframe(
+        pd.read_sql("SELECT * FROM dashboard_shortcuts", c),
+        use_container_width=True
+    )
+
+    with st.form("shortcut_form"):
+        title = st.text_input("Titel (emoji toegestaan)")
+        subtitle = st.text_input("Subtitel")
+        url = st.text_input("URL")
+        roles = st.multiselect(
+            "Zichtbaar voor rollen",
+            ["admin","editor","viewer"],
+            default=["admin","editor","viewer"]
+        )
+        active = st.checkbox("Actief", True)
+
+        if st.form_submit_button("💾 Opslaan"):
+            c.execute("""
+                INSERT INTO dashboard_shortcuts (title, subtitle, url, roles, active)
+                VALUES (?,?,?,?,?)
+            """, (title, subtitle, url, ",".join(roles), int(active)))
+            c.commit()
+            audit("SHORTCUT_ADD")
+            st.success("Snelkoppeling toegevoegd")
+            st.rerun()
+
+    c.close()
+
+# ================= RENDER FUNCTIES PER TAB =================
+def render_dashboard():
     c = conn()
     cols = st.columns(5)
 
@@ -519,33 +760,33 @@ with tabs[0]:
 
     c.close()
 
-with tabs[1]:
+def render_uitzonderingen():
     crud_block(
         "uitzonderingen",
         ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
         {"type":["Bewoner","Bedrijf","Project"]}
     )
 
-with tabs[2]:
+def render_gehandicapten():
     crud_block(
         "gehandicapten",
         ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"]
     )
 
-with tabs[3]:
+def render_contracten():
     crud_block(
         "contracten",
         ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"]
     )
 
-with tabs[4]:
+def render_projecten():
     crud_block(
         "projecten",
         ["naam","projectleider","start","einde","prio","status","opmerking"],
         {"prio":["Hoog","Gemiddeld","Laag"], "status":["Niet gestart","Actief","Afgerond"]}
     )
 
-with tabs[5]:
+def render_werkzaamheden():
     crud_block(
         "werkzaamheden",
         ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
@@ -565,54 +806,47 @@ with tabs[5]:
     else:
         st.info("Geen GPS-locaties ingevoerd")
 
-# === NIEUW: Tabblad Agenda (CRUD afgestemd op jouw kolommen) ===
-with tabs[6]:
+def render_agenda():
     agenda_block()
 
-with tabs[7]:
-    if not has_role("admin"):
-        st.warning("Alleen admins")
-    else:
-        c = conn()
-        st.subheader("👥 Gebruikers")
-        st.dataframe(
-            pd.read_sql("SELECT username, role, active, force_change FROM users", c),
-            use_container_width=True
-        )
-        st.markdown("---")
-        st.subheader("🚀 Dashboard snelkoppelingen")
-        st.dataframe(
-            pd.read_sql("SELECT * FROM dashboard_shortcuts", c),
-            use_container_width=True
-        )
+def render_gebruikers():
+    users_block()
 
-        with st.form("shortcut_form"):
-            title = st.text_input("Titel (emoji toegestaan)")
-            subtitle = st.text_input("Subtitel")
-            url = st.text_input("URL")
-            roles = st.multiselect(
-                "Zichtbaar voor rollen",
-                ["admin","editor","viewer"],
-                default=["admin","editor","viewer"]
-            )
-            active = st.checkbox("Actief", True)
-
-            if st.form_submit_button("💾 Opslaan"):
-                c.execute("""
-                    INSERT INTO dashboard_shortcuts (title, subtitle, url, roles, active)
-                    VALUES (?,?,?,?,?)
-                """, (title, subtitle, url, ",".join(roles), int(active)))
-                c.commit()
-                audit("SHORTCUT_ADD")
-                st.success("Snelkoppeling toegevoegd")
-                st.rerun()
-
-        c.close()
-
-with tabs[8]:
+def render_audit():
     c = conn()
     st.dataframe(
         pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c),
         use_container_width=True
     )
     c.close()
+
+# ================= UI: TABS DYNAMISCH OP BASIS VAN RECHTEN =================
+tab_funcs = {
+    "dashboard": render_dashboard,
+    "uitzonderingen": render_uitzonderingen,
+    "gehandicapten": render_gehandicapten,
+    "contracten": render_contracten,
+    "projecten": render_projecten,
+    "werkzaamheden": render_werkzaamheden,
+    "agenda": render_agenda,
+    "gebruikers": render_gebruikers,
+    "audit": render_audit
+}
+
+# Bepaal toegestane tabs voor de ingelogde gebruiker
+allowed_items = [(lbl, key) for (lbl, key) in all_tabs_config() if is_tab_allowed(key)]
+
+if not allowed_items:
+    st.error("Je hebt momenteel geen toegestane tabbladen. Neem contact op met een beheerder.")
+    st.stop()
+
+tabs_objs = st.tabs([lbl for (lbl, _) in allowed_items])
+
+for i, (_, key) in enumerate(allowed_items):
+    with tabs_objs[i]:
+        # extra guard: als functie niet bestaat, sla over
+        fn = tab_funcs.get(key)
+        if fn:
+            fn()
+        else:
+            st.info("Nog geen inhoud voor dit tabblad.")
