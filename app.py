@@ -16,8 +16,6 @@ DB = "parkeeruitzonderingen.db"
 
 START_USERS = {
     "seref": ("Seref#2026", "admin"),
-    "bryn": ("Bryn#4821", "editor"),
-    "wout": ("Wout@7394", "viewer"),
 }
 
 # === NIEUW: tab-config (labels + sleutels) ===
@@ -850,3 +848,4 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
