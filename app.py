@@ -10,9 +10,26 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
+# ================= BRANDING =================
+# Gebruik het aangeleverde bestand in dezelfde map als dit script
+LOGO_PATH = "gemeente-dordrecht-transparant-png.png"
+PAGE_ICON = LOGO_PATH  # zelfde bestand als favicon
+
 # ================= CONFIG =================
-st.set_page_config("Parkeerbeheer Dashboard", layout="wide")
+st.set_page_config(
+    page_title="Parkeerbeheer Dashboard",
+    layout="wide",
+    page_icon=PAGE_ICON
+)
 DB = "parkeeruitzonderingen.db"
+
+# Optionele subtiele achtergrond/polish
+st.markdown("""
+<style>
+    .stApp { background: linear-gradient(180deg, #f7f9fc 0%, #ffffff 100%); }
+    a { text-decoration: none; }
+</style>
+""", unsafe_allow_html=True)
 
 START_USERS = {
     "seref": ("Seref#2026", "admin"),
@@ -213,11 +230,41 @@ init_db()
 
 # ================= LOGIN =================
 if "user" not in st.session_state:
-    st.title("🔐 Inloggen")
+    # -- Logo en titel gecentreerd --
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        try:
+            st.image(LOGO_PATH, use_container_width=False, width=180)
+        except Exception:
+            pass
+        st.markdown(
+            "<h2 style='text-align:center;margin-top:6px;'>Parkeerbeheer – Inloggen</h2>",
+            unsafe_allow_html=True
+        )
+
+    # -- “Card” met inlogvelden --
+    st.markdown(
+        """
+        <div style="
+            max-width:520px;margin: 12px auto 0 auto; padding: 24px 22px;
+            border: 1px solid #eaeaea; border-radius: 14px; background: #ffffffaa;
+            box-shadow: 0 6px 22px rgba(0,0,0,0.06);
+        ">
+        """,
+        unsafe_allow_html=True
+    )
+
     u = st.text_input("Gebruiker")
     p = st.text_input("Wachtwoord", type="password")
+    colA, colB = st.columns([1,1])
+    with colA:
+        login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
+    with colB:
+        st.write("")
 
-    if st.button("Inloggen"):
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if login_clicked:
         c = conn()
         r = c.execute("""
             SELECT password, role, active, force_change FROM users WHERE username=?
@@ -261,6 +308,12 @@ if st.session_state.force_change == 1:
     st.stop()
 
 # ================= SIDEBAR =================
+# (optioneel) logo in de zijbalk bovenaan
+try:
+    st.sidebar.image(LOGO_PATH, use_container_width=True)
+except Exception:
+    pass
+
 st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
 
 if st.sidebar.button("🚪 Uitloggen"):
@@ -362,10 +415,10 @@ def dashboard_shortcuts():
             continue
 
         with cols[i]:
-            # ECHTE HTML-tags gebruiken
+            # Echte HTML-tags gebruiken
             st.markdown(
                 f"""
-<a href="{s['url']}" target="_blank" style="text-decoration:none;">
+{s[
   <div style="border:1px solid #e0e0e0;border-radius:14px;
               padding:18px;margin-bottom:16px;background:white;
               box-shadow:0 4px 10px rgba(0,0,0,0.06);">
@@ -745,7 +798,7 @@ def render_dashboard():
     dashboard_shortcuts()
     st.markdown("---")
 
-    # LET OP: Audit-overzichten zijn verplaatst naar render_audit()
+    # Audit-overzichten zijn verplaatst naar render_audit()
 
     c.close()
 
@@ -816,7 +869,7 @@ def render_audit():
 
     st.markdown("---")
 
-    # 2) Laatste acties (zoals voorheen op het dashboard)
+    # 2) Laatste acties (zoals eerder op het dashboard)
     st.markdown("### 🧾 Laatste acties")
     df_last = pd.read_sql("""
         SELECT timestamp, user, action, table_name, record_id
@@ -828,7 +881,7 @@ def render_audit():
 
     st.markdown("---")
 
-    # (optioneel) Volledige audit log daaronder
+    # 3) Volledig audit log
     st.markdown("### 📚 Volledig audit log")
     df_full = pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c)
     st.dataframe(df_full, use_container_width=True)
