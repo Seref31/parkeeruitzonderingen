@@ -362,6 +362,7 @@ def dashboard_shortcuts():
             continue
 
         with cols[i]:
+            # ECHTE HTML-tags gebruiken
             st.markdown(
                 f"""
 <a href="{s['url']}" target="_blank" style="text-decoration:none;">
@@ -744,17 +745,7 @@ def render_dashboard():
     dashboard_shortcuts()
     st.markdown("---")
 
-    st.markdown("### 👤 Activiteiten per gebruiker")
-    st.dataframe(pd.read_sql("""
-        SELECT user, COUNT(*) acties, MAX(timestamp) laatste_actie
-        FROM audit_log GROUP BY user ORDER BY acties DESC
-    """, c), use_container_width=True)
-
-    st.markdown("### 🧾 Laatste acties")
-    st.dataframe(pd.read_sql("""
-        SELECT timestamp, user, action, table_name, record_id
-        FROM audit_log ORDER BY id DESC LIMIT 10
-    """, c), use_container_width=True)
+    # LET OP: Audit-overzichten zijn verplaatst naar render_audit()
 
     c.close()
 
@@ -812,10 +803,36 @@ def render_gebruikers():
 
 def render_audit():
     c = conn()
-    st.dataframe(
-        pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c),
-        use_container_width=True
-    )
+
+    # 1) Activiteiten per gebruiker
+    st.markdown("### 👤 Activiteiten per gebruiker")
+    df_per_user = pd.read_sql("""
+        SELECT user, COUNT(*) AS acties, MAX(timestamp) AS laatste_actie
+        FROM audit_log
+        GROUP BY user
+        ORDER BY acties DESC
+    """, c)
+    st.dataframe(df_per_user, use_container_width=True)
+
+    st.markdown("---")
+
+    # 2) Laatste acties (zoals voorheen op het dashboard)
+    st.markdown("### 🧾 Laatste acties")
+    df_last = pd.read_sql("""
+        SELECT timestamp, user, action, table_name, record_id
+        FROM audit_log
+        ORDER BY id DESC
+        LIMIT 10
+    """, c)
+    st.dataframe(df_last, use_container_width=True)
+
+    st.markdown("---")
+
+    # (optioneel) Volledige audit log daaronder
+    st.markdown("### 📚 Volledig audit log")
+    df_full = pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c)
+    st.dataframe(df_full, use_container_width=True)
+
     c.close()
 
 # ================= UI: TABS DYNAMISCH OP BASIS VAN RECHTEN =================
@@ -848,4 +865,3 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
-
