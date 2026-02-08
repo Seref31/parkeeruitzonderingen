@@ -11,9 +11,8 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
 # ================= BRANDING =================
-# Gebruik het aangeleverde bestand in dezelfde map als dit script
-LOGO_PATH = "gemeente-dordrecht-transparant-png.png"
-PAGE_ICON = LOGO_PATH  # zelfde bestand als favicon
+LOGO_PATH = "gemeente-dordrecht-transparant-png.png"  # zorg dat dit bestand naast dit script staat
+PAGE_ICON = LOGO_PATH
 
 # ================= CONFIG =================
 st.set_page_config(
@@ -23,7 +22,7 @@ st.set_page_config(
 )
 DB = "parkeeruitzonderingen.db"
 
-# Optionele subtiele achtergrond/polish
+# Optionele lichte styling
 st.markdown("""
 <style>
     .stApp { background: linear-gradient(180deg, #f7f9fc 0%, #ffffff 100%); }
@@ -49,17 +48,15 @@ def all_tabs_config():
         ("🧾 Audit log", "audit"),
     ]
 
-# === NIEUW: standaard tabrechten per rol (kun je zelf tweaken) ===
+# === NIEUW: standaard tabrechten per rol ===
 def role_default_permissions():
     keys = [k for _, k in all_tabs_config()]
     admin = {k: True for k in keys}  # admin mag alles
     editor = {k: True for k in keys}
     editor["gebruikers"] = False     # editors mogen geen gebruikers beheren
-    # Laat editors audit zien (read-only: bewerken is toch met role-checks afgeschermd)
     viewer = {k: False for k in keys}
     for k in ["dashboard", "uitzonderingen", "gehandicapten", "contracten", "projecten", "werkzaamheden", "agenda"]:
         viewer[k] = True
-    # Geen toegang voor viewer tot gebruikers en audit
     viewer["gebruikers"] = False
     viewer["audit"] = False
     return {
@@ -107,10 +104,8 @@ def load_user_permissions(username, role):
         c.close()
     defaults = role_default_permissions().get(role, {})
     if df.empty:
-        # geen specifieke user-permissions: rol-standaard
         return dict(defaults)
     else:
-        # expliciete user-permissions
         keys = [k for _, k in all_tabs_config()]
         user_map = {k: False for k in keys}
         for _, r in df.iterrows():
@@ -161,7 +156,7 @@ def init_db():
         )
     """)
 
-    # === NIEUW: per-gebruiker tab-permissies ===
+    # per-gebruiker tab-permissies
     cur.execute("""
         CREATE TABLE IF NOT EXISTS permissions (
             username TEXT,
@@ -206,7 +201,6 @@ def init_db():
             status TEXT, uitvoerder TEXT, latitude REAL,
             longitude REAL, opmerking TEXT
         """,
-        # === Agenda ===
         "agenda": """
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             titel TEXT,
@@ -230,7 +224,7 @@ init_db()
 
 # ================= LOGIN =================
 if "user" not in st.session_state:
-    # -- Logo en titel gecentreerd --
+    # Logo + titel gecentreerd
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         try:
@@ -242,7 +236,7 @@ if "user" not in st.session_state:
             unsafe_allow_html=True
         )
 
-    # -- “Card” met inlogvelden --
+    # Card met inlogvelden
     st.markdown(
         """
         <div style="
@@ -275,7 +269,6 @@ if "user" not in st.session_state:
             st.session_state.user = u
             st.session_state.role = r[1]
             st.session_state.force_change = r[3]
-            # reset cache van tabrechten per login
             st.session_state["_tab_perms_cache"] = None
             audit("LOGIN")
             st.rerun()
@@ -308,7 +301,7 @@ if st.session_state.force_change == 1:
     st.stop()
 
 # ================= SIDEBAR =================
-# (optioneel) logo in de zijbalk bovenaan
+# optioneel logo in zijbalk
 try:
     st.sidebar.image(LOGO_PATH, use_container_width=True)
 except Exception:
@@ -397,6 +390,8 @@ def apply_search(df, search):
 
 # ================= DASHBOARD SHORTCUTS =================
 def dashboard_shortcuts():
+    from html import escape  # veilig escapen van invoer
+
     c = conn()
     df = pd.read_sql("SELECT * FROM dashboard_shortcuts WHERE active=1", c)
     c.close()
@@ -410,25 +405,28 @@ def dashboard_shortcuts():
     i = 0
 
     for _, s in df.iterrows():
-        roles = [r.strip() for r in s["roles"].split(",")]
+        # rolfilter
+        roles = [r.strip() for r in str(s.get("roles", "")).split(",") if r.strip()]
         if st.session_state.role not in roles:
             continue
 
-        with cols[i]:
-            # Echte HTML-tags gebruiken
-            st.markdown(
-                f"""
-{s[
+        url = escape(str(s.get("url", "")), quote=True)
+        title = escape(str(s.get("title", "")))
+        subtitle = escape(str(s.get("subtitle", "")))
+
+        html = f"""
+<a href="{url}" target="_blank" style="text-decoration:none;">
   <div style="border:1px solid #e0e0e0;border-radius:14px;
               padding:18px;margin-bottom:16px;background:white;
               box-shadow:0 4px 10px rgba(0,0,0,0.06);">
-    <div style="font-size:22px;font-weight:600;">{s['title']}</div>
-    <div style="color:#666;margin-top:6px;">{s['subtitle']}</div>
+    <div style="font-size:22px;font-weight:600;">{title}</div>
+    <div style="color:#666;margin-top:6px;">{subtitle}</div>
   </div>
 </a>
-                """,
-                unsafe_allow_html=True
-            )
+"""
+        with cols[i]:
+            st.markdown(html, unsafe_allow_html=True)
+
         i = (i + 1) % 3
 
 # ================= GENERIEKE CRUD =================
@@ -449,7 +447,6 @@ def crud_block(table, fields, dropdowns=None):
         c.close()
         return
 
-    # selecteer bestaand record voor bewerken/verwijderen
     sel = st.selectbox("✏️ Selecteer record", [None] + df.get("id", pd.Series([], dtype="int")).astype(int).tolist(),
                        key=f"{table}_select")
     record = df[df.id == sel].iloc[0] if sel else None
@@ -608,7 +605,7 @@ def agenda_block():
             st.success("Activiteit verwijderd")
             st.rerun()
 
-# ================= GEBRUIKERSBEHEER (NIEUW) =================
+# ================= GEBRUIKERSBEHEER =================
 def users_block():
     if not has_role("admin"):
         st.warning("Alleen admins")
@@ -649,7 +646,6 @@ def users_block():
     sel_user = st.selectbox("Selecteer gebruiker", [None] + df_usernames, key="user_edit_select")
 
     if sel_user:
-        # huidige waarden
         cur = c.execute("SELECT username, role, active, force_change FROM users WHERE username=?", (sel_user,))
         row = cur.fetchone()
         if row:
@@ -666,7 +662,6 @@ def users_block():
                 do_delete = col2.form_submit_button("🗑️ Verwijderen")
 
                 if do_save:
-                    # valideer evt nieuw wachtwoord
                     if pw_reset and len(pw_new) < 8:
                         st.error("Nieuw wachtwoord moet minstens 8 tekens zijn.")
                     else:
@@ -688,7 +683,6 @@ def users_block():
                         st.rerun()
 
                 if do_delete:
-                    # verwijder permissies van deze user
                     c.execute("DELETE FROM permissions WHERE username=?", (sel_user,))
                     c.execute("DELETE FROM users WHERE username=?", (sel_user,))
                     c.commit()
@@ -702,7 +696,6 @@ def users_block():
     sel_perm_user = st.selectbox("Kies gebruiker voor tabrechten", [None] + df_usernames, key="perm_user_select")
 
     if sel_perm_user:
-        # Bepaal huidige rechten
         df_perm = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=?", c, params=[sel_perm_user])
         has_custom = not df_perm.empty
 
@@ -723,7 +716,6 @@ def users_block():
                     st.session_state["_tab_perms_cache"] = None
                 st.rerun()
         else:
-            # Toon multiselect met alle tabs en huidige selectie
             current_allowed = set(df_perm[df_perm["allowed"] == 1]["tab_key"].tolist()) if has_custom else set()
             default_for_role = role_default_permissions().get(
                 c.execute("SELECT role FROM users WHERE username=?", (sel_perm_user,)).fetchone()[0],
@@ -739,7 +731,6 @@ def users_block():
             selected_keys = {k for (lbl, k) in labels_keys if lbl in selected_labels}
 
             if st.button("💾 Opslaan tabrechten", key="perm_save_custom"):
-                # Overschrijf volledige set: voor elke tab_key expliciet allowed (1/0)
                 c.execute("DELETE FROM permissions WHERE username=?", (sel_perm_user,))
                 for k in tab_keys:
                     c.execute(
@@ -799,7 +790,6 @@ def render_dashboard():
     st.markdown("---")
 
     # Audit-overzichten zijn verplaatst naar render_audit()
-
     c.close()
 
 def render_uitzonderingen():
@@ -869,7 +859,7 @@ def render_audit():
 
     st.markdown("---")
 
-    # 2) Laatste acties (zoals eerder op het dashboard)
+    # 2) Laatste acties
     st.markdown("### 🧾 Laatste acties")
     df_last = pd.read_sql("""
         SELECT timestamp, user, action, table_name, record_id
@@ -912,7 +902,6 @@ tabs_objs = st.tabs([lbl for (lbl, _) in allowed_items])
 
 for i, (_, key) in enumerate(allowed_items):
     with tabs_objs[i]:
-        # extra guard: als functie niet bestaat, sla over
         fn = tab_funcs.get(key)
         if fn:
             fn()
