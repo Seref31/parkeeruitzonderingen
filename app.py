@@ -1099,93 +1099,67 @@ def render_kaartfouten():
     # NIEUWE MELDING (incl. foto's)
     # ======================
     with st.expander("➕ Nieuwe kaartfout melden", expanded=False):
-        with st.form("kaartfout_form"):
-            col1, col2 = st.columns(2)
+       with st.expander("➕ Nieuwe kaartfout melden", expanded=False):
+    with st.form("kaartfout_form"):
+        col1, col2 = st.columns(2)
 
-            with col1:
-                straat = st.text_input("Straatnaam *")
-                huisnummer = st.text_input("Huisnummer *")
-                postcode = st.text_input("Postcode *", placeholder="3311 AB")
-                vak_id = st.text_input("Parkeervak-ID (optioneel)")
+        with col1:
+            straat = st.text_input("Straatnaam *")
+            huisnummer = st.text_input("Huisnummer *")
+            postcode = st.text_input("Postcode *", placeholder="3311 AB")
+            vak_id = st.text_input("Parkeervak-ID (optioneel)")
 
-            with col2:
-                melding_type = st.selectbox(
-                    "Soort kaartfout",
-                    [
-                        "Geometrie onjuist",
-                        "Type onjuist",
-                        "Parkeervak bestaat niet",
-                        "Parkeervak ontbreekt",
-                        "Overig"
-                    ]
-                )
-
-            st.caption("📍 Locatie wordt automatisch bepaald op basis van postcode en huisnummer")
-
-            omschrijving = st.text_area("Toelichting *")
-
-            fotos = st.file_uploader(
-                "Foto’s toevoegen (optioneel)",
-                type=["jpg", "jpeg", "png"],
-                accept_multiple_files=True
+        with col2:
+            melding_type = st.selectbox(
+                "Soort kaartfout",
+                [
+                    "Geometrie onjuist",
+                    "Type onjuist",
+                    "Parkeervak bestaat niet",
+                    "Parkeervak ontbreekt",
+                    "Overig"
+                ]
             )
 
-submitted = st.form_submit_button("📩 Kaartfout melden")
+        st.caption("📍 Locatie wordt automatisch bepaald op basis van postcode en huisnummer")
 
-if submitted:
-    if not straat or not huisnummer or not postcode or not omschrijving:
-        st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
-        st.stop()
+        omschrijving = st.text_area("Toelichting *")
 
-    # 👉 GEOCODING
-    lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
+        fotos = st.file_uploader(
+            "Foto’s toevoegen (optioneel)",
+            type=["jpg", "jpeg", "png"],
+            accept_multiple_files=True
+        )
 
-    c = conn()
-    c.execute("""
-        INSERT INTO kaartfouten
-        (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
-        VALUES (?,?,?,?,?,?,?,?)
-    """, (
-        vak_id.strip() if vak_id else None,
-        melding_type,
-        f"{straat.strip()} {huisnummer.strip()} - {omschrijving.strip()}",
-        "Open",
-        st.session_state.user,
-        datetime.now().isoformat(timespec="seconds"),
-        lat,
-        lon
-    ))
+        submitted = st.form_submit_button("📩 Kaartfout melden")
 
-    kaartfout_id = c.execute(
-        "SELECT last_insert_rowid()"
-    ).fetchone()[0]
+        if submitted:
+            if not straat or not huisnummer or not postcode or not omschrijving:
+                st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
+                st.stop()
 
-    # ---- FOTO OPSLAG ----
-    if fotos:
-        for f in fotos:
-            fname = f"{kaartfout_id}_{int(datetime.now().timestamp())}_{f.name}"
-            path = os.path.join(UPLOAD_DIR, fname)
-            with open(path, "wb") as out:
-                out.write(f.getbuffer())
+            lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
 
+            c = conn()
             c.execute("""
-                INSERT INTO kaartfout_fotos
-                (kaartfout_id, bestandsnaam, geupload_op)
-                VALUES (?,?,?)
+                INSERT INTO kaartfouten
+                (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
+                VALUES (?,?,?,?,?,?,?,?)
             """, (
-                kaartfout_id,
-                fname,
-                datetime.now().isoformat(timespec="seconds")
+                vak_id.strip() if vak_id else None,
+                melding_type,
+                f"{straat.strip()} {huisnummer.strip()} - {omschrijving.strip()}",
+                "Open",
+                st.session_state.user,
+                datetime.now().isoformat(timespec="seconds"),
+                lat,
+                lon
             ))
 
-    c.commit()
-    c.close()
+            kaartfout_id = c.execute(
+                "SELECT last_insert_rowid()"
+            ).fetchone()[0]
 
-    audit("KAARTFOUT_MELDING", "kaartfouten", kaartfout_id)
-    st.success("✅ Kaartfout gemeld (incl. foto’s)")
-    st.rerun()
-
-            # ---- FOTO OPSLAG ----
             if fotos:
                 for f in fotos:
                     fname = f"{kaartfout_id}_{int(datetime.now().timestamp())}_{f.name}"
@@ -1209,8 +1183,6 @@ if submitted:
             audit("KAARTFOUT_MELDING", "kaartfouten", kaartfout_id)
             st.success("✅ Kaartfout gemeld (incl. foto’s)")
             st.rerun()
-
-st.markdown("---")
 
     # ======================
     # OVERZICHT
@@ -1487,6 +1459,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
