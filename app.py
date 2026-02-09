@@ -1173,6 +1173,39 @@ def render_kaartfouten():
 
         sel_id = st.selectbox("Selecteer melding", [None] + df["id"].tolist())
 
+    if has_role("admin") and sel_id:
+        st.markdown("### 🗑️ Verwijderen (admin)")
+
+        st.warning(
+            "⚠️ Deze actie verwijdert de melding **definitief**, inclusief alle foto’s."
+        )
+
+        if st.button("❌ Melding definitief verwijderen", type="secondary"):
+            c = conn()
+
+            # haal foto's op
+            fotos = c.execute(
+                "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
+                (sel_id,)
+            ).fetchall()
+
+            # verwijder fotobestanden
+            for (fname,) in fotos:
+                path = os.path.join(UPLOAD_DIR, fname)
+                if os.path.exists(path):
+                    os.remove(path)
+
+            # verwijder DB-records
+            c.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=?", (sel_id,))
+            c.execute("DELETE FROM kaartfouten WHERE id=?", (sel_id,))
+            c.commit()
+            c.close()
+
+            audit("KAARTFOUT_VERWIJDERD", "kaartfouten", sel_id)
+
+            st.success("🗑️ Melding en bijbehorende foto’s zijn verwijderd.")
+            st.rerun()
+
         if sel_id:
             c = conn()
 
@@ -1315,6 +1348,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
