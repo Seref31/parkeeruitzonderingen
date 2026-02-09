@@ -322,7 +322,7 @@ if "user" not in st.session_state:
         except Exception:
             pass
         st.markdown(
-            "<h2 style='text-align:center;margin-top:6px;'>Parkeerbeheer – Inloggen</h2>",
+            "<h2 style='text-align:center;margin-top:6px;'>Parkeren Dordrecht</h2>",
             unsafe_allow_html=True
         )
         st.markdown(
@@ -346,7 +346,7 @@ if "user" not in st.session_state:
 
     u = st.text_input(
         "Gebruiker (e-mailadres)",
-        placeholder="bijv. voornaam.achternaam@dordrecht.nl"
+        placeholder="@dordrecht.nl"
     )
     p = st.text_input("Wachtwoord", type="password")
 
@@ -1117,4 +1117,5 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
