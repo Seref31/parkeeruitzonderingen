@@ -1130,13 +1130,14 @@ def render_kaartfouten():
                 accept_multiple_files=True
             )
 
-            submitted = st.form_submit_button("📩 Kaartfout melden")
+submitted = st.form_submit_button("📩 Kaartfout melden")
 
-            if submitted:
+if submitted:
     if not straat or not huisnummer or not postcode or not omschrijving:
         st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
         st.stop()
 
+    # 👉 GEOCODING
     lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
 
     c = conn()
@@ -1158,6 +1159,31 @@ def render_kaartfouten():
     kaartfout_id = c.execute(
         "SELECT last_insert_rowid()"
     ).fetchone()[0]
+
+    # ---- FOTO OPSLAG ----
+    if fotos:
+        for f in fotos:
+            fname = f"{kaartfout_id}_{int(datetime.now().timestamp())}_{f.name}"
+            path = os.path.join(UPLOAD_DIR, fname)
+            with open(path, "wb") as out:
+                out.write(f.getbuffer())
+
+            c.execute("""
+                INSERT INTO kaartfout_fotos
+                (kaartfout_id, bestandsnaam, geupload_op)
+                VALUES (?,?,?)
+            """, (
+                kaartfout_id,
+                fname,
+                datetime.now().isoformat(timespec="seconds")
+            ))
+
+    c.commit()
+    c.close()
+
+    audit("KAARTFOUT_MELDING", "kaartfouten", kaartfout_id)
+    st.success("✅ Kaartfout gemeld (incl. foto’s)")
+    st.rerun()
 
             # ---- FOTO OPSLAG ----
             if fotos:
@@ -1461,6 +1487,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
