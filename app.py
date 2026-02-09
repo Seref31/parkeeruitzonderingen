@@ -1062,17 +1062,26 @@ def render_agenda():
 
 def render_kaartfouten():
     st.markdown("## 🗺️ Kaartfouten – parkeervakken")
-    st.caption("Meld fouten in parkeervakken (geometrie, type of aanwezigheid).")
+    st.caption("Meld fouten in parkeervakken op basis van locatie en kaartinformatie.")
 
     with st.form("kaartfout_form"):
         col1, col2 = st.columns(2)
 
         with col1:
+            straat = st.text_input(
+                "Straatnaam *",
+                placeholder="Bijv. Johan de Wittstraat"
+            )
+            huisnummer = st.text_input(
+                "Huisnummer *",
+                placeholder="Bijv. 45 of 45A"
+            )
             vak_id = st.text_input(
-                "Parkeervak-ID",
+                "Parkeervak-ID (optioneel)",
                 placeholder="Bijv. PV-12345"
             )
 
+        with col2:
             melding_type = st.selectbox(
                 "Soort kaartfout",
                 [
@@ -1083,30 +1092,35 @@ def render_kaartfouten():
                     "Overig"
                 ]
             )
-
-        with col2:
             latitude = st.number_input(
                 "Latitude (optioneel)",
-                format="%.6f",
-                help="GPS-coördinaat, indien bekend"
+                format="%.6f"
             )
             longitude = st.number_input(
                 "Longitude (optioneel)",
-                format="%.6f",
-                help="GPS-coördinaat, indien bekend"
+                format="%.6f"
             )
 
         omschrijving = st.text_area(
-            "Toelichting",
+            "Toelichting *",
             placeholder="Omschrijf zo concreet mogelijk wat er niet klopt…"
         )
 
         submitted = st.form_submit_button("📩 Kaartfout melden")
 
         if submitted:
-            if not vak_id or not omschrijving:
-                st.error("Parkeervak-ID en toelichting zijn verplicht.")
+            if not straat or not huisnummer or not omschrijving:
+                st.error("Straat, huisnummer en toelichting zijn verplicht.")
                 return
+
+            c = conn()
+            c.execute("""
+                INSERT INTO kaartfouten
+                (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (
+                vak_id.strip() if vak_id else None,
+                melding_typ_
 
             c = conn()
             c.execute("""
@@ -1231,6 +1245,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
