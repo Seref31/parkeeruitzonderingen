@@ -1,3 +1,7 @@
+import os
+
+UPLOAD_DIR = "uploads/kaartfouten"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 import streamlit as st
 import sqlite3
 import pandas as pd
@@ -1143,6 +1147,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
