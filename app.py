@@ -20,20 +20,6 @@ START_USERS = {
     "wout": ("Wout@7394", "viewer"),
 }
 
-# === Tab definities (keys + labels) ===
-TAB_DEFS = [
-    ("dashboard", "📊 Dashboard"),
-    ("uitzonderingen", "🅿️ Uitzonderingen"),
-    ("gehandicapten", "♿ Gehandicapten"),
-    ("contracten", "📄 Contracten"),
-    ("projecten", "🧩 Projecten"),
-    ("werkzaamheden", "🛠️ Werkzaamheden"),
-    ("agenda", "📅 Agenda"),
-    ("gebruikers", "👥 Gebruikersbeheer"),
-    ("audit", "🧾 Audit log"),
-]
-TAB_INDEX = {k: i for i, (k, _) in enumerate(TAB_DEFS)}
-
 # ================= HULP =================
 def conn():
     return sqlite3.connect(DB, check_same_thread=False)
@@ -51,62 +37,13 @@ def audit(action, table=None, record_id=None):
         VALUES (?,?,?,?,?)
     """, (
         datetime.now().isoformat(timespec="seconds"),
-        st.session_state.get("user", None),
+        st.session_state.user,
         action,
         table,
         record_id
     ))
     c.commit()
     c.close()
-
-def ensure_user_tab_defaults(username, role):
-    """
-    Zorgt dat voor elke user een access-matrix bestaat.
-    - admin: alles allowed=1
-    - editor/viewer: alle tabs allowed=1 behalve 'gebruikers' (beheer) = 0
-    """
-    c = conn()
-    cur = c.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS user_tab_access (
-            username TEXT,
-            tab_key TEXT,
-            allowed INTEGER,
-            PRIMARY KEY (username, tab_key)
-        )
-    """)
-    # Bepaal default gedrag per rol
-    default_allowed = {}
-    for k, _ in TAB_DEFS:
-        if role == "admin":
-            default_allowed[k] = 1
-        else:
-            default_allowed[k] = 1
-    # Beperking: niet-admin -> geen Gebruikersbeheer standaard
-    if role != "admin":
-        default_allowed["gebruikers"] = 0
-
-    # Insert als niet bestaat
-    for k, _ in TAB_DEFS:
-        cur.execute("""
-            INSERT OR IGNORE INTO user_tab_access (username, tab_key, allowed)
-            VALUES (?,?,?)
-        """, (username, k, default_allowed[k]))
-
-    c.commit()
-    c.close()
-
-def can_access(tab_key):
-    """Checkt of huidige user toegang heeft tot tab_key (admin altijd True)."""
-    if st.session_state.role == "admin":
-        return True
-    c = conn()
-    r = c.execute("""
-        SELECT allowed FROM user_tab_access
-        WHERE username=? AND tab_key=?
-    """, (st.session_state.user, tab_key)).fetchone()
-    c.close()
-    return bool(r and r[0] == 1)
 
 # ================= DB INIT =================
 def init_db():
@@ -145,16 +82,6 @@ def init_db():
         )
     """)
 
-    # Nieuwe tabel voor tab-toegang per user
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS user_tab_access (
-            username TEXT,
-            tab_key TEXT,
-            allowed INTEGER,
-            PRIMARY KEY (username, tab_key)
-        )
-    """)
-
     # Seed users
     for u, (p, r) in START_USERS.items():
         cur.execute("""
@@ -190,7 +117,7 @@ def init_db():
             status TEXT, uitvoerder TEXT, latitude REAL,
             longitude REAL, opmerking TEXT
         """,
-        # === Agenda
+        # === Agenda met jouw (gespotte) schema ===
         "agenda": """
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             titel TEXT,
@@ -207,12 +134,8 @@ def init_db():
     for t, ddl in tables.items():
         cur.execute(f"CREATE TABLE IF NOT EXISTS {t} ({ddl})")
 
-    # Zorg dat bestaande users ook access-rows krijgen
-    users = cur.execute("SELECT username, role FROM users").fetchall()
     c.commit()
     c.close()
-    for u, r in users:
-        ensure_user_tab_defaults(u, r)
 
 init_db()
 
@@ -233,8 +156,6 @@ if "user" not in st.session_state:
             st.session_state.user = u
             st.session_state.role = r[1]
             st.session_state.force_change = r[3]
-            # Zorg dat toegangsmatrix bestaat voor deze user
-            ensure_user_tab_defaults(u, r[1])
             audit("LOGIN")
             st.rerun()
         else:
@@ -250,7 +171,7 @@ if st.session_state.force_change == 1:
 
     if st.button("Wijzigen"):
         if pw1 != pw2 or len(pw1) < 8:
-            st.error("Wachtwoord ongeldig (min. 8 tekens en beide gelijk).")
+            st.error("Wachtwoord ongeldig")
         else:
             c = conn()
             c.execute("""
@@ -373,7 +294,7 @@ def dashboard_shortcuts():
             # LET OP: hier ECHTE HTML-tags, niet &lt; &gt;
             st.markdown(
                 f"""
-<a href="{s['url']}" target="_blank" style="text-decoration:none;">
+{s[
   <div style="border:1px solid #e0e0e0;border-radius:14px;
               padding:18px;margin-bottom:16px;background:white;
               box-shadow:0 4px 10px rgba(0,0,0,0.06);">
@@ -415,9 +336,7 @@ def crud_block(table, fields, dropdowns=None):
             key = f"{table}_{f}"
             val = record[f] if record is not None and f in record.index else ""
             if f in dropdowns:
-                options = dropdowns[f]
-                idx = options.index(val) if val in options else 0
-                values[f] = st.selectbox(f, options, key=key, index=idx)
+                values[f] = st.selectbox(f, dropdowns[f], key=key, index=(dropdowns[f].index(val) if val in dropdowns[f] else 0))
             else:
                 values[f] = st.text_input(f, str(val) if val else "", key=key)
 
@@ -560,256 +479,108 @@ def agenda_block():
             st.rerun()
 
 # ================= UI =================
-tabs = st.tabs([label for _, label in TAB_DEFS])
+tabs = st.tabs([
+    "📊 Dashboard",
+    "🅿️ Uitzonderingen",
+    "♿ Gehandicapten",
+    "📄 Contracten",
+    "🧩 Projecten",
+    "🛠️ Werkzaamheden",
+    "📅 Agenda",            # NIEUW
+    "👥 Gebruikersbeheer",
+    "🧾 Audit log"
+])
 
-# --- Dashboard
-with tabs[TAB_INDEX["dashboard"]]:
-    if not can_access("dashboard"):
-        st.error("Je hebt geen toegang tot **Dashboard**.")
+with tabs[0]:
+    c = conn()
+    cols = st.columns(5)
+
+    cols[0].metric("Uitzonderingen", pd.read_sql("SELECT COUNT(*) c FROM uitzonderingen", c)["c"][0])
+    cols[1].metric("Gehandicapten", pd.read_sql("SELECT COUNT(*) c FROM gehandicapten", c)["c"][0])
+    cols[2].metric("Contracten", pd.read_sql("SELECT COUNT(*) c FROM contracten", c)["c"][0])
+    cols[3].metric("Projecten", pd.read_sql("SELECT COUNT(*) c FROM projecten", c)["c"][0])
+    cols[4].metric("Werkzaamheden", pd.read_sql("SELECT COUNT(*) c FROM werkzaamheden", c)["c"][0])
+
+    st.markdown("---")
+    dashboard_shortcuts()
+    st.markdown("---")
+
+    st.markdown("### 👤 Activiteiten per gebruiker")
+    st.dataframe(pd.read_sql("""
+        SELECT user, COUNT(*) acties, MAX(timestamp) laatste_actie
+        FROM audit_log GROUP BY user ORDER BY acties DESC
+    """, c), use_container_width=True)
+
+    st.markdown("### 🧾 Laatste acties")
+    st.dataframe(pd.read_sql("""
+        SELECT timestamp, user, action, table_name, record_id
+        FROM audit_log ORDER BY id DESC LIMIT 10
+    """, c), use_container_width=True)
+
+    c.close()
+
+with tabs[1]:
+    crud_block(
+        "uitzonderingen",
+        ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
+        {"type":["Bewoner","Bedrijf","Project"]}
+    )
+
+with tabs[2]:
+    crud_block(
+        "gehandicapten",
+        ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"]
+    )
+
+with tabs[3]:
+    crud_block(
+        "contracten",
+        ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"]
+    )
+
+with tabs[4]:
+    crud_block(
+        "projecten",
+        ["naam","projectleider","start","einde","prio","status","opmerking"],
+        {"prio":["Hoog","Gemiddeld","Laag"], "status":["Niet gestart","Actief","Afgerond"]}
+    )
+
+with tabs[5]:
+    crud_block(
+        "werkzaamheden",
+        ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
+        {"status":["Gepland","In uitvoering","Afgerond"]}
+    )
+
+    st.markdown("### 📍 Werkzaamheden op kaart")
+    c = conn()
+    df_map = pd.read_sql("""
+        SELECT latitude, longitude FROM werkzaamheden
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+    """, c)
+    c.close()
+
+    if not df_map.empty:
+        st.map(df_map)
     else:
-        c = conn()
-        cols = st.columns(5)
+        st.info("Geen GPS-locaties ingevoerd")
 
-        cols[0].metric("Uitzonderingen", pd.read_sql("SELECT COUNT(*) c FROM uitzonderingen", c)["c"][0])
-        cols[1].metric("Gehandicapten", pd.read_sql("SELECT COUNT(*) c FROM gehandicapten", c)["c"][0])
-        cols[2].metric("Contracten", pd.read_sql("SELECT COUNT(*) c FROM contracten", c)["c"][0])
-        cols[3].metric("Projecten", pd.read_sql("SELECT COUNT(*) c FROM projecten", c)["c"][0])
-        cols[4].metric("Werkzaamheden", pd.read_sql("SELECT COUNT(*) c FROM werkzaamheden", c)["c"][0])
+# === NIEUW: Tabblad Agenda (CRUD afgestemd op jouw kolommen) ===
+with tabs[6]:
+    agenda_block()
 
-        st.markdown("---")
-        dashboard_shortcuts()
-        st.markdown("---")
-
-        st.markdown("### 👤 Activiteiten per gebruiker")
-        st.dataframe(pd.read_sql("""
-            SELECT user, COUNT(*) acties, MAX(timestamp) laatste_actie
-            FROM audit_log GROUP BY user ORDER BY acties DESC
-        """, c), use_container_width=True)
-
-        st.markdown("### 🧾 Laatste acties")
-        st.dataframe(pd.read_sql("""
-            SELECT timestamp, user, action, table_name, record_id
-            FROM audit_log ORDER BY id DESC LIMIT 10
-        """, c), use_container_width=True)
-
-        c.close()
-
-# --- Uitzonderingen
-with tabs[TAB_INDEX["uitzonderingen"]]:
-    if not can_access("uitzonderingen"):
-        st.error("Je hebt geen toegang tot **Uitzonderingen**.")
-    else:
-        crud_block(
-            "uitzonderingen",
-            ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
-            {"type":["Bewoner","Bedrijf","Project"]}
-        )
-
-# --- Gehandicapten
-with tabs[TAB_INDEX["gehandicapten"]]:
-    if not can_access("gehandicapten"):
-        st.error("Je hebt geen toegang tot **Gehandicapten**.")
-    else:
-        crud_block(
-            "gehandicapten",
-            ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"]
-        )
-
-# --- Contracten
-with tabs[TAB_INDEX["contracten"]]:
-    if not can_access("contracten"):
-        st.error("Je hebt geen toegang tot **Contracten**.")
-    else:
-        crud_block(
-            "contracten",
-            ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"]
-        )
-
-# --- Projecten
-with tabs[TAB_INDEX["projecten"]]:
-    if not can_access("projecten"):
-        st.error("Je hebt geen toegang tot **Projecten**.")
-    else:
-        crud_block(
-            "projecten",
-            ["naam","projectleider","start","einde","prio","status","opmerking"],
-            {"prio":["Hoog","Gemiddeld","Laag"], "status":["Niet gestart","Actief","Afgerond"]}
-        )
-
-# --- Werkzaamheden
-with tabs[TAB_INDEX["werkzaamheden"]]:
-    if not can_access("werkzaamheden"):
-        st.error("Je hebt geen toegang tot **Werkzaamheden**.")
-    else:
-        crud_block(
-            "werkzaamheden",
-            ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
-            {"status":["Gepland","In uitvoering","Afgerond"]}
-        )
-
-        st.markdown("### 📍 Werkzaamheden op kaart")
-        c = conn()
-        df_map = pd.read_sql("""
-            SELECT latitude, longitude FROM werkzaamheden
-            WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-        """, c)
-        c.close()
-
-        if not df_map.empty:
-            st.map(df_map)
-        else:
-            st.info("Geen GPS-locaties ingevoerd")
-
-# --- Agenda
-with tabs[TAB_INDEX["agenda"]]:
-    if not can_access("agenda"):
-        st.error("Je hebt geen toegang tot **Agenda**.")
-    else:
-        agenda_block()
-
-# --- Gebruikersbeheer (CRUD + Toegangsmatrix)
-with tabs[TAB_INDEX["gebruikers"]]:
+with tabs[7]:
     if not has_role("admin"):
-        st.warning("Alleen admins mogen Gebruikersbeheer openen.")
-    elif not can_access("gebruikers"):
-        st.error("Je hebt geen toegang tot **Gebruikersbeheer** (is door admin afgezet).")
+        st.warning("Alleen admins")
     else:
-        st.subheader("👥 Gebruikers (overzicht)")
         c = conn()
+        st.subheader("👥 Gebruikers")
         st.dataframe(
             pd.read_sql("SELECT username, role, active, force_change FROM users", c),
             use_container_width=True
         )
         st.markdown("---")
-
-        # === Nieuwe gebruiker aanmaken
-        st.subheader("➕ Nieuwe gebruiker")
-        with st.form("user_add_form"):
-            new_username = st.text_input("Gebruikersnaam")
-            new_role = st.selectbox("Rol", ["admin","editor","viewer"])
-            new_active = st.checkbox("Actief", True)
-            temp_pw = st.text_input("Tijdelijk wachtwoord", value="Welkom#2026")
-
-            submit_add = st.form_submit_button("💾 Aanmaken")
-            if submit_add:
-                if not new_username.strip():
-                    st.error("Gebruikersnaam mag niet leeg zijn.")
-                elif len(temp_pw) < 8:
-                    st.error("Tijdelijk wachtwoord moet minimaal 8 tekens zijn.")
-                else:
-                    try:
-                        c.execute("""
-                            INSERT INTO users (username,password,role,active,force_change)
-                            VALUES (?,?,?,?,1)
-                        """, (new_username.strip(), hash_pw(temp_pw), new_role, int(new_active)))
-                        c.commit()
-                        ensure_user_tab_defaults(new_username.strip(), new_role)
-                        audit("USER_ADD", "users", new_username.strip())
-                        st.success(f"Gebruiker **{new_username}** toegevoegd. (Forceer wachtwoordwijziging bij eerste login staat aan)")
-                        st.rerun()
-                    except sqlite3.IntegrityError:
-                        st.error("Gebruikersnaam bestaat al.")
-
-        st.markdown("---")
-
-        # === Bestaande gebruiker bewerken
-        st.subheader("✏️ Gebruiker bewerken")
-        df_users = pd.read_sql("SELECT username, role, active, force_change FROM users", c)
-        c.close()
-        if df_users.empty:
-            st.info("Geen gebruikers gevonden.")
-        else:
-            sel_user = st.selectbox("Selecteer gebruiker", df_users["username"].tolist())
-            if sel_user:
-                sel_row = df_users[df_users["username"] == sel_user].iloc[0]
-                with st.form("user_edit_form"):
-                    role_edit = st.selectbox("Rol", ["admin","editor","viewer"], index=["admin","editor","viewer"].index(sel_row["role"]))
-                    active_edit = st.checkbox("Actief", bool(sel_row["active"]))
-                    reset_pw = st.checkbox("Wachtwoord resetten (verplicht wijzigen bij volgende login)")
-                    new_temp_pw = st.text_input("Nieuw tijdelijk wachtwoord (indien reset)", value="", type="password")
-                    submit_edit = st.form_submit_button("💾 Wijzigingen opslaan")
-                if submit_edit:
-                    c = conn()
-                    # Update role/active
-                    c.execute("""
-                        UPDATE users SET role=?, active=? WHERE username=?
-                    """, (role_edit, int(active_edit), sel_user))
-                    # Reset wachtwoord indien aangevinkt
-                    if reset_pw:
-                        if len(new_temp_pw) < 8:
-                            st.error("Nieuw tijdelijk wachtwoord moet minimaal 8 tekens zijn.")
-                            c.close()
-                        else:
-                            c.execute("""
-                                UPDATE users SET password=?, force_change=1 WHERE username=?
-                            """, (hash_pw(new_temp_pw), sel_user))
-                            c.commit()
-                            c.close()
-                            ensure_user_tab_defaults(sel_user, role_edit)
-                            audit("USER_RESET_PW", "users", sel_user)
-                            st.success(f"Wachtwoord van **{sel_user}** is gereset.")
-                            st.rerun()
-                    else:
-                        c.commit()
-                        c.close()
-                        ensure_user_tab_defaults(sel_user, role_edit)
-                        audit("USER_UPDATE", "users", sel_user)
-                        st.success(f"Gebruiker **{sel_user}** bijgewerkt.")
-                        st.rerun()
-
-                # Verwijder-gebruiker sectie
-                st.warning("Let op: verwijderen kan niet ongedaan gemaakt worden.")
-                if st.button("🗑️ Verwijder gebruiker"):
-                    if sel_user == st.session_state.user:
-                        st.error("Je kunt je eigen account niet verwijderen.")
-                    else:
-                        c = conn()
-                        c.execute("DELETE FROM user_tab_access WHERE username=?", (sel_user,))
-                        c.execute("DELETE FROM users WHERE username=?", (sel_user,))
-                        c.commit()
-                        c.close()
-                        audit("USER_DELETE", "users", sel_user)
-                        st.success(f"Gebruiker **{sel_user}** verwijderd.")
-                        st.rerun()
-
-                st.markdown("---")
-
-                # === Toegangsrechten per tab
-                st.subheader(f"🔐 Tab-toegang voor **{sel_user}**")
-                c = conn()
-                rows = c.execute("""
-                    SELECT tab_key, allowed FROM user_tab_access WHERE username=?
-                """, (sel_user,)).fetchall()
-                c.close()
-                current = {k: a for k, a in rows}
-
-                # Form met checkboxes per tab
-                with st.form("access_form"):
-                    st.caption("Vink de tabbladen aan waar deze gebruiker bij mag.")
-                    new_access = {}
-                    for k, label in TAB_DEFS:
-                        chk = st.checkbox(label, bool(current.get(k, 0)) if k in current else False, key=f"acc_{sel_user}_{k}")
-                        new_access[k] = 1 if chk else 0
-                    submit_access = st.form_submit_button("💾 Toegang opslaan")
-                if submit_access:
-                    c = conn()
-                    for k, allowed in new_access.items():
-                        c.execute("""
-                            INSERT INTO user_tab_access (username, tab_key, allowed)
-                            VALUES (?,?,?)
-                            ON CONFLICT(username, tab_key) DO UPDATE SET allowed=excluded.allowed
-                        """, (sel_user, k, allowed))
-                    c.commit()
-                    c.close()
-                    audit("ACCESS_UPDATE", "user_tab_access", sel_user)
-                    st.success("Toegangsmatrix opgeslagen.")
-                    st.rerun()
-
-        st.markdown("---")
-
-        # === Snelkoppelingen beheer (zoals bestaand)
         st.subheader("🚀 Dashboard snelkoppelingen")
-        c = conn()
         st.dataframe(
             pd.read_sql("SELECT * FROM dashboard_shortcuts", c),
             use_container_width=True
@@ -838,14 +609,10 @@ with tabs[TAB_INDEX["gebruikers"]]:
 
         c.close()
 
-# --- Audit log
-with tabs[TAB_INDEX["audit"]]:
-    if not can_access("audit"):
-        st.error("Je hebt geen toegang tot **Audit log**.")
-    else:
-        c = conn()
-        st.dataframe(
-            pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c),
-            use_container_width=True
-        )
-        c.close()
+with tabs[8]:
+    c = conn()
+    st.dataframe(
+        pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c),
+        use_container_width=True
+    )
+    c.close()
