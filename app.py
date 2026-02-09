@@ -338,12 +338,13 @@ if "user" not in st.session_state:
         unsafe_allow_html=True
     )
 
-    # >>>>>>>>>>>>>>>>> TOEVOEGING: e-mail instructie (placeholder + help) <<<<<<<<<<<<<<<<
+    # Toegevoegd: duidelijkheid over e-mailadres + wachtwoord vergeten
     u = st.text_input(
-        "Gebruiker",
-        placeholder="Log in met je e-mailadres (bijv. voornaam.achternaam@dordrecht.nl)",
-        help="Gebruik je werk e-mailadres om in te loggen."
+        "Gebruiker (e-mailadres)",
+        placeholder="bijv. voornaam.achternaam@dordrecht.nl",
+        help="Gebruik je volledige e-mailadres om in te loggen."
     )
+
     p = st.text_input("Wachtwoord", type="password")
 
     colA, colB = st.columns([1,1])
@@ -352,18 +353,14 @@ if "user" not in st.session_state:
     with colB:
         st.write("")
 
-    # >>>>>>>>>>>>>>>>> TOEVOEGING: teksten binnen de card <<<<<<<<<<<<<<<<
+    # Toegevoegd tekstblok
     st.markdown(
         """
-        <div style="max-width:520px;margin: 6px auto 0 auto; color:#555;">
-            <p style="margin:0.2rem 0;">
-                <strong>Let op:</strong> log in met je <em>e-mailadres</em> (bijv. voornaam.achternaam@dordrecht.nl).
-            </p>
-            <p style="margin:0.2rem 0;">
-                Wachtwoord vergeten? Stuur een e‑mail naar
-                <a href="mailto:s.coskun@dordrecht.nl">s.coskun@dordrecht.nl</a>.
-            </p>
-        </div>
+        <p style="color:#333; font-size:14px; margin-top:10px;">
+            <strong>Let op:</strong> inloggen kan alleen met je <em>e-mailadres</em>.<br>
+            Wachtwoord vergeten? <br>
+            Stuur een e‑mail naar: <a href="mailto:s.coskun@dordrecht.nl">s.coskun@dordrecht.nl</a>
+        </p>
         """,
         unsafe_allow_html=True
     )
@@ -373,7 +370,9 @@ if "user" not in st.session_state:
     if login_clicked:
         c = conn()
         r = c.execute("""
-            SELECT password, role, active, force_change FROM users WHERE username=?
+            SELECT password, role, active, force_change 
+            FROM users 
+            WHERE username=?
         """, (u,)).fetchone()
         c.close()
 
@@ -1118,3 +1117,4 @@ for i, (_, key) in enumerate(allowed_items):
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
 ``
+
