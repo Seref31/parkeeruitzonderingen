@@ -259,20 +259,6 @@ def init_db():
         )
     """)
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS kaartfouten (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        vak_id TEXT,
-        melding_type TEXT,
-        omschrijving TEXT,
-        status TEXT,
-        melder TEXT,
-        gemeld_op TEXT,
-        latitude REAL,
-        longitude REAL
-    )
-""")
-
 cur.execute("""
     CREATE TABLE IF NOT EXISTS kaartfout_fotos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1142,6 +1128,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
