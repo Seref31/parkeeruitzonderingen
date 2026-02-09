@@ -312,28 +312,30 @@ def init_db():
     for t, ddl in tables.items():
         cur.execute(f"CREATE TABLE IF NOT EXISTS {t} ({ddl})")
 
+    # === KAARTFOUTEN (HANDHAVING) ===
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS kaartfouten (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        vak_id TEXT,
-        melding_type TEXT,
-        omschrijving TEXT,
-        status TEXT,
-        melder TEXT,
-        gemeld_op TEXT,
-        latitude REAL,
-        longitude REAL
-    )
-""")
+        CREATE TABLE IF NOT EXISTS kaartfouten (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vak_id TEXT,
+            melding_type TEXT,
+            omschrijving TEXT,
+            status TEXT,
+            melder TEXT,
+            gemeld_op TEXT,
+            latitude REAL,
+            longitude REAL
+        )
+    """)
 
-cur.execute("""
-    CREATE TABLE IF NOT EXISTS kaartfout_fotos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        kaartfout_id INTEGER,
-        bestandsnaam TEXT,
-        geupload_op TEXT
-    )
-""")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS kaartfout_fotos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kaartfout_id INTEGER,
+            bestandsnaam TEXT,
+            geupload_op TEXT
+        )
+    """)
+
     c.commit()
     c.close()
 
@@ -1058,8 +1060,17 @@ ID: {r.get('id','')}
 def render_agenda():
     agenda_block()
 
-def render_kaartfouten():
-    st.markdown("### 🗺️ Kaartfouten – parkeervakken")
+def render_handhaving():
+    st.subheader("👮 Handhaving")
+
+    keuze = st.radio(
+        "Onderdeel",
+        ["🗺️ Kaartfouten"],
+        horizontal=True
+    )
+
+    if keuze == "🗺️ Kaartfouten":
+        render_kaartfouten()
 
 def render_gebruikers():
     users_block()
@@ -1147,6 +1158,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
