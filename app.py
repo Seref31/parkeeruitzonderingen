@@ -1,3 +1,35 @@
+import requests
+
+def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
+    """
+    Zet NL postcode + huisnummer om naar (lat, lon) via PDOK BAG.
+    Retourneert (lat, lon) of (None, None) bij geen resultaat.
+    """
+    try:
+        q = f"{postcode.strip()} {huisnummer.strip()}"
+        url = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free"
+        params = {
+            "q": q,
+            "rows": 1
+        }
+
+        r = requests.get(url, params=params, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+
+        docs = data.get("response", {}).get("docs", [])
+        if not docs:
+            return None, None
+
+        doc = docs[0]
+        lat = float(doc["centroide_ll"].split("(")[1].split()[1].replace(")", ""))
+        lon = float(doc["centroide_ll"].split("(")[1].split()[0])
+
+        return lat, lon
+
+    except Exception:
+        return None, None
+
 import os
 
 UPLOAD_DIR = "uploads/kaartfouten"
@@ -1423,6 +1455,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
