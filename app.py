@@ -1133,29 +1133,31 @@ def render_kaartfouten():
             submitted = st.form_submit_button("📩 Kaartfout melden")
 
             if submitted:
-                if not straat or not huisnummer or not postcode or not omschrijving:
-                    st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
-                    st.stop()
+    if not straat or not huisnummer or not postcode or not omschrijving:
+        st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
+        st.stop()
 
-                lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
+    lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
 
-                c = conn()
-                c.execute("""
-                    INSERT INTO kaartfouten
-                    (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
-                    VALUES (?,?,?,?,?,?,?,?)
-                """, (
-                    vak_id.strip() if vak_id else None,
-                    melding_type,
-                    f"{straat.strip()} {huisnummer.strip()} – {omschrijving.strip()}",
-                    "Open",
-                    st.session_state.user,
-                    datetime.now().isoformat(timespec="seconds"),
-                    lat,
-                    lon
-                ))
+    c = conn()
+    c.execute("""
+        INSERT INTO kaartfouten
+        (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
+        VALUES (?,?,?,?,?,?,?,?)
+    """, (
+        vak_id.strip() if vak_id else None,
+        melding_type,
+        f"{straat.strip()} {huisnummer.strip()} - {omschrijving.strip()}",
+        "Open",
+        st.session_state.user,
+        datetime.now().isoformat(timespec="seconds"),
+        lat,
+        lon
+    ))
 
-                kaartfout_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+    kaartfout_id = c.execute(
+        "SELECT last_insert_rowid()"
+    ).fetchone()[0]
 
             # ---- FOTO OPSLAG ----
             if fotos:
@@ -1459,6 +1461,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
