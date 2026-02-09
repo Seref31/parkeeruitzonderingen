@@ -1060,6 +1060,10 @@ ID: {r.get('id','')}
 def render_agenda():
     agenda_block()
 
+def render_kaartfouten():
+    st.markdown("### 🗺️ Kaartfouten – parkeervakken")
+    st.info("Kaartfouten-module is correct gekoppeld.")
+
 def render_handhaving():
     st.subheader("👮 Handhaving")
 
@@ -1159,6 +1163,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
