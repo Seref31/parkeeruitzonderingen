@@ -1064,7 +1064,7 @@ def render_kaartfouten():
     st.markdown("## 🗺️ Kaartfouten – parkeervakken")
 
     # ======================
-    # NIEUWE MELDING (STAP 1)
+    # NIEUWE MELDING (incl. foto's)
     # ======================
     with st.expander("➕ Nieuwe kaartfout melden", expanded=False):
         with st.form("kaartfout_form"):
@@ -1091,6 +1091,12 @@ def render_kaartfouten():
 
             omschrijving = st.text_area("Toelichting *")
 
+            fotos = st.file_uploader(
+                "Foto’s toevoegen (optioneel)",
+                type=["jpg", "jpeg", "png"],
+                accept_multiple_files=True
+            )
+
             submitted = st.form_submit_button("📩 Kaartfout melden")
 
             if submitted:
@@ -1114,11 +1120,30 @@ def render_kaartfouten():
                     longitude if longitude != 0 else None
                 ))
                 kaartfout_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+                # ---- FOTO OPSLAG ----
+                if fotos:
+                    for f in fotos:
+                        fname = f"{kaartfout_id}_{int(datetime.now().timestamp())}_{f.name}"
+                        path = os.path.join(UPLOAD_DIR, fname)
+                        with open(path, "wb") as out:
+                            out.write(f.getbuffer())
+
+                        c.execute("""
+                            INSERT INTO kaartfout_fotos
+                            (kaartfout_id, bestandsnaam, geupload_op)
+                            VALUES (?,?,?)
+                        """, (
+                            kaartfout_id,
+                            fname,
+                            datetime.now().isoformat(timespec="seconds")
+                        ))
+
                 c.commit()
                 c.close()
 
                 audit("KAARTFOUT_MELDING", "kaartfouten", kaartfout_id)
-                st.success("✅ Kaartfout gemeld")
+                st.success("✅ Kaartfout gemeld (incl. foto’s)")
                 st.rerun()
 
     st.markdown("---")
@@ -1128,14 +1153,7 @@ def render_kaartfouten():
     # ======================
     c = conn()
     df = pd.read_sql("""
-        SELECT
-            id,
-            vak_id,
-            melding_type,
-            omschrijving,
-            status,
-            melder,
-            gemeld_op
+        SELECT id, vak_id, melding_type, status, melder, gemeld_op
         FROM kaartfouten
         ORDER BY gemeld_op DESC
     """, c)
@@ -1145,54 +1163,58 @@ def render_kaartfouten():
         st.info("Nog geen kaartfouten gemeld.")
         return
 
-    st.markdown("### 📋 Overzicht kaartfouten")
-
-    st.dataframe(
-        df[[
-            "id",
-            "melding_type",
-            "vak_id",
-            "status",
-            "melder",
-            "gemeld_op"
-        ]],
-        use_container_width=True
-    )
+    st.dataframe(df, use_container_width=True)
 
     # ======================
-    # STATUS AFHANDELING
+    # AFHANDELING + FOTO'S (alleen editor/admin)
     # ======================
     if has_role("editor", "admin"):
-        st.markdown("### ✏️ Status wijzigen")
+        st.markdown("### ✏️ Afhandeling & foto’s")
 
-        sel_id = st.selectbox(
-            "Selecteer melding",
-            [None] + df["id"].tolist()
-        )
+        sel_id = st.selectbox("Selecteer melding", [None] + df["id"].tolist())
 
         if sel_id:
-            huidige_status = df.loc[df["id"] == sel_id, "status"].iloc[0]
+            c = conn()
+
+            # status
+            huidige_status = c.execute(
+                "SELECT status FROM kaartfouten WHERE id=?",
+                (sel_id,)
+            ).fetchone()[0]
 
             nieuwe_status = st.selectbox(
-                "Nieuwe status",
+                "Status",
                 ["Open", "In onderzoek", "Opgelost"],
                 index=["Open", "In onderzoek", "Opgelost"].index(huidige_status)
             )
 
             if st.button("💾 Status opslaan"):
-                c = conn()
                 c.execute(
                     "UPDATE kaartfouten SET status=? WHERE id=?",
                     (nieuwe_status, sel_id)
                 )
                 c.commit()
-                c.close()
-
                 audit("KAARTFOUT_STATUS", "kaartfouten", sel_id)
                 st.success("Status bijgewerkt")
                 st.rerun()
+
+            # ---- FOTO'S TONEN ----
+            fotos = pd.read_sql(
+                "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
+                c,
+                params=[sel_id]
+            )
+
+            if not fotos.empty:
+                st.markdown("### 📷 Foto’s")
+                for _, r in fotos.iterrows():
+                    path = os.path.join(UPLOAD_DIR, r["bestandsnaam"])
+                    if os.path.exists(path):
+                        st.image(path, use_container_width=True)
+
+            c.close()
     else:
-        st.caption("ℹ️ Alleen editors en admins kunnen meldingen afhandelen.")
+        st.caption("ℹ️ Foto’s en status zijn alleen zichtbaar voor editor/admin.")
 
 def render_handhaving():
     st.subheader("👮 Handhaving")
@@ -1293,6 +1315,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
