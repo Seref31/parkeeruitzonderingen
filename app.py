@@ -1105,7 +1105,7 @@ def render_kaartfouten():
             with col1:
                 straat = st.text_input("Straatnaam *")
                 huisnummer = st.text_input("Huisnummer *")
-                postcode = st.text_input("Postcode *", placeholder="3311 AB"
+                postcode = st.text_input("Postcode *", placeholder="3311 AB")
                 vak_id = st.text_input("Parkeervak-ID (optioneel)")
 
             with col2:
@@ -1461,6 +1461,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
