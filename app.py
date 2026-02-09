@@ -322,7 +322,7 @@ if "user" not in st.session_state:
         except Exception:
             pass
         st.markdown(
-            "<h2 style='text-align:center;margin-top:6px;'>Parkeerbeheer – Inloggen</h2>",
+            "<h2 style='text-align:center;margin-top:6px;'>Parkeren Dordrecht – Inloggen</h2>",
             unsafe_allow_html=True
         )
 
@@ -1095,3 +1095,4 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
