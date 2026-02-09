@@ -1105,6 +1105,7 @@ def render_kaartfouten():
             with col1:
                 straat = st.text_input("Straatnaam *")
                 huisnummer = st.text_input("Huisnummer *")
+                postcode = st.text_input("Postcode *", placeholder="3311 AB"
                 vak_id = st.text_input("Parkeervak-ID (optioneel)")
 
             with col2:
@@ -1118,8 +1119,10 @@ def render_kaartfouten():
                         "Overig"
                     ]
                 )
-                latitude = st.number_input("Latitude (optioneel)", format="%.6f")
-                longitude = st.number_input("Longitude (optioneel)", format="%.6f")
+st.caption("📍 Locatie wordt automatisch bepaald op basis van postcode en huisnummer")
+
+latitude = None
+longitude = None
 
             omschrijving = st.text_area("Toelichting *")
 
@@ -1148,8 +1151,11 @@ def render_kaartfouten():
                     "Open",
                     st.session_state.user,
                     datetime.now().isoformat(timespec="seconds"),
-                    latitude if latitude != 0 else None,
-                    longitude if longitude != 0 else None
+                   lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
+
+latitude = lat
+longitude = lon
+
                 ))
                 kaartfout_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -1455,6 +1461,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
