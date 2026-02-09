@@ -1061,8 +1061,76 @@ def render_agenda():
     agenda_block()
 
 def render_kaartfouten():
-    st.markdown("### 🗺️ Kaartfouten – parkeervakken")
-    st.info("Kaartfouten-module is correct gekoppeld.")
+    st.markdown("## 🗺️ Kaartfouten – parkeervakken")
+    st.caption("Meld fouten in parkeervakken (geometrie, type of aanwezigheid).")
+
+    with st.form("kaartfout_form"):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            vak_id = st.text_input(
+                "Parkeervak-ID",
+                placeholder="Bijv. PV-12345"
+            )
+
+            melding_type = st.selectbox(
+                "Soort kaartfout",
+                [
+                    "Geometrie onjuist",
+                    "Type onjuist",
+                    "Parkeervak bestaat niet",
+                    "Parkeervak ontbreekt",
+                    "Overig"
+                ]
+            )
+
+        with col2:
+            latitude = st.number_input(
+                "Latitude (optioneel)",
+                format="%.6f",
+                help="GPS-coördinaat, indien bekend"
+            )
+            longitude = st.number_input(
+                "Longitude (optioneel)",
+                format="%.6f",
+                help="GPS-coördinaat, indien bekend"
+            )
+
+        omschrijving = st.text_area(
+            "Toelichting",
+            placeholder="Omschrijf zo concreet mogelijk wat er niet klopt…"
+        )
+
+        submitted = st.form_submit_button("📩 Kaartfout melden")
+
+        if submitted:
+            if not vak_id or not omschrijving:
+                st.error("Parkeervak-ID en toelichting zijn verplicht.")
+                return
+
+            c = conn()
+            c.execute("""
+                INSERT INTO kaartfouten
+                (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (
+                vak_id.strip(),
+                melding_type,
+                omschrijving.strip(),
+                "Open",
+                st.session_state.user,
+                datetime.now().isoformat(timespec="seconds"),
+                latitude if latitude != 0 else None,
+                longitude if longitude != 0 else None
+            ))
+            kaartfout_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+            c.commit()
+            c.close()
+
+            audit("KAARTFOUT_MELDING", "kaartfouten", kaartfout_id)
+
+            st.success("✅ Kaartfout succesvol gemeld.")
+            st.rerun()
 
 def render_handhaving():
     st.subheader("👮 Handhaving")
@@ -1163,6 +1231,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
