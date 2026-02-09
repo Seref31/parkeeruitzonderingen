@@ -330,7 +330,6 @@ cur.execute("""
         geupload_op TEXT
     )
 """)
-
     c.commit()
     c.close()
 
@@ -1144,6 +1143,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
