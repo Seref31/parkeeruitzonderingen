@@ -275,20 +275,6 @@ cur.execute("""
             VALUES (?,?,?,?,1)
         """, (u, hash_pw(p), r, 1))
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS kaartfouten (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        vak_id TEXT,
-        melding_type TEXT,
-        omschrijving TEXT,
-        status TEXT,
-        melder TEXT,
-        gemeld_op TEXT,
-        latitude REAL,
-        longitude REAL
-    )
-""")
-
     tables = {
         "uitzonderingen": """
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1142,6 +1128,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
