@@ -45,6 +45,7 @@ def all_tabs_config():
         ("🧩 Projecten", "projecten"),
         ("🛠️ Werkzaamheden", "werkzaamheden"),
         ("📅 Agenda", "agenda"),
+        ("👮 Handhaving", "handhaving"),
         ("👥 Gebruikersbeheer", "gebruikers"),
         ("🧾 Audit log", "audit"),
     ]
@@ -1117,5 +1118,6 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
