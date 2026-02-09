@@ -1062,80 +1062,137 @@ def render_agenda():
 
 def render_kaartfouten():
     st.markdown("## 🗺️ Kaartfouten – parkeervakken")
-    st.caption("Meld fouten in parkeervakken op basis van locatie en kaartinformatie.")
 
-    with st.form("kaartfout_form"):
-        col1, col2 = st.columns(2)
+    # ======================
+    # NIEUWE MELDING (STAP 1)
+    # ======================
+    with st.expander("➕ Nieuwe kaartfout melden", expanded=False):
+        with st.form("kaartfout_form"):
+            col1, col2 = st.columns(2)
 
-        with col1:
-            straat = st.text_input(
-                "Straatnaam *",
-                placeholder="Bijv. Johan de Wittstraat"
-            )
-            huisnummer = st.text_input(
-                "Huisnummer *",
-                placeholder="Bijv. 45 of 45A"
-            )
-            vak_id = st.text_input(
-                "Parkeervak-ID (optioneel)",
-                placeholder="Bijv. PV-12345"
-            )
+            with col1:
+                straat = st.text_input("Straatnaam *")
+                huisnummer = st.text_input("Huisnummer *")
+                vak_id = st.text_input("Parkeervak-ID (optioneel)")
 
-        with col2:
-            melding_type = st.selectbox(
-                "Soort kaartfout",
-                [
-                    "Geometrie onjuist",
-                    "Type onjuist",
-                    "Parkeervak bestaat niet",
-                    "Parkeervak ontbreekt",
-                    "Overig"
-                ]
-            )
-            latitude = st.number_input(
-                "Latitude (optioneel)",
-                format="%.6f"
-            )
-            longitude = st.number_input(
-                "Longitude (optioneel)",
-                format="%.6f"
-            )
+            with col2:
+                melding_type = st.selectbox(
+                    "Soort kaartfout",
+                    [
+                        "Geometrie onjuist",
+                        "Type onjuist",
+                        "Parkeervak bestaat niet",
+                        "Parkeervak ontbreekt",
+                        "Overig"
+                    ]
+                )
+                latitude = st.number_input("Latitude (optioneel)", format="%.6f")
+                longitude = st.number_input("Longitude (optioneel)", format="%.6f")
 
-        omschrijving = st.text_area(
-            "Toelichting *",
-            placeholder="Omschrijf zo concreet mogelijk wat er niet klopt…"
+            omschrijving = st.text_area("Toelichting *")
+
+            submitted = st.form_submit_button("📩 Kaartfout melden")
+
+            if submitted:
+                if not straat or not huisnummer or not omschrijving:
+                    st.error("Straat, huisnummer en toelichting zijn verplicht.")
+                    return
+
+                c = conn()
+                c.execute("""
+                    INSERT INTO kaartfouten
+                    (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
+                    VALUES (?,?,?,?,?,?,?,?)
+                """, (
+                    vak_id.strip() if vak_id else None,
+                    melding_type,
+                    f"{straat.strip()} {huisnummer.strip()} – {omschrijving.strip()}",
+                    "Open",
+                    st.session_state.user,
+                    datetime.now().isoformat(timespec="seconds"),
+                    latitude if latitude != 0 else None,
+                    longitude if longitude != 0 else None
+                ))
+                kaartfout_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+                c.commit()
+                c.close()
+
+                audit("KAARTFOUT_MELDING", "kaartfouten", kaartfout_id)
+                st.success("✅ Kaartfout gemeld")
+                st.rerun()
+
+    st.markdown("---")
+
+    # ======================
+    # OVERZICHT
+    # ======================
+    c = conn()
+    df = pd.read_sql("""
+        SELECT
+            id,
+            vak_id,
+            melding_type,
+            omschrijving,
+            status,
+            melder,
+            gemeld_op
+        FROM kaartfouten
+        ORDER BY gemeld_op DESC
+    """, c)
+    c.close()
+
+    if df.empty:
+        st.info("Nog geen kaartfouten gemeld.")
+        return
+
+    st.markdown("### 📋 Overzicht kaartfouten")
+
+    st.dataframe(
+        df[[
+            "id",
+            "melding_type",
+            "vak_id",
+            "status",
+            "melder",
+            "gemeld_op"
+        ]],
+        use_container_width=True
+    )
+
+    # ======================
+    # STATUS AFHANDELING
+    # ======================
+    if has_role("editor", "admin"):
+        st.markdown("### ✏️ Status wijzigen")
+
+        sel_id = st.selectbox(
+            "Selecteer melding",
+            [None] + df["id"].tolist()
         )
 
-        submitted = st.form_submit_button("📩 Kaartfout melden")
+        if sel_id:
+            huidige_status = df.loc[df["id"] == sel_id, "status"].iloc[0]
 
-        if submitted:
-            if not straat or not huisnummer or not omschrijving:
-                st.error("Straat, huisnummer en toelichting zijn verplicht.")
-                return
+            nieuwe_status = st.selectbox(
+                "Nieuwe status",
+                ["Open", "In onderzoek", "Opgelost"],
+                index=["Open", "In onderzoek", "Opgelost"].index(huidige_status)
+            )
 
-            c = conn()
-            c.execute("""
-                INSERT INTO kaartfouten
-                (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
-                VALUES (?,?,?,?,?,?,?,?)
-            """, (
-                vak_id.strip() if vak_id else None,
-                melding_type,
-                f"{straat.strip()} {huisnummer.strip()} – {omschrijving.strip()}",
-                "Open",
-                st.session_state.user,
-                datetime.now().isoformat(timespec="seconds"),
-                latitude if latitude != 0 else None,
-                longitude if longitude != 0 else None
-            ))
-            kaartfout_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
-            c.commit()
-            c.close()
+            if st.button("💾 Status opslaan"):
+                c = conn()
+                c.execute(
+                    "UPDATE kaartfouten SET status=? WHERE id=?",
+                    (nieuwe_status, sel_id)
+                )
+                c.commit()
+                c.close()
 
-            audit("KAARTFOUT_MELDING", "kaartfouten", kaartfout_id)
-
-            st.success("✅ Kaartfout succesvol gemeld.")
-            st.rerun()
+                audit("KAARTFOUT_STATUS", "kaartfouten", sel_id)
+                st.success("Status bijgewerkt")
+                st.rerun()
+    else:
+        st.caption("ℹ️ Alleen editors en admins kunnen meldingen afhandelen.")
 
 def render_handhaving():
     st.subheader("👮 Handhaving")
@@ -1236,6 +1293,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
