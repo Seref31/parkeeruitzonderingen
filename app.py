@@ -1,4 +1,3 @@
-import streamlit as st
 import sqlite3
 import pandas as pd
 from datetime import datetime, date, time
@@ -338,22 +337,9 @@ if "user" not in st.session_state:
         unsafe_allow_html=True
     )
 
-    # Duidelijk maken: inloggen met e-mailadres
-    u = st.text_input(
-        "Gebruiker (e-mailadres)",
-        placeholder="bijv. voornaam.achternaam@dordrecht.nl",
-        help="Log in met je volledige e-mailadres."
-    )
+    u = st.text_input("Gebruiker")
     p = st.text_input("Wachtwoord", type="password")
-
-    # Informatieregels zonder complexe HTML (veilig)
-    st.caption("🔐 Let op: inloggen kan alleen met je e-mailadres.")
-    st.markdown(
-        '[❓ Wachtwoord vergeten? Stuur een e‑mail naar **s.coskun@dordrecht.nl**]'
-        '(mailto:s.coskun@dordrecht.nl)'
-    )
-
-    colA, colB = st.columns([1, 1])
+    colA, colB = st.columns([1,1])
     with colA:
         login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
     with colB:
@@ -363,10 +349,9 @@ if "user" not in st.session_state:
 
     if login_clicked:
         c = conn()
-        r = c.execute(
-            "SELECT password, role, active, force_change FROM users WHERE username=?",
-            (u,)
-        ).fetchone()
+        r = c.execute("""
+            SELECT password, role, active, force_change FROM users WHERE username=?
+        """, (u,)).fetchone()
         c.close()
 
         if r and r[0] == hash_pw(p) and r[2] == 1:
@@ -1109,6 +1094,4 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
-``
-
 
