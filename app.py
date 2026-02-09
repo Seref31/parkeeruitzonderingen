@@ -338,13 +338,35 @@ if "user" not in st.session_state:
         unsafe_allow_html=True
     )
 
-    u = st.text_input("Gebruiker")
+    # >>>>>>>>>>>>>>>>> TOEVOEGING: e-mail instructie (placeholder + help) <<<<<<<<<<<<<<<<
+    u = st.text_input(
+        "Gebruiker",
+        placeholder="Log in met je e-mailadres (bijv. voornaam.achternaam@dordrecht.nl)",
+        help="Gebruik je werk e-mailadres om in te loggen."
+    )
     p = st.text_input("Wachtwoord", type="password")
+
     colA, colB = st.columns([1,1])
     with colA:
         login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
     with colB:
         st.write("")
+
+    # >>>>>>>>>>>>>>>>> TOEVOEGING: teksten binnen de card <<<<<<<<<<<<<<<<
+    st.markdown(
+        """
+        <div style="max-width:520px;margin: 6px auto 0 auto; color:#555;">
+            <p style="margin:0.2rem 0;">
+                <strong>Let op:</strong> log in met je <em>e-mailadres</em> (bijv. voornaam.achternaam@dordrecht.nl).
+            </p>
+            <p style="margin:0.2rem 0;">
+                Wachtwoord vergeten? Stuur een e‑mail naar
+                <a href="mailto:s.coskun@dordrecht.nl">s.coskun@dordrecht.nl</a>.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1095,5 +1117,4 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
-
-
+``
