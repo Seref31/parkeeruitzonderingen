@@ -1282,10 +1282,13 @@ Melder: {r['melder']}<br><br>
     # ======================
     # AFHANDELING + FOTO'S (alleen editor/admin)
     # ======================
-    if has_role("editor", "admin"):
-        st.markdown("### ✏️ Afhandeling & foto’s")
-
-        sel_id = st.selectbox("Selecteer melding", [None] + df["id"].tolist())
+sel_id = None
+if has_role("editor", "admin"):
+    sel_id = st.selectbox(
+        "Selecteer melding",
+        [None] + df["id"].tolist(),
+        key="kaartfout_select"
+    )
 
     if has_role("admin") and sel_id:
         st.markdown("### 🗑️ Verwijderen (admin)")
@@ -1462,6 +1465,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
