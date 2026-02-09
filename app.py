@@ -1139,6 +1139,7 @@ tab_funcs = {
     "projecten": render_projecten,
     "werkzaamheden": render_werkzaamheden,
     "agenda": render_agenda,
+    "handhaving": render_handhaving, 
     "gebruikers": render_gebruikers,
     "audit": render_audit
 }
@@ -1158,6 +1159,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
