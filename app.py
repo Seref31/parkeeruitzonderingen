@@ -325,6 +325,12 @@ if "user" not in st.session_state:
             "<h2 style='text-align:center;margin-top:6px;'>Parkeerbeheer – Inloggen</h2>",
             unsafe_allow_html=True
         )
+        st.markdown(
+            "<p style='text-align:center;color:#666;'>"
+            "Log in met je <strong>e-mailadres</strong> en wachtwoord."
+            "</p>",
+            unsafe_allow_html=True
+        )
 
     # Card met inlogvelden
     st.markdown(
@@ -338,13 +344,28 @@ if "user" not in st.session_state:
         unsafe_allow_html=True
     )
 
-    u = st.text_input("Gebruiker")
+    u = st.text_input(
+        "Gebruiker (e-mailadres)",
+        placeholder="bijv. voornaam.achternaam@dordrecht.nl"
+    )
     p = st.text_input("Wachtwoord", type="password")
+
     colA, colB = st.columns([1,1])
     with colA:
         login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
     with colB:
         st.write("")
+
+    st.markdown(
+        """
+        <div style="margin-top:12px;font-size:0.9rem;color:#555;">
+            Wachtwoord vergeten?<br>
+            Stuur dan een e-mail naar
+            <a href="mailto:s.coskun@dordrecht.nl">s.coskun@dordrecht.nl</a>.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -363,9 +384,10 @@ if "user" not in st.session_state:
             audit("LOGIN")
             st.rerun()
         else:
-            st.error("Onjuiste gegevens of account geblokkeerd")
+            st.error("Onjuiste inloggegevens of account is geblokkeerd.")
 
     st.stop()
+
 
 # ================= FORCE PASSWORD CHANGE =================
 if st.session_state.force_change == 1:
@@ -1095,3 +1117,4 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
