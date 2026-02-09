@@ -259,16 +259,6 @@ def init_db():
         )
     """)
 
-cur.execute("""
-    CREATE TABLE IF NOT EXISTS kaartfout_fotos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        kaartfout_id INTEGER,
-        bestandsnaam TEXT,
-        geupload_op TEXT
-    )
-""")
-
-
     for u, (p, r) in START_USERS.items():
         cur.execute("""
             INSERT OR IGNORE INTO users (username,password,role,active,force_change)
@@ -1128,10 +1118,5 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
-
-
-
-
-
 
 
