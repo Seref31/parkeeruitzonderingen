@@ -375,6 +375,30 @@ init_db()
 
 # ================= LOGIN =================
 if "user" not in st.session_state:
+        # === POPUP: wachtwoorden gereset i.v.m. update ===
+    if "pw_reset_notice_closed" not in st.session_state:
+        st.session_state.pw_reset_notice_closed = False
+
+    if not st.session_state.pw_reset_notice_closed:
+        with st.container():
+            st.warning(
+                """
+                **🔔 Belangrijke mededeling**
+
+                In verband met een **update van de website** zijn de **wachtwoorden gereset**.
+
+                👉 U kunt inloggen met het **initiële wachtwoord** dat u eerder per e-mail heeft ontvangen van  
+                **s.coskun@dordrecht.nl**.
+
+                Na het inloggen kunt u **direct uw wachtwoord wijzigen**.
+                """,
+                icon="🔐"
+            )
+
+            if st.button("✔️ Begrepen, sluit melding"):
+                st.session_state.pw_reset_notice_closed = True
+                st.rerun()
+
     # Logo + titel gecentreerd
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
@@ -1519,6 +1543,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
