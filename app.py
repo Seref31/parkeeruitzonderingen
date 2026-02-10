@@ -1,3 +1,13 @@
+def delete_shortcut(shortcut_id: int):
+    """Verwijder één snelkoppeling op id en log dit in audit."""
+    c = conn()
+    try:
+        c.execute("DELETE FROM dashboard_shortcuts WHERE id=?", (int(shortcut_id),))
+        c.commit()
+        audit("SHORTCUT_DELETE", "dashboard_shortcuts", int(shortcut_id))
+    finally:
+        c.close()
+        
 import requests
 
 def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
@@ -1108,35 +1118,60 @@ def users_block():
                     st.session_state["_tab_perms_cache"] = None
                 st.rerun()
 
-    st.markdown("---")
-    st.subheader("🚀 Dashboard snelkoppelingen")
-    st.dataframe(
-        pd.read_sql("SELECT * FROM dashboard_shortcuts", c),
-        use_container_width=True
-    )
+    # ================== DASHBOARD SNELKOPPELINGEN (BEHEER) ==================
+st.markdown("---")
+st.subheader("🚀 Dashboard snelkoppelingen")
 
-    with st.form("shortcut_form"):
-        title = st.text_input("Titel (emoji toegestaan)")
-        subtitle = st.text_input("Subtitel")
-        url = st.text_input("URL")
-        roles = st.multiselect(
-            "Zichtbaar voor rollen",
-            ["admin","editor","viewer"],
-            default=["admin","editor","viewer"]
-        )
-        active = st.checkbox("Actief", True)
+c = conn()
+df_sc = pd.read_sql("SELECT * FROM dashboard_shortcuts ORDER BY id DESC", c)
+c.close()
 
-        if st.form_submit_button("💾 Opslaan"):
-            c.execute("""
-                INSERT INTO dashboard_shortcuts (title, subtitle, url, roles, active)
-                VALUES (?,?,?,?,?)
-            """, (title, subtitle, url, ",".join(roles), int(active)))
-            c.commit()
-            audit("SHORTCUT_ADD")
-            st.success("Snelkoppeling toegevoegd")
-            st.rerun()
+if df_sc.empty:
+    st.info("Nog geen snelkoppelingen.")
+else:
+    st.dataframe(df_sc, use_container_width=True)
 
-    c.close()
+# --- Verwijderen ---
+st.markdown("### 🗑️ Snelkoppeling verwijderen")
+sel_del_id = st.selectbox(
+    "Kies ID om te verwijderen",
+    options=[None] + df_sc["id"].astype(int).tolist() if not df_sc.empty else [None],
+    key="shortcut_delete_select"
+)
+
+col_del1, col_del2 = st.columns([1,2])
+with col_del1:
+    do_delete = st.button("❌ Verwijderen", type="secondary", disabled=(sel_del_id is None))
+with col_del2:
+    sure = st.checkbox("Ik weet zeker dat ik deze snelkoppeling wil verwijderen.", value=False)
+
+if do_delete:
+    if not sure:
+        st.warning("Vink de bevestiging aan voordat je verwijdert.")
+    else:
+        delete_shortcut(int(sel_del_id))
+        st.success(f"Snelkoppeling #{sel_del_id} verwijderd")
+        st.rerun()
+
+# --- Bestaand formulier voor toevoegen laten staan ---
+with st.form("shortcut_form"):
+    title = st.text_input("Titel (emoji toegestaan)")
+    subtitle = st.text_input("Subtitel")
+    url = st.text_input("URL")
+    roles = st.multiselect("Zichtbaar voor rollen", ["admin","editor","viewer"], default=["admin","editor","viewer"])
+    active = st.checkbox("Actief", True)
+
+    if st.form_submit_button("💾 Opslaan"):
+        c = conn()
+        c.execute("""
+            INSERT INTO dashboard_shortcuts (title, subtitle, url, roles, active)
+            VALUES (?,?,?,?,?)
+        """, (title, subtitle, url, ",".join(roles), int(active)))
+        c.commit()
+        c.close()
+        audit("SHORTCUT_ADD")
+        st.success("Snelkoppeling toegevoegd")
+        st.rerun()
 
 # ================= RENDER FUNCTIES PER TAB =================
 def render_dashboard():
@@ -1632,6 +1667,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
