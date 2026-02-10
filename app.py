@@ -977,6 +977,7 @@ def users_block():
 
     c = conn()
 
+    # ================= GEBRUIKERS =================
     st.subheader("👥 Gebruikers")
     df_users = pd.read_sql(
         "SELECT username, role, active, force_change FROM users ORDER BY username",
@@ -984,130 +985,72 @@ def users_block():
     )
     st.dataframe(df_users, use_container_width=True)
 
-    st.markdown("### ➕ Gebruiker toevoegen")
-    with st.form("user_add_form"):
-        new_username = st.text_input("Gebruikersnaam (uniek)")
-        new_password = st.text_input("Initieel wachtwoord", type="password")
-        new_role = st.selectbox("Rol", ["admin", "editor", "viewer"])
-        new_active = st.checkbox("Actief", True)
-        force_change = st.checkbox("Wachtwoord wijzigen bij eerste login (aanbevolen)", True)
-
-        if st.form_submit_button("💾 Toevoegen"):
-            if not new_username or not new_password or len(new_password) < 8:
-                st.error("Geef een unieke gebruikersnaam en een wachtwoord van minimaal 8 tekens.")
-            else:
-                try:
-                    c.execute("""
-                        INSERT INTO users (username, password, role, active, force_change)
-                        VALUES (?,?,?,?,?)
-                    """, (new_username, hash_pw(new_password), new_role, int(new_active), int(force_change)))
-                    c.commit()
-                    audit("USER_CREATE", "users", new_username)
-                    st.success(f"Gebruiker '{new_username}' toegevoegd")
-                    st.session_state["_tab_perms_cache"] = None
-                    st.rerun()
-                except sqlite3.IntegrityError:
-                    st.error("Gebruikersnaam bestaat al.")
-
-    st.markdown("### ✏️ Gebruiker bewerken/verwijderen")
-    df_usernames = df_users["username"].tolist()
-    sel_user = st.selectbox("Selecteer gebruiker", [None] + df_usernames, key="user_edit_select")
-
-    if sel_user:
-        cur = c.execute("SELECT username, role, active, force_change FROM users WHERE username=?", (sel_user,))
-        row = cur.fetchone()
-        if row:
-            _, role_cur, active_cur, force_cur = row
-            with st.form("user_edit_form"):
-                role_new = st.selectbox("Rol", ["admin", "editor", "viewer"], index=["admin","editor","viewer"].index(role_cur))
-                active_new = st.checkbox("Actief", bool(active_cur))
-                force_new = st.checkbox("Forceer wachtwoordwijziging", bool(force_cur))
-                pw_reset = st.checkbox("Wachtwoord resetten?")
-                pw_new = st.text_input("Nieuw wachtwoord", type="password", disabled=not pw_reset)
-
-                col1, col2 = st.columns(2)
-                do_save = col1.form_submit_button("💾 Opslaan wijzigingen")
-                do_delete = col2.form_submit_button("🗑️ Verwijderen")
-
-                if do_save:
-                    if pw_reset and len(pw_new) < 8:
-                        st.error("Nieuw wachtwoord moet minstens 8 tekens zijn.")
-                    else:
-                        if pw_reset:
-                            c.execute("""
-                                UPDATE users SET role=?, active=?, force_change=?, password=?
-                                WHERE username=?
-                            """, (role_new, int(active_new), int(force_new), hash_pw(pw_new), sel_user))
-                            audit("USER_UPDATE_RESET_PW", "users", sel_user)
-                        else:
-                            c.execute("""
-                                UPDATE users SET role=?, active=?, force_change=?
-                                WHERE username=?
-                            """, (role_new, int(active_new), int(force_new), sel_user))
-                            audit("USER_UPDATE", "users", sel_user)
-                        c.commit()
-                        st.success("Gebruiker bijgewerkt")
-                        st.session_state["_tab_perms_cache"] = None
-                        st.rerun()
-
-                if do_delete:
-                    c.execute("DELETE FROM permissions WHERE username=?", (sel_user,))
-                    c.execute("DELETE FROM users WHERE username=?", (sel_user,))
-                    c.commit()
-                    audit("USER_DELETE", "users", sel_user)
-                    st.success("Gebruiker verwijderd")
-                    st.session_state["_tab_perms_cache"] = None
-                    st.rerun()
-
+    # ================= TABRECHTEN =================
     st.markdown("---")
     st.subheader("🔐 Tab-toegang per gebruiker")
-    sel_perm_user = st.selectbox("Kies gebruiker voor tabrechten", [None] + df_usernames, key="perm_user_select")
 
-st.markdown("---")
-st.subheader("🚀 Dashboard snelkoppelingen")
+    df_usernames = df_users["username"].tolist()
+    sel_perm_user = st.selectbox(
+        "Kies gebruiker voor tabrechten",
+        [None] + df_usernames,
+        key="perm_user_select"
+    )
 
-st.dataframe(
-    pd.read_sql("SELECT * FROM dashboard_shortcuts", c),
-    use_container_width=True
-)
-
-if sel_perm_user:
-    ...
+    if sel_perm_user:
+        df_perm = pd.read_sql(
+            "SELECT tab_key, allowed FROM permissions WHERE username=?",
+            c,
+            params=[sel_perm_user]
+        )
 
         has_custom = not df_perm.empty
-
-        use_role_defaults = st.checkbox("Gebruik rol-standaardrechten (geen maatwerk)", value=not has_custom)
+        use_role_defaults = st.checkbox(
+            "Gebruik rol-standaardrechten (geen maatwerk)",
+            value=not has_custom
+        )
 
         labels_keys = all_tabs_config()
         tab_keys = [k for _, k in labels_keys]
         labels_map = {k: lbl for (lbl, k) in labels_keys}
 
         if use_role_defaults:
-            st.info("Rol-standaardrechten zijn actief. Eventuele maatwerkrechten worden verwijderd bij opslaan.")
-            if st.button("💾 Opslaan (rol-standaard gebruiken)", key="perm_save_role_defaults"):
+            if st.button("💾 Opslaan (rol-standaard gebruiken)"):
                 c.execute("DELETE FROM permissions WHERE username=?", (sel_perm_user,))
                 c.commit()
                 audit("PERMISSIONS_CLEAR", "permissions", sel_perm_user)
-                st.success("Maatwerk tabrechten verwijderd; rol-standaard is nu actief.")
-                if sel_perm_user == st.session_state.user:
-                    st.session_state["_tab_perms_cache"] = None
+                st.success("Rol-standaardrechten actief")
                 st.rerun()
         else:
-            current_allowed = set(df_perm[df_perm["allowed"] == 1]["tab_key"].tolist()) if has_custom else set()
+            current_allowed = set(
+                df_perm[df_perm["allowed"] == 1]["tab_key"].tolist()
+            ) if has_custom else set()
+
             default_for_role = role_default_permissions().get(
-                c.execute("SELECT role FROM users WHERE username=?", (sel_perm_user,)).fetchone()[0],
+                c.execute(
+                    "SELECT role FROM users WHERE username=?",
+                    (sel_perm_user,)
+                ).fetchone()[0],
                 {}
             )
-            help_txt = "Selecteer de tabbladen waar deze gebruiker bij mag. Niet-geselecteerd = geen toegang."
+
             selected_labels = st.multiselect(
                 "Toegestane tabbladen",
                 [lbl for (lbl, _) in labels_keys],
-                default=[labels_map[k] for k in (current_allowed if has_custom else {k for k, v in default_for_role.items() if v})],
-                help=help_txt
+                default=[
+                    labels_map[k]
+                    for k in (
+                        current_allowed
+                        if has_custom
+                        else {k for k, v in default_for_role.items() if v}
+                    )
+                ]
             )
-            selected_keys = {k for (lbl, k) in labels_keys if lbl in selected_labels}
 
-            if st.button("💾 Opslaan tabrechten", key="perm_save_custom"):
+            selected_keys = {
+                k for (lbl, k) in labels_keys if lbl in selected_labels
+            }
+
+            if st.button("💾 Opslaan tabrechten"):
                 c.execute("DELETE FROM permissions WHERE username=?", (sel_perm_user,))
                 for k in tab_keys:
                     c.execute(
@@ -1117,16 +1060,18 @@ if sel_perm_user:
                 c.commit()
                 audit("PERMISSIONS_SET", "permissions", sel_perm_user)
                 st.success("Tabrechten opgeslagen")
-                if sel_perm_user == st.session_state.user:
-                    st.session_state["_tab_perms_cache"] = None
                 st.rerun()
 
+    # ================= DASHBOARD SNELKOPPELINGEN =================
     st.markdown("---")
     st.subheader("🚀 Dashboard snelkoppelingen")
+
     st.dataframe(
         pd.read_sql("SELECT * FROM dashboard_shortcuts", c),
         use_container_width=True
     )
+
+    c.close()
 
 # ================= VERWIJDEREN SNELKOPPELING =================
 st.markdown("### 🗑️ Snelkoppeling verwijderen (admin)")
@@ -1684,6 +1629,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
