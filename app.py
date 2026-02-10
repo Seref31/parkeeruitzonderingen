@@ -1282,10 +1282,13 @@ Melder: {r['melder']}<br><br>
     # ======================
     # AFHANDELING + FOTO'S (alleen editor/admin)
     # ======================
-    if has_role("editor", "admin"):
-        st.markdown("### ✏️ Afhandeling & foto’s")
-
-        sel_id = st.selectbox("Selecteer melding", [None] + df["id"].tolist())
+sel_id = None
+if has_role("editor", "admin"):
+    sel_id = st.selectbox(
+        "Selecteer melding",
+        [None] + df["id"].tolist(),
+        key="kaartfout_select"
+    )
 
     if has_role("admin") and sel_id:
         st.markdown("### 🗑️ Verwijderen (admin)")
@@ -1329,21 +1332,24 @@ Melder: {r['melder']}<br><br>
                 (sel_id,)
             ).fetchone()[0]
 
-            nieuwe_status = st.selectbox(
-                "Status",
-                ["Open", "In onderzoek", "Opgelost"],
-                index=["Open", "In onderzoek", "Opgelost"].index(huidige_status)
-            )
+with st.form("kaartfout_status_form"):
+    nieuwe_status = st.selectbox(
+        "Status",
+        ["Open", "In onderzoek", "Opgelost"],
+        index=["Open", "In onderzoek", "Opgelost"].index(huidige_status)
+    )
 
-            if st.button("💾 Status opslaan"):
-                c.execute(
-                    "UPDATE kaartfouten SET status=? WHERE id=?",
-                    (nieuwe_status, sel_id)
-                )
-                c.commit()
-                audit("KAARTFOUT_STATUS", "kaartfouten", sel_id)
-                st.success("Status bijgewerkt")
-                st.rerun()
+    save_status = st.form_submit_button("💾 Status opslaan")
+
+    if save_status:
+        c.execute(
+            "UPDATE kaartfouten SET status=? WHERE id=?",
+            (nieuwe_status, sel_id)
+        )
+        c.commit()
+        audit("KAARTFOUT_STATUS", "kaartfouten", sel_id)
+        st.success("✅ Status bijgewerkt")
+        st.rerun()
 
             # ---- FOTO'S TONEN ----
             fotos = pd.read_sql(
@@ -1462,6 +1468,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
