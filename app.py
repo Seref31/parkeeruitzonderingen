@@ -264,16 +264,17 @@ def init_db():
         )
     """)
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS audit_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            user TEXT,
-            action TEXT,
-            table_name TEXT,
-            record_id INTEGER
-        )
-    """)
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        subtitle TEXT,
+        url TEXT,
+        image_url TEXT,
+        roles TEXT,
+        active INTEGER
+    )
+""")
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
@@ -1632,6 +1633,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
