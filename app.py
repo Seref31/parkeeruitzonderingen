@@ -735,13 +735,6 @@ def dashboard_shortcuts():
         title = escape(str(s.get("title", "")))
         subtitle = escape(str(s.get("subtitle", "")))
 
-img_html = ""
-if s.get("image_url"):
-    img_html = f"""
-        <img src="{s['image_url']}"
-             style="height:40px;margin-bottom:10px;object-fit:contain;">
-    """
-
 html = f"""
 <a href="{url}" target="_blank" style="text-decoration:none;">
   <div style="
@@ -759,7 +752,7 @@ html = f"""
 </a>
 """
 
-        with cols[i]:
+        with cols[i]:   # ❌ deze is te ver ingesprongen
             st.markdown(html, unsafe_allow_html=True)
         i = (i + 1) % 3
 
@@ -1638,6 +1631,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
