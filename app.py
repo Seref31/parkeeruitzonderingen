@@ -1276,77 +1276,44 @@ Melder: {r['melder']}<br><br>
                     columns={"latitude": "lat", "longitude": "lon"}
                 )[["lat", "lon"]]
             )
-    # ======================
+     # ======================
     # AFHANDELING + FOTO'S (alleen editor/admin)
     # ======================
-sel_id = None
-if has_role("editor", "admin"):
-    sel_id = st.selectbox(
-        "Selecteer melding",
-        [None] + df["id"].tolist(),
-        key="kaartfout_select"
-    )
+    if has_role("editor", "admin"):
+        st.markdown("### ✏️ Afhandeling & foto’s")
 
-    if has_role("admin") and sel_id:
-        st.markdown("### 🗑️ Verwijderen (admin)")
-
-        st.warning(
-            "⚠️ Deze actie verwijdert de melding **definitief**, inclusief alle foto’s."
+        sel_id = st.selectbox(
+            "Selecteer melding",
+            [None] + df["id"].tolist(),
+            key="kaartfout_select"
         )
-
-        if st.button("❌ Melding definitief verwijderen", type="secondary"):
-            c = conn()
-
-            # haal foto's op
-            fotos = c.execute(
-                "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
-                (sel_id,)
-            ).fetchall()
-
-            # verwijder fotobestanden
-            for (fname,) in fotos:
-                path = os.path.join(UPLOAD_DIR, fname)
-                if os.path.exists(path):
-                    os.remove(path)
-
-            # verwijder DB-records
-            c.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=?", (sel_id,))
-            c.execute("DELETE FROM kaartfouten WHERE id=?", (sel_id,))
-            c.commit()
-            c.close()
-
-            audit("KAARTFOUT_VERWIJDERD", "kaartfouten", sel_id)
-
-            st.success("🗑️ Melding en bijbehorende foto’s zijn verwijderd.")
-            st.rerun()
 
         if sel_id:
             c = conn()
 
-            # status
             huidige_status = c.execute(
                 "SELECT status FROM kaartfouten WHERE id=?",
                 (sel_id,)
             ).fetchone()[0]
 
-with st.form("kaartfout_status_form"):
-    nieuwe_status = st.selectbox(
-        "Status",
-        ["Open", "In onderzoek", "Opgelost"],
-        index=["Open", "In onderzoek", "Opgelost"].index(huidige_status)
-    )
+            with st.form("kaartfout_status_form"):
+                nieuwe_status = st.selectbox(
+                    "Status",
+                    ["Open", "In onderzoek", "Opgelost"],
+                    index=["Open", "In onderzoek", "Opgelost"].index(huidige_status)
+                )
 
-    save_status = st.form_submit_button("💾 Status opslaan")
+                save_status = st.form_submit_button("💾 Status opslaan")
 
-    if save_status:
-        c.execute(
-            "UPDATE kaartfouten SET status=? WHERE id=?",
-            (nieuwe_status, sel_id)
-        )
-        c.commit()
-        audit("KAARTFOUT_STATUS", "kaartfouten", sel_id)
-        st.success("✅ Status bijgewerkt")
-        st.rerun()
+                if save_status:
+                    c.execute(
+                        "UPDATE kaartfouten SET status=? WHERE id=?",
+                        (nieuwe_status, sel_id)
+                    )
+                    c.commit()
+                    audit("KAARTFOUT_STATUS", "kaartfouten", sel_id)
+                    st.success("✅ Status bijgewerkt")
+                    st.rerun()
 
             # ---- FOTO'S TONEN ----
             fotos = pd.read_sql(
@@ -1362,9 +1329,33 @@ with st.form("kaartfout_status_form"):
                     if os.path.exists(path):
                         st.image(path, use_container_width=True)
 
+            # ---- VERWIJDEREN (ADMIN) ----
+            if has_role("admin"):
+                st.markdown("### 🗑️ Verwijderen (admin)")
+                st.warning("⚠️ Deze actie verwijdert de melding definitief.")
+
+                if st.button("❌ Melding definitief verwijderen"):
+                    fotos = c.execute(
+                        "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
+                        (sel_id,)
+                    ).fetchall()
+
+                    for (fname,) in fotos:
+                        path = os.path.join(UPLOAD_DIR, fname)
+                        if os.path.exists(path):
+                            os.remove(path)
+
+                    c.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=?", (sel_id,))
+                    c.execute("DELETE FROM kaartfouten WHERE id=?", (sel_id,))
+                    c.commit()
+
+                    audit("KAARTFOUT_VERWIJDERD", "kaartfouten", sel_id)
+                    st.success("🗑️ Melding verwijderd")
+                    st.rerun()
+
             c.close()
     else:
-        st.caption("ℹ️ Foto’s en status zijn alleen zichtbaar voor editor/admin.")
+        st.caption("ℹ️ Afhandeling alleen zichtbaar voor editor/admin.")
 
 def render_handhaving():
     st.subheader("👮 Handhaving")
@@ -1465,6 +1456,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
