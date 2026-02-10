@@ -372,7 +372,8 @@ def init_db():
 
     c.commit()
     c.close()
-
+    
+init_db()
 # ================= LOGIN =================
 if "user" not in st.session_state:
         # === POPUP: wachtwoorden gereset i.v.m. update ===
@@ -1665,6 +1666,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
