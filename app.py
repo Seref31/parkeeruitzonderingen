@@ -254,6 +254,7 @@ def init_db():
     c = conn()
     cur = c.cursor()
 
+    # === USERS ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -264,29 +265,20 @@ def init_db():
         )
     """)
 
-cur.execute("""
-    CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT,
-        subtitle TEXT,
-        url TEXT,
-        image_url TEXT,
-        roles TEXT,
-        active INTEGER
-    )
-""")
-
+    # === DASHBOARD SHORTCUTS (met afbeelding) ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT,
             subtitle TEXT,
             url TEXT,
+            image_url TEXT,
             roles TEXT,
             active INTEGER
         )
     """)
 
+    # === PERMISSIONS ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS permissions (
             username TEXT,
@@ -345,7 +337,7 @@ cur.execute("""
     for t, ddl in tables.items():
         cur.execute(f"CREATE TABLE IF NOT EXISTS {t} ({ddl})")
 
-    # === KAARTFOUTEN (HANDHAVING) ===
+    # === KAARTFOUTEN ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS kaartfouten (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -371,8 +363,6 @@ cur.execute("""
 
     c.commit()
     c.close()
-
-init_db()
 
 # ================= LOGIN =================
 if "user" not in st.session_state:
@@ -1633,6 +1623,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
