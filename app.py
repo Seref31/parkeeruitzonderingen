@@ -253,15 +253,6 @@ def global_search_block():
 def init_db():
     c = conn()
     cur = c.cursor()
-
-    # --- MIGRATIE: image_url toevoegen indien ontbreekt ---
-    cols = [r[1] for r in cur.execute(
-        "PRAGMA table_info(dashboard_shortcuts)"
-    ).fetchall()]
-
-    if "image_url" not in cols:
-        cur.execute(
-            "ALTER TABLE dashboard_shortcuts ADD COLUMN image_url TEXT"
         )
 
     # === USERS ===
@@ -370,6 +361,15 @@ def init_db():
             geupload_op TEXT
         )
     """)
+    # --- MIGRATIE: image_url toevoegen indien ontbreekt ---
+    cols = [r[1] for r in cur.execute(
+        "PRAGMA table_info(dashboard_shortcuts)"
+    ).fetchall()]
+
+    if "image_url" not in cols:
+        cur.execute(
+            "ALTER TABLE dashboard_shortcuts ADD COLUMN image_url TEXT"
+        )
 
     c.commit()
     c.close()
@@ -1146,19 +1146,31 @@ with st.form("shortcut_form"):
 
     submitted = st.form_submit_button("💾 Opslaan")
 
-    if submitted:
-        cur = c.cursor()
-        cur.execute(
-            """
-            INSERT INTO dashboard_shortcuts
-            (title, subtitle, url, image_url, roles, active)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (title, subtitle, url, image_url, ",".join(roles), int(active))
+if submitted:
+    c = conn()
+    cur = c.cursor()
+
+    cur.execute(
+        """
+        INSERT INTO dashboard_shortcuts
+        (title, subtitle, url, image_url, roles, active)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            title,
+            subtitle,
+            url,
+            image_url,
+            ",".join(roles),
+            int(active)
         )
-        c.commit()
-        st.success("Snelkoppeling toegevoegd")
-        st.rerun()
+    )
+
+    c.commit()
+    c.close()
+
+    st.success("Snelkoppeling toegevoegd")
+    st.rerun()
 
 # ================= RENDER FUNCTIES PER TAB =================
 def render_dashboard():
@@ -1654,6 +1666,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
