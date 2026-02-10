@@ -735,27 +735,35 @@ def dashboard_shortcuts():
         title = escape(str(s.get("title", "")))
         subtitle = escape(str(s.get("subtitle", "")))
 
-html = f"""
-<a href="{url}" target="_blank" style="text-decoration:none;">
-  <div style="
-      border:1px solid #e0e0e0;
-      border-radius:14px;
-      padding:18px;
-      margin-bottom:16px;
-      background:white;
-      box-shadow:0 4px 10px rgba(0,0,0,0.06);
-  ">
-    {img_html}
-    <div style="font-size:20px;font-weight:600;">{title}</div>
-    <div style="color:#666;margin-top:4px;">{subtitle}</div>
-  </div>
-</a>
-"""
+        # 👉 LOGO (optioneel)
+        img_html = ""
+        if s.get("image_url"):
+            img_html = f"""
+            <img src="{escape(str(s.get('image_url')))}"
+                 style="height:40px;margin-bottom:10px;object-fit:contain;">
+            """
 
-with cols[i]:
-    st.markdown(html, unsafe_allow_html=True)
+        html = f"""
+        <a href="{url}" target="_blank" style="text-decoration:none;">
+          <div style="
+              border:1px solid #e0e0e0;
+              border-radius:14px;
+              padding:18px;
+              margin-bottom:16px;
+              background:white;
+              box-shadow:0 4px 10px rgba(0,0,0,0.06);
+          ">
+            {img_html}
+            <div style="font-size:20px;font-weight:600;">{title}</div>
+            <div style="color:#666;margin-top:4px;">{subtitle}</div>
+          </div>
+        </a>
+        """
 
-i = (i + 1) % 3
+        with cols[i]:
+            st.markdown(html, unsafe_allow_html=True)
+
+        i = (i + 1) % 3
 
 # ================= GENERIEKE CRUD =================
 def crud_block(table, fields, dropdowns=None):
@@ -1629,6 +1637,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
