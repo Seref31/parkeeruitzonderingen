@@ -1116,10 +1116,7 @@ def users_block():
 
 with st.form("shortcut_form"):
     title = st.text_input("Titel (emoji toegestaan)")
-    image_url = st.text_input(
-        "Logo (optioneel)",
-        placeholder="logos/topdesk.png"
-    )
+    image_url = st.text_input("Logo (optioneel)", placeholder="logos/topdesk.png")
     subtitle = st.text_input("Subtitel")
     url = st.text_input("URL")
     roles = st.multiselect(
@@ -1130,20 +1127,11 @@ with st.form("shortcut_form"):
     active = st.checkbox("Actief", True)
 
     if st.form_submit_button("💾 Opslaan"):
-        c.execute("""
-            INSERT INTO dashboard_shortcuts
-            (title, subtitle, url, image_url, roles, active)
-            VALUES (?,?,?,?,?,?)
-        """, (
-            title,
-            subtitle,
-            url,
-            image_url,
-            ",".join(roles),
-            int(active)
-        ))
+        c.execute(
+            "INSERT INTO dashboard_shortcuts (title, subtitle, url, image_url, roles, active) VALUES (?,?,?,?,?,?)",
+            (title, subtitle, url, image_url, ",".join(roles), int(active))
+        )
         c.commit()
-        audit("SHORTCUT_ADD")
         st.success("Snelkoppeling toegevoegd")
         st.rerun()
 
@@ -1641,6 +1629,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
