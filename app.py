@@ -1084,21 +1084,10 @@ ID: {r.get('id','')}
 
         st_html(m._repr_html_(), height=520)
 
-except Exception as e:
-    st.warning(f"Folium-kaart niet beschikbaar: {e}")
-
-    df_coords = df_map.rename(
-        columns={"latitude": "lat", "longitude": "lon"}
-    )[["lat", "lon"]]
-
-    df_coords["lat"] = pd.to_numeric(df_coords["lat"], errors="coerce")
-    df_coords["lon"] = pd.to_numeric(df_coords["lon"], errors="coerce")
-    df_coords = df_coords.dropna(subset=["lat", "lon"])
-
-    if df_coords.empty:
-        st.info("Geen geldige GPS-coördinaten voor kaartweergave.")
-    else:
-        st.map(df_coords)
+    except Exception as e:
+        st.warning(f"Kaartweergave vereist het pakket 'folium'. Fout: {e}")
+        st.info("Installeer met: pip install folium")
+        st.map(df_map.rename(columns={"latitude":"lat","longitude":"lon"})[["lat","lon"]])
 
 def render_agenda():
     agenda_block()
@@ -1467,6 +1456,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
