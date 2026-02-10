@@ -1047,42 +1047,38 @@ def render_werkzaamheden():
         st.info("Geen GPS-locaties ingevoerd")
         return
 
-    # ---- Folium kaart met clustering (D) ----
-try:
-    import folium
-    from folium.plugins import MarkerCluster
-    from streamlit.components.v1 import html as st_html
+    # ✅ ALLES HIERONDER MOET IN DE FUNCTIE BLIJVEN
+    try:
+        import folium
+        from folium.plugins import MarkerCluster
+        from streamlit.components.v1 import html as st_html
 
-    lat_mean = pd.to_numeric(df_map["latitude"], errors="coerce").mean()
-    lon_mean = pd.to_numeric(df_map["longitude"], errors="coerce").mean()
-    center = [
-        lat_mean if pd.notna(lat_mean) else 51.81,
-        lon_mean if pd.notna(lon_mean) else 4.66
-    ]
+        lat_mean = pd.to_numeric(df_map["latitude"], errors="coerce").mean()
+        lon_mean = pd.to_numeric(df_map["longitude"], errors="coerce").mean()
 
-    m = folium.Map(location=center, zoom_start=12, control_scale=True)
-    cluster = MarkerCluster().add_to(m)
+        m = folium.Map(
+            location=[
+                lat_mean if pd.notna(lat_mean) else 51.81,
+                lon_mean if pd.notna(lon_mean) else 4.66
+            ],
+            zoom_start=12
+        )
 
-    for _, r in df_map.iterrows():
-        popup_html = f"""
-<b>{r.get('omschrijving','')}</b><br>
-Status: {r.get('status','')}<br>
-Locatie: {r.get('locatie','')}<br>
-Periode: {r.get('start','?')} – {r.get('einde','?')}
-"""
-        folium.Marker(
-            location=[float(r["latitude"]), float(r["longitude"])],
-            popup=folium.Popup(popup_html, max_width=300)
-        ).add_to(cluster)
+        cluster = MarkerCluster().add_to(m)
 
-    st_html(m._repr_html_(), height=520)
+        for _, r in df_map.iterrows():
+            folium.Marker(
+                location=[float(r["latitude"]), float(r["longitude"])],
+                popup=f"{r['omschrijving']}"
+            ).add_to(cluster)
 
-except Exception as e:
-    st.warning(f"Kaartweergave vereist het pakket 'folium'. Fout: {e}")
-    st.info("Installeer met: pip install folium")
-    st.map(
-        df_map.rename(columns={"latitude": "lat", "longitude": "lon"})[["lat", "lon"]]
-    )
+        st_html(m._repr_html_(), height=520)
+
+    except Exception as e:
+        st.warning(f"Kaartweergave vereist folium. Fout: {e}")
+        st.map(
+            df_map.rename(columns={"latitude":"lat","longitude":"lon"})[["lat","lon"]]
+        )
 
 def render_agenda():
     agenda_block()
@@ -1451,6 +1447,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
