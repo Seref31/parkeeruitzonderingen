@@ -430,28 +430,30 @@ if "user" not in st.session_state:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    if login_clicked:
-st.write("LOGIN BUTTON GEDRUKT")
-st.write("Gebruiker:", u)
-st.write("Wachtwoord hash:", hash_pw(p))
-st.write("Session vóór:", dict(st.session_state))
+if login_clicked:
+    st.write("LOGIN BUTTON GEDRUKT")
+    st.write("Gebruiker:", u)
+    st.write("Wachtwoord hash:", hash_pw(p))
+    st.write("Session vóór:", dict(st.session_state))
 
-        c = conn()
-        r = c.execute("""
-            SELECT password, role, active, force_change FROM users WHERE username=?
-        """, (u,)).fetchone()
-        c.close()
+    c = conn()
+    r = c.execute("""
+        SELECT password, role, active, force_change FROM users WHERE username=?
+    """, (u,)).fetchone()
+    c.close()
 
-        if r and r[0] == hash_pw(p) and r[2] == 1:
-            st.session_state.user = u
-            st.write("Session ná:", dict(st.session_state))
-            st.session_state.role = r[1]
-            st.session_state.force_change = r[3]
-            st.session_state["_tab_perms_cache"] = None
-            audit("LOGIN")
-            st.rerun()
-        else:
-            st.error("Onjuiste inloggegevens of account is geblokkeerd.")
+    if r and r[0] == hash_pw(p) and r[2] == 1:
+        st.session_state.user = u
+        st.session_state.role = r[1]
+        st.session_state.force_change = r[3]
+        st.session_state["_tab_perms_cache"] = role_default_permissions()[r[1]]
+
+        st.write("Session ná:", dict(st.session_state))
+
+        audit("LOGIN")
+        st.rerun()
+    else:
+        st.error("Onjuiste inloggegevens of account is geblokkeerd.")
 
     st.stop()
 
@@ -1453,6 +1455,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
