@@ -773,7 +773,8 @@ with cols[i]:
 
     st.markdown(card_html, unsafe_allow_html=True)
 
-        i = (i + 1) % 3
+# ⬅️ HIER, NIET INSPRINGEN
+i = (i + 1) % 3
 
 # ================= GENERIEKE CRUD =================
 def crud_block(table, fields, dropdowns=None):
@@ -1666,6 +1667,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
