@@ -431,6 +431,11 @@ if "user" not in st.session_state:
     st.markdown("</div>", unsafe_allow_html=True)
 
     if login_clicked:
+st.write("LOGIN BUTTON GEDRUKT")
+st.write("Gebruiker:", u)
+st.write("Wachtwoord hash:", hash_pw(p))
+st.write("Session vóór:", dict(st.session_state))
+
         c = conn()
         r = c.execute("""
             SELECT password, role, active, force_change FROM users WHERE username=?
@@ -439,6 +444,7 @@ if "user" not in st.session_state:
 
         if r and r[0] == hash_pw(p) and r[2] == 1:
             st.session_state.user = u
+            st.write("Session ná:", dict(st.session_state))
             st.session_state.role = r[1]
             st.session_state.force_change = r[3]
             st.session_state["_tab_perms_cache"] = None
@@ -1447,6 +1453,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
