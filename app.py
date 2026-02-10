@@ -976,8 +976,12 @@ def users_block():
         return
 
     c = conn()
+
     st.subheader("👥 Gebruikers")
-    df_users = pd.read_sql("SELECT username, role, active, force_change FROM users ORDER BY username", c)
+    df_users = pd.read_sql(
+        "SELECT username, role, active, force_change FROM users ORDER BY username",
+        c
+    )
     st.dataframe(df_users, use_container_width=True)
 
     st.markdown("### ➕ Gebruiker toevoegen")
@@ -1058,6 +1062,14 @@ def users_block():
     st.markdown("---")
     st.subheader("🔐 Tab-toegang per gebruiker")
     sel_perm_user = st.selectbox("Kies gebruiker voor tabrechten", [None] + df_usernames, key="perm_user_select")
+
+st.markdown("---")
+st.subheader("🚀 Dashboard snelkoppelingen")
+
+st.dataframe(
+    pd.read_sql("SELECT * FROM dashboard_shortcuts", c),
+    use_container_width=True
+)
 
     if sel_perm_user:
         df_perm = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=?", c, params=[sel_perm_user])
@@ -1671,6 +1683,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
