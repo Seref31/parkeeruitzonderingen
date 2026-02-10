@@ -1115,6 +1115,45 @@ def users_block():
         use_container_width=True
     )
 
+# ================= VERWIJDEREN SNELKOPPELING =================
+st.markdown("### 🗑️ Snelkoppeling verwijderen (admin)")
+
+if has_role("admin"):
+    df_sc = pd.read_sql(
+        "SELECT id, title, subtitle FROM dashboard_shortcuts",
+        c
+    )
+
+    if df_sc.empty:
+        st.info("Geen snelkoppelingen om te verwijderen.")
+    else:
+        df_sc["label"] = df_sc.apply(
+            lambda r: f"#{r['id']} – {r['title']} ({r['subtitle']})",
+            axis=1
+        )
+
+        sel = st.selectbox(
+            "Selecteer snelkoppeling",
+            [None] + df_sc["label"].tolist()
+        )
+
+        if sel:
+            sc_id = int(sel.split("–")[0].replace("#", "").strip())
+
+            st.warning("⚠️ Deze actie kan niet ongedaan worden gemaakt.")
+
+            if st.button("❌ Definitief verwijderen"):
+                c.execute(
+                    "DELETE FROM dashboard_shortcuts WHERE id=?",
+                    (sc_id,)
+                )
+                c.commit()
+                audit("SHORTCUT_DELETE", "dashboard_shortcuts", sc_id)
+                st.success("Snelkoppeling verwijderd")
+                st.rerun()
+else:
+    st.caption("Alleen admins kunnen snelkoppelingen verwijderen.")
+
     with st.form("shortcut_form"):
         title = st.text_input("Titel (emoji toegestaan)")
         subtitle = st.text_input("Subtitel")
@@ -1632,6 +1671,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
