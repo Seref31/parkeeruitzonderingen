@@ -1071,8 +1071,9 @@ st.dataframe(
     use_container_width=True
 )
 
-    if sel_perm_user:
-        df_perm = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=?", c, params=[sel_perm_user])
+if sel_perm_user:
+    ...
+
         has_custom = not df_perm.empty
 
         use_role_defaults = st.checkbox("Gebruik rol-standaardrechten (geen maatwerk)", value=not has_custom)
@@ -1683,6 +1684,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
