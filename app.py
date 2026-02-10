@@ -253,7 +253,6 @@ def global_search_block():
 def init_db():
     c = conn()
     cur = c.cursor()
-        )
 
     # === USERS ===
     cur.execute("""
@@ -1666,6 +1665,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
