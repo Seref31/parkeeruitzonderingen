@@ -747,15 +747,9 @@ def dashboard_shortcuts():
         url = escape(str(s.get("url", "")), quote=True)
         title = escape(str(s.get("title", "")))
         subtitle = escape(str(s.get("subtitle", "")))
+        image_url = str(s.get("image_url", "")).strip()
 
-        img_html = ""
-        if s.get("image_url"):
-            img_html = f"""
-            <img src="{escape(str(s.get('image_url')))}"
-                 style="height:40px;margin-bottom:10px;object-fit:contain;">
-            """
-
-        html = f"""
+        card_html = f"""
         <a href="{url}" target="_blank" style="text-decoration:none;">
           <div style="
               border:1px solid #e0e0e0;
@@ -765,7 +759,6 @@ def dashboard_shortcuts():
               background:white;
               box-shadow:0 4px 10px rgba(0,0,0,0.06);
           ">
-            {img_html}
             {f'<div style="font-size:20px;font-weight:600;">{title}</div>' if title else ''}
             {f'<div style="color:#666;margin-top:4px;">{subtitle}</div>' if subtitle else ''}
           </div>
@@ -773,7 +766,11 @@ def dashboard_shortcuts():
         """
 
         with cols[i]:
-            st.markdown(html, unsafe_allow_html=True)
+            # ✅ LOGO VEILIG RENDEREN
+            if image_url:
+                st.image(image_url, height=40)
+
+            st.markdown(card_html, unsafe_allow_html=True)
 
         i = (i + 1) % 3
 
@@ -1668,6 +1665,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
