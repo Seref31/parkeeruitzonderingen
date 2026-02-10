@@ -634,95 +634,9 @@ def apply_search(df, search):
     return df[mask]
 
 # ================= DASHBOARD SHORTCUTS (fixed) =================
-# ================= DASHBOARD ALERTS =================
-def dashboard_alerts():
-    st.markdown("### ⚠️ Aandachtspunten")
-
-    c = conn()
-    today = date.today().isoformat()
-    messages = []
-
-    # =====================
-    # Projecten zonder einddatum (samengevat)
-    # =====================
-    df_proj = pd.read_sql("""
-        SELECT COUNT(*) AS c
-        FROM projecten
-        WHERE einde IS NULL OR TRIM(einde) = ''
-    """, c)
-
-    proj_count = int(df_proj.iloc[0]["c"])
-    if proj_count > 0:
-        messages.append(
-            f"📁 Er zijn **{proj_count} projecten** zonder vastgestelde einddatum."
-        )
-
-    # =====================
-    # Aflopende uitzonderingen (binnen 14 dagen)
-    # =====================
-    df_u = pd.read_sql("""
-        SELECT COUNT(*) AS c
-        FROM uitzonderingen
-        WHERE einde IS NOT NULL
-          AND date(einde) >= date(?)
-          AND date(einde) <= date(?, '+14 day')
-    """, c, params=[today, today])
-
-    if int(df_u.iloc[0]["c"]) > 0:
-        messages.append(
-            f"⏳ Er lopen **{df_u.iloc[0]['c']} parkeeruitzonderingen** binnenkort af."
-        )
-
-    # =====================
-    # Aflopende contracten (binnen 2 maanden)
-    # =====================
-    df_c = pd.read_sql("""
-        SELECT COUNT(*) AS c
-        FROM contracten
-        WHERE einde IS NOT NULL
-          AND date(einde) <= date(?, '+2 month')
-    """, c, params=[today])
-
-    if int(df_c.iloc[0]["c"]) > 0:
-        messages.append(
-            f"📄 Er zijn **{df_c.iloc[0]['c']} contracten** die binnen twee maanden aflopen."
-        )
-
-    # =====================
-    # Open kaartfouten
-    # =====================
-    df_k = pd.read_sql("""
-        SELECT COUNT(*) AS c
-        FROM kaartfouten
-        WHERE status = 'Open'
-    """, c)
-
-    if int(df_k.iloc[0]["c"]) > 0:
-        messages.append(
-            f"🗺️ Er staan **{df_k.iloc[0]['c']} open kaartfouten** geregistreerd."
-        )
-
-    c.close()
-
-    # =====================
-    # WEERGAVE
-    # =====================
-    if not messages:
-        st.caption("Geen actuele aandachtspunten.")
-        return
-
-    # Viewers: alleen korte melding
-    if st.session_state.role == "viewer":
-        st.info("Er zijn aandachtspunten beschikbaar. Neem indien nodig contact op met een beheerder.")
-        return
-
-    # Admin / Editor: compacte, beschaafde lijst
-    with st.expander("Toon aandachtspunten", expanded=False):
-        for m in messages:
-            st.markdown(f"- {m}")
-
 def dashboard_shortcuts():
     from html import escape
+    import os
 
     c = conn()
     df = pd.read_sql(
@@ -736,8 +650,9 @@ def dashboard_shortcuts():
         return
 
     st.markdown("### 🚀 Snelkoppelingen")
-    cols = st.columns(3)
-    i = 0
+
+    cols = st.columns(3)   # ✅ HIER definiëren
+    i = 0                  # ✅ EN HIER
 
     for _, s in df.iterrows():
         roles = [r.strip() for r in str(s.get("roles", "")).split(",") if r.strip()]
@@ -765,16 +680,13 @@ def dashboard_shortcuts():
         </a>
         """
 
-import os
+        with cols[i]:
+            if image_url and os.path.exists(image_url):
+                st.image(image_url, height=40)
 
-with cols[i]:
-    if image_url and os.path.exists(image_url):
-        st.image(image_url, height=40)
+            st.markdown(card_html, unsafe_allow_html=True)
 
-    st.markdown(card_html, unsafe_allow_html=True)
-
-# ⬅️ HIER, NIET INSPRINGEN
-i = (i + 1) % 3
+        i = (i + 1) % 3   # ✅ BUITEN with-blok
 
 # ================= GENERIEKE CRUD =================
 def crud_block(table, fields, dropdowns=None):
@@ -1667,6 +1579,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
