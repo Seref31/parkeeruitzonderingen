@@ -82,7 +82,6 @@ def all_tabs_config():
         ("🛠️ Werkzaamheden", "werkzaamheden"),
         ("📅 Agenda", "agenda"),
         ("👮 Handhaving", "handhaving"),
-        ("🚓 Scanauto Navigatie", "scanauto"),
         ("👥 Gebruikersbeheer", "gebruikers"),
         ("🧾 Audit log", "audit"),
     ]
@@ -1389,33 +1388,6 @@ def render_handhaving():
 
     if keuze == "🗺️ Kaartfouten":
         render_kaartfouten()
-def render_scanauto():
-    st.markdown("## 🚓 Scanauto – districtgestuurde navigatie")
-
-    # 1. District kiezen
-    c = conn()
-    df_dist = pd.read_sql(
-        "SELECT DISTINCT district FROM parkeervakken ORDER BY district",
-        c
-    )
-    district = st.selectbox(
-        "Kies district",
-        df_dist["district"].dropna().tolist()
-    )
-
-    # 2. Scanpunten ophalen
-    df_pts = pd.read_sql("""
-        SELECT vak_id, straat, latitude, longitude
-        FROM parkeervakken
-        WHERE district = ?
-          AND latitude IS NOT NULL
-          AND longitude IS NOT NULL
-    """, c, params=[district])
-    c.close()
-
-    if df_pts.empty:
-        st.warning("Geen scanpunten voor dit district")
-        return
 
 def render_gebruikers():
     users_block()
@@ -1485,7 +1457,6 @@ tab_funcs = {
     "werkzaamheden": render_werkzaamheden,
     "agenda": render_agenda,
     "handhaving": render_handhaving, 
-    "scanauto": render_scanauto,
     "gebruikers": render_gebruikers,
     "audit": render_audit
 }
@@ -1505,10 +1476,6 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
-
-
-
-
 
 
 
