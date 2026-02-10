@@ -82,6 +82,7 @@ def all_tabs_config():
         ("🛠️ Werkzaamheden", "werkzaamheden"),
         ("📅 Agenda", "agenda"),
         ("👮 Handhaving", "handhaving"),
+        ("🚓 Scanauto Navigatie", "scanauto")
         ("👥 Gebruikersbeheer", "gebruikers"),
         ("🧾 Audit log", "audit"),
     ]
@@ -1457,6 +1458,7 @@ tab_funcs = {
     "werkzaamheden": render_werkzaamheden,
     "agenda": render_agenda,
     "handhaving": render_handhaving, 
+    "scanauto": render_scanauto,
     "gebruikers": render_gebruikers,
     "audit": render_audit
 }
@@ -1476,6 +1478,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
