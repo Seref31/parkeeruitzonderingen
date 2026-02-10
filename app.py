@@ -1144,19 +1144,21 @@ with st.form("shortcut_form"):
     )
     active = st.checkbox("Actief", True)
 
-if st.form_submit_button("💾 Opslaan"):
-    cur = c.cursor()
-    cur.execute(
-        """
-        INSERT INTO dashboard_shortcuts
-        (title, subtitle, url, image_url, roles, active)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (title, subtitle, url, image_url, ",".join(roles), int(active))
-    )
-    c.commit()
-    st.success("Snelkoppeling toegevoegd")
-    st.rerun()
+    submitted = st.form_submit_button("💾 Opslaan")
+
+    if submitted:
+        cur = c.cursor()
+        cur.execute(
+            """
+            INSERT INTO dashboard_shortcuts
+            (title, subtitle, url, image_url, roles, active)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (title, subtitle, url, image_url, ",".join(roles), int(active))
+        )
+        c.commit()
+        st.success("Snelkoppeling toegevoegd")
+        st.rerun()
 
 # ================= RENDER FUNCTIES PER TAB =================
 def render_dashboard():
@@ -1652,6 +1654,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
