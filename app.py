@@ -765,12 +765,13 @@ def dashboard_shortcuts():
         </a>
         """
 
-        with cols[i]:
-            # ✅ LOGO VEILIG RENDEREN
-            if image_url:
-                st.image(image_url, height=40)
+import os
 
-            st.markdown(card_html, unsafe_allow_html=True)
+with cols[i]:
+    if image_url and os.path.exists(image_url):
+        st.image(image_url, height=40)
+
+    st.markdown(card_html, unsafe_allow_html=True)
 
         i = (i + 1) % 3
 
@@ -1665,6 +1666,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
