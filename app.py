@@ -741,17 +741,16 @@ def dashboard_shortcuts():
         if st.session_state.role not in roles:
             continue
 
-        url = escape(str(s.get("url", "")), quote=True)
-        title = escape(str(s.get("title", "")))
-        subtitle = escape(str(s.get("subtitle", "")))
+url = escape(str(s.get("url", "")), quote=True)
+title = escape(str(s.get("title", "")))
+subtitle = escape(str(s.get("subtitle", "")))
 
-        # 👉 LOGO (optioneel)
-        img_html = ""
-        if s.get("image_url"):
-            img_html = f"""
-            <img src="{escape(str(s.get('image_url')))}"
-                 style="height:40px;margin-bottom:10px;object-fit:contain;">
-            """
+img_html = ""
+if s.get("image_url"):
+    img_html = f"""
+    <img src="{s.get('image_url')}"
+         style="height:40px;margin-bottom:10px;object-fit:contain;">
+    """
 
         html = f"""
         <a href="{url}" target="_blank" style="text-decoration:none;">
@@ -1666,6 +1665,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
