@@ -254,6 +254,16 @@ def init_db():
     c = conn()
     cur = c.cursor()
 
+    # --- MIGRATIE: image_url toevoegen indien ontbreekt ---
+    cols = [r[1] for r in cur.execute(
+        "PRAGMA table_info(dashboard_shortcuts)"
+    ).fetchall()]
+
+    if "image_url" not in cols:
+        cur.execute(
+            "ALTER TABLE dashboard_shortcuts ADD COLUMN image_url TEXT"
+        )
+
     # === USERS ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -1637,6 +1647,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
