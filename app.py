@@ -1047,20 +1047,21 @@ def render_werkzaamheden():
         st.info("Geen GPS-locaties ingevoerd")
         return
 
-    # ---- Folium kaart met clustering (D) ----
     try:
         import folium
         from folium.plugins import MarkerCluster
         from streamlit.components.v1 import html as st_html
 
-        # map center
-        lat_mean = df_map["latitude"].astype(float).mean()
-        lon_mean = df_map["longitude"].astype(float).mean()
-        center = [lat_mean if pd.notna(lat_mean) else 51.81, lon_mean if pd.notna(lon_mean) else 4.66]
+        lat_mean = pd.to_numeric(df_map["latitude"], errors="coerce").mean()
+        lon_mean = pd.to_numeric(df_map["longitude"], errors="coerce").mean()
+        center = [
+            lat_mean if pd.notna(lat_mean) else 51.81,
+            lon_mean if pd.notna(lon_mean) else 4.66
+        ]
 
         m = folium.Map(location=center, zoom_start=12, control_scale=True)
-
         cluster = MarkerCluster().add_to(m)
+
         color_map = {
             "Gepland": "blue",
             "In uitvoering": "orange",
@@ -1068,37 +1069,45 @@ def render_werkzaamheden():
         }
 
         for _, r in df_map.iterrows():
-            color = color_map.get(str(r["status"]), "gray")
+            lat = pd.to_numeric(r["latitude"], errors="coerce")
+            lon = pd.to_numeric(r["longitude"], errors="coerce")
+            if pd.isna(lat) or pd.isna(lon):
+                continue
+
             popup_html = f"""
-<b>{r.get('omschrijving','(zonder omschrijving)')}</b><br>
+<b>{r.get('omschrijving','')}</b><br>
 Status: {r.get('status','')}<br>
 Locatie: {r.get('locatie','')}<br>
 Periode: {r.get('start','?')} – {r.get('einde','?')}<br>
 ID: {r.get('id','')}
 """
             folium.Marker(
-                location=[float(r["latitude"]), float(r["longitude"])],
-                icon=folium.Icon(color=color, icon="wrench", prefix="fa"),
+                location=[float(lat), float(lon)],
+                icon=folium.Icon(
+                    color=color_map.get(str(r["status"]), "gray"),
+                    icon="wrench",
+                    prefix="fa"
+                ),
                 popup=folium.Popup(popup_html, max_width=300)
             ).add_to(cluster)
 
         st_html(m._repr_html_(), height=520)
 
-except Exception as e:
-    st.warning(f"Folium-kaart niet beschikbaar: {e}")
+    except Exception as e:
+        st.warning(f"Folium-kaart niet beschikbaar: {e}")
 
-    df_coords = df_map.rename(
-        columns={"latitude": "lat", "longitude": "lon"}
-    )[["lat", "lon"]]
+        df_coords = df_map.rename(
+            columns={"latitude": "lat", "longitude": "lon"}
+        )[["lat", "lon"]]
 
-    df_coords["lat"] = pd.to_numeric(df_coords["lat"], errors="coerce")
-    df_coords["lon"] = pd.to_numeric(df_coords["lon"], errors="coerce")
-    df_coords = df_coords.dropna(subset=["lat", "lon"])
+        df_coords["lat"] = pd.to_numeric(df_coords["lat"], errors="coerce")
+        df_coords["lon"] = pd.to_numeric(df_coords["lon"], errors="coerce")
+        df_coords = df_coords.dropna(subset=["lat", "lon"])
 
-    if df_coords.empty:
-        st.info("Geen geldige GPS-coördinaten voor kaartweergave.")
-    else:
-        st.map(df_coords)
+        if df_coords.empty:
+            st.info("Geen geldige GPS-coördinaten voor kaartweergave.")
+        else:
+            st.map(df_coords)
 
 def render_agenda():
     agenda_block()
@@ -1467,6 +1476,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
