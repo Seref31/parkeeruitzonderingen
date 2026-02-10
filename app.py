@@ -1,4 +1,3 @@
-
 import requests
 
 def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
@@ -640,66 +639,86 @@ def dashboard_alerts():
 
     c = conn()
     today = date.today().isoformat()
-    alerts = []
+    messages = []
 
-    # ⏳ Aflopende uitzonderingen (14 dagen)
+    # =====================
+    # Projecten zonder einddatum (samengevat)
+    # =====================
+    df_proj = pd.read_sql("""
+        SELECT COUNT(*) AS c
+        FROM projecten
+        WHERE einde IS NULL OR TRIM(einde) = ''
+    """, c)
+
+    proj_count = int(df_proj.iloc[0]["c"])
+    if proj_count > 0:
+        messages.append(
+            f"📁 Er zijn **{proj_count} projecten** zonder vastgestelde einddatum."
+        )
+
+    # =====================
+    # Aflopende uitzonderingen (binnen 14 dagen)
+    # =====================
     df_u = pd.read_sql("""
-        SELECT naam, kenteken, einde
+        SELECT COUNT(*) AS c
         FROM uitzonderingen
         WHERE einde IS NOT NULL
           AND date(einde) >= date(?)
           AND date(einde) <= date(?, '+14 day')
     """, c, params=[today, today])
 
-    for _, r in df_u.iterrows():
-        alerts.append(
-            f"⏳ Uitzondering **{r['kenteken']}** ({r['naam']}) loopt af op **{r['einde']}**"
+    if int(df_u.iloc[0]["c"]) > 0:
+        messages.append(
+            f"⏳ Er lopen **{df_u.iloc[0]['c']} parkeeruitzonderingen** binnenkort af."
         )
 
-    # 📄 Aflopende contracten (2 maanden)
+    # =====================
+    # Aflopende contracten (binnen 2 maanden)
+    # =====================
     df_c = pd.read_sql("""
-        SELECT leverancier, contractnummer, einde
+        SELECT COUNT(*) AS c
         FROM contracten
         WHERE einde IS NOT NULL
           AND date(einde) <= date(?, '+2 month')
     """, c, params=[today])
 
-    for _, r in df_c.iterrows():
-        alerts.append(
-            f"📄 Contract **{r['leverancier']} – {r['contractnummer']}** verloopt op **{r['einde']}**"
+    if int(df_c.iloc[0]["c"]) > 0:
+        messages.append(
+            f"📄 Er zijn **{df_c.iloc[0]['c']} contracten** die binnen twee maanden aflopen."
         )
 
-    # 📁 Projecten zonder einddatum
-    df_p = pd.read_sql("""
-        SELECT naam
-        FROM projecten
-        WHERE einde IS NULL OR TRIM(einde) = ''
-    """, c)
-
-    for _, r in df_p.iterrows():
-        alerts.append(
-            f"📁 Project **{r['naam']}** heeft geen einddatum"
-        )
-
-    # 🗺️ Open kaartfouten
+    # =====================
+    # Open kaartfouten
+    # =====================
     df_k = pd.read_sql("""
         SELECT COUNT(*) AS c
         FROM kaartfouten
         WHERE status = 'Open'
     """, c)
 
-    if df_k.iloc[0]["c"] > 0:
-        alerts.append(
-            f"🗺️ Er staan **{df_k.iloc[0]['c']} open kaartfouten**"
+    if int(df_k.iloc[0]["c"]) > 0:
+        messages.append(
+            f"🗺️ Er staan **{df_k.iloc[0]['c']} open kaartfouten** geregistreerd."
         )
 
     c.close()
 
-    if not alerts:
-        st.success("✅ Geen actuele aandachtspunten")
-    else:
-        for a in alerts:
-            st.warning(a)
+    # =====================
+    # WEERGAVE
+    # =====================
+    if not messages:
+        st.caption("Geen actuele aandachtspunten.")
+        return
+
+    # Viewers: alleen korte melding
+    if st.session_state.role == "viewer":
+        st.info("Er zijn aandachtspunten beschikbaar. Neem indien nodig contact op met een beheerder.")
+        return
+
+    # Admin / Editor: compacte, beschaafde lijst
+    with st.expander("Toon aandachtspunten", expanded=False):
+        for m in messages:
+            st.markdown(f"- {m}")
 
 def dashboard_shortcuts():
     from html import escape
