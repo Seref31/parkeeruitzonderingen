@@ -633,6 +633,73 @@ def apply_search(df, search):
     return df[mask]
 
 # ================= DASHBOARD SHORTCUTS (fixed) =================
+# ================= DASHBOARD ALERTS =================
+def dashboard_alerts():
+    st.markdown("### ⚠️ Aandachtspunten")
+
+    c = conn()
+    today = date.today().isoformat()
+    alerts = []
+
+    # ⏳ Aflopende uitzonderingen (14 dagen)
+    df_u = pd.read_sql("""
+        SELECT naam, kenteken, einde
+        FROM uitzonderingen
+        WHERE einde IS NOT NULL
+          AND date(einde) >= date(?)
+          AND date(einde) <= date(?, '+14 day')
+    """, c, params=[today, today])
+
+    for _, r in df_u.iterrows():
+        alerts.append(
+            f"⏳ Uitzondering **{r['kenteken']}** ({r['naam']}) loopt af op **{r['einde']}**"
+        )
+
+    # 📄 Aflopende contracten (2 maanden)
+    df_c = pd.read_sql("""
+        SELECT leverancier, contractnummer, einde
+        FROM contracten
+        WHERE einde IS NOT NULL
+          AND date(einde) <= date(?, '+2 month')
+    """, c, params=[today])
+
+    for _, r in df_c.iterrows():
+        alerts.append(
+            f"📄 Contract **{r['leverancier']} – {r['contractnummer']}** verloopt op **{r['einde']}**"
+        )
+
+    # 📁 Projecten zonder einddatum
+    df_p = pd.read_sql("""
+        SELECT naam
+        FROM projecten
+        WHERE einde IS NULL OR TRIM(einde) = ''
+    """, c)
+
+    for _, r in df_p.iterrows():
+        alerts.append(
+            f"📁 Project **{r['naam']}** heeft geen einddatum"
+        )
+
+    # 🗺️ Open kaartfouten
+    df_k = pd.read_sql("""
+        SELECT COUNT(*) AS c
+        FROM kaartfouten
+        WHERE status = 'Open'
+    """, c)
+
+    if df_k.iloc[0]["c"] > 0:
+        alerts.append(
+            f"🗺️ Er staan **{df_k.iloc[0]['c']} open kaartfouten**"
+        )
+
+    c.close()
+
+    if not alerts:
+        st.success("✅ Geen actuele aandachtspunten")
+    else:
+        for a in alerts:
+            st.warning(a)
+
 def dashboard_shortcuts():
     from html import escape
 
@@ -1053,6 +1120,8 @@ def users_block():
 
 # ================= RENDER FUNCTIES PER TAB =================
 def render_dashboard():
+    dashboard_alerts()   # 👈 NIEUW
+
     # --- Globale zoekbalk (A) ---
     global_search_block()
 
@@ -1543,6 +1612,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
