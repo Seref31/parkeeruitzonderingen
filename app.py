@@ -254,7 +254,6 @@ def init_db():
     c = conn()
     cur = c.cursor()
 
-    # === USERS ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -265,20 +264,28 @@ def init_db():
         )
     """)
 
-    # === DASHBOARD SHORTCUTS (met afbeelding) ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            user TEXT,
+            action TEXT,
+            table_name TEXT,
+            record_id INTEGER
+        )
+    """)
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT,
             subtitle TEXT,
             url TEXT,
-            image_url TEXT,
             roles TEXT,
             active INTEGER
         )
     """)
 
-    # === PERMISSIONS ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS permissions (
             username TEXT,
@@ -337,7 +344,7 @@ def init_db():
     for t, ddl in tables.items():
         cur.execute(f"CREATE TABLE IF NOT EXISTS {t} ({ddl})")
 
-    # === KAARTFOUTEN ===
+    # === KAARTFOUTEN (HANDHAVING) ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS kaartfouten (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -360,20 +367,12 @@ def init_db():
             geupload_op TEXT
         )
     """)
-    # --- MIGRATIE: image_url toevoegen indien ontbreekt ---
-    cols = [r[1] for r in cur.execute(
-        "PRAGMA table_info(dashboard_shortcuts)"
-    ).fetchall()]
-
-    if "image_url" not in cols:
-        cur.execute(
-            "ALTER TABLE dashboard_shortcuts ADD COLUMN image_url TEXT"
-        )
 
     c.commit()
     c.close()
-    
+
 init_db()
+
 # ================= LOGIN =================
 if "user" not in st.session_state:
         # === POPUP: wachtwoorden gereset i.v.m. update ===
@@ -634,15 +633,98 @@ def apply_search(df, search):
     return df[mask]
 
 # ================= DASHBOARD SHORTCUTS (fixed) =================
-def dashboard_shortcuts():
-    from html import escape
-    import os
+# ================= DASHBOARD ALERTS =================
+def dashboard_alerts():
+    st.markdown("### ⚠️ Aandachtspunten")
 
     c = conn()
-    df = pd.read_sql(
-        "SELECT * FROM dashboard_shortcuts WHERE active=1",
-        c
-    )
+    today = date.today().isoformat()
+    messages = []
+
+    # =====================
+    # Projecten zonder einddatum (samengevat)
+    # =====================
+    df_proj = pd.read_sql("""
+        SELECT COUNT(*) AS c
+        FROM projecten
+        WHERE einde IS NULL OR TRIM(einde) = ''
+    """, c)
+
+    proj_count = int(df_proj.iloc[0]["c"])
+    if proj_count > 0:
+        messages.append(
+            f"📁 Er zijn **{proj_count} projecten** zonder vastgestelde einddatum."
+        )
+
+    # =====================
+    # Aflopende uitzonderingen (binnen 14 dagen)
+    # =====================
+    df_u = pd.read_sql("""
+        SELECT COUNT(*) AS c
+        FROM uitzonderingen
+        WHERE einde IS NOT NULL
+          AND date(einde) >= date(?)
+          AND date(einde) <= date(?, '+14 day')
+    """, c, params=[today, today])
+
+    if int(df_u.iloc[0]["c"]) > 0:
+        messages.append(
+            f"⏳ Er lopen **{df_u.iloc[0]['c']} parkeeruitzonderingen** binnenkort af."
+        )
+
+    # =====================
+    # Aflopende contracten (binnen 2 maanden)
+    # =====================
+    df_c = pd.read_sql("""
+        SELECT COUNT(*) AS c
+        FROM contracten
+        WHERE einde IS NOT NULL
+          AND date(einde) <= date(?, '+2 month')
+    """, c, params=[today])
+
+    if int(df_c.iloc[0]["c"]) > 0:
+        messages.append(
+            f"📄 Er zijn **{df_c.iloc[0]['c']} contracten** die binnen twee maanden aflopen."
+        )
+
+    # =====================
+    # Open kaartfouten
+    # =====================
+    df_k = pd.read_sql("""
+        SELECT COUNT(*) AS c
+        FROM kaartfouten
+        WHERE status = 'Open'
+    """, c)
+
+    if int(df_k.iloc[0]["c"]) > 0:
+        messages.append(
+            f"🗺️ Er staan **{df_k.iloc[0]['c']} open kaartfouten** geregistreerd."
+        )
+
+    c.close()
+
+    # =====================
+    # WEERGAVE
+    # =====================
+    if not messages:
+        st.caption("Geen actuele aandachtspunten.")
+        return
+
+    # Viewers: alleen korte melding
+    if st.session_state.role == "viewer":
+        st.info("Er zijn aandachtspunten beschikbaar. Neem indien nodig contact op met een beheerder.")
+        return
+
+    # Admin / Editor: compacte, beschaafde lijst
+    with st.expander("Toon aandachtspunten", expanded=False):
+        for m in messages:
+            st.markdown(f"- {m}")
+
+def dashboard_shortcuts():
+    from html import escape
+
+    c = conn()
+    df = pd.read_sql("SELECT * FROM dashboard_shortcuts WHERE active=1", c)
     c.close()
 
     if df.empty:
@@ -650,9 +732,8 @@ def dashboard_shortcuts():
         return
 
     st.markdown("### 🚀 Snelkoppelingen")
-
-    cols = st.columns(3)   # ✅ HIER definiëren
-    i = 0                  # ✅ EN HIER
+    cols = st.columns(3)
+    i = 0
 
     for _, s in df.iterrows():
         roles = [r.strip() for r in str(s.get("roles", "")).split(",") if r.strip()]
@@ -662,31 +743,20 @@ def dashboard_shortcuts():
         url = escape(str(s.get("url", "")), quote=True)
         title = escape(str(s.get("title", "")))
         subtitle = escape(str(s.get("subtitle", "")))
-        image_url = str(s.get("image_url", "")).strip()
 
-        card_html = f"""
-        <a href="{url}" target="_blank" style="text-decoration:none;">
-          <div style="
-              border:1px solid #e0e0e0;
-              border-radius:14px;
-              padding:18px;
-              margin-bottom:16px;
-              background:white;
-              box-shadow:0 4px 10px rgba(0,0,0,0.06);
-          ">
-            {f'<div style="font-size:20px;font-weight:600;">{title}</div>' if title else ''}
-            {f'<div style="color:#666;margin-top:4px;">{subtitle}</div>' if subtitle else ''}
-          </div>
-        </a>
-        """
-
+        html = f"""
+<a href="{url}" target="_blank" style="text-decoration:none;">
+  <div style="border:1px solid #e0e0e0;border-radius:14px;
+              padding:18px;margin-bottom:16px;background:white;
+              box-shadow:0 4px 10px rgba(0,0,0,0.06);">
+    <div style="font-size:22px;font-weight:600;">{title}</div>
+    <div style="color:#666;margin-top:6px;">{subtitle}</div>
+  </div>
+</a>
+"""
         with cols[i]:
-            if image_url and os.path.exists(image_url):
-                st.image(image_url, height=40)
-
-            st.markdown(card_html, unsafe_allow_html=True)
-
-        i = (i + 1) % 3   # ✅ BUITEN with-blok
+            st.markdown(html, unsafe_allow_html=True)
+        i = (i + 1) % 3
 
 # ================= GENERIEKE CRUD =================
 def crud_block(table, fields, dropdowns=None):
@@ -1045,45 +1115,28 @@ def users_block():
         use_container_width=True
     )
 
-with st.form("shortcut_form"):
-    title = st.text_input("Titel (emoji toegestaan)")
-    image_url = st.text_input("Logo (optioneel)", placeholder="logos/topdesk.png")
-    subtitle = st.text_input("Subtitel")
-    url = st.text_input("URL")
-    roles = st.multiselect(
-        "Zichtbaar voor rollen",
-        ["admin", "editor", "viewer"],
-        default=["admin", "editor", "viewer"]
-    )
-    active = st.checkbox("Actief", True)
-
-    submitted = st.form_submit_button("💾 Opslaan")
-
-if submitted:
-    c = conn()
-    cur = c.cursor()
-
-    cur.execute(
-        """
-        INSERT INTO dashboard_shortcuts
-        (title, subtitle, url, image_url, roles, active)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (
-            title,
-            subtitle,
-            url,
-            image_url,
-            ",".join(roles),
-            int(active)
+    with st.form("shortcut_form"):
+        title = st.text_input("Titel (emoji toegestaan)")
+        subtitle = st.text_input("Subtitel")
+        url = st.text_input("URL")
+        roles = st.multiselect(
+            "Zichtbaar voor rollen",
+            ["admin","editor","viewer"],
+            default=["admin","editor","viewer"]
         )
-    )
+        active = st.checkbox("Actief", True)
 
-    c.commit()
+        if st.form_submit_button("💾 Opslaan"):
+            c.execute("""
+                INSERT INTO dashboard_shortcuts (title, subtitle, url, roles, active)
+                VALUES (?,?,?,?,?)
+            """, (title, subtitle, url, ",".join(roles), int(active)))
+            c.commit()
+            audit("SHORTCUT_ADD")
+            st.success("Snelkoppeling toegevoegd")
+            st.rerun()
+
     c.close()
-
-    st.success("Snelkoppeling toegevoegd")
-    st.rerun()
 
 # ================= RENDER FUNCTIES PER TAB =================
 def render_dashboard():
@@ -1579,31 +1632,6 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
