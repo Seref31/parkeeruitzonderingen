@@ -375,88 +375,28 @@ init_db()
 
 # ================= LOGIN =================
 if "user" not in st.session_state:
-    # Logo + titel gecentreerd
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        try:
-            st.image(LOGO_PATH, use_container_width=False, width=180)
-        except Exception:
-            pass
-        st.markdown(
-            "<h2 style='text-align:center;margin-top:6px;'>Parkeren Dordrecht</h2>",
-            unsafe_allow_html=True
-        )
-        st.markdown(
-            "<p style='text-align:center;color:#666;'>"
-            "Log in met je <strong>e-mailadres</strong> en wachtwoord."
-            "</p>",
-            unsafe_allow_html=True
-        )
-
-    # Card met inlogvelden
-    st.markdown(
-        """
-        <div style="
-            max-width:520px;margin: 12px auto 0 auto; padding: 24px 22px;
-            border: 1px solid #eaeaea; border-radius: 14px; background: #ffffffaa;
-            box-shadow: 0 6px 22px rgba(0,0,0,0.06);
-        ">
-        """,
-        unsafe_allow_html=True
-    )
-
-    u = st.text_input(
-        "Gebruiker (e-mailadres)",
-        placeholder="@dordrecht.nl"
-    )
+    u = st.text_input("Gebruiker")
     p = st.text_input("Wachtwoord", type="password")
 
-    colA, colB = st.columns([1,1])
-    with colA:
-        login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
-    with colB:
-        st.write("")
+    if st.button("Inloggen"):
+        st.write("LOGIN GEDRUKT")
 
-    st.markdown(
-        """
-        <div style="margin-top:12px;font-size:0.9rem;color:#555;">
-            Wachtwoord vergeten?<br>
-            Stuur dan een e-mail naar
-            <a href="mailto:s.coskun@dordrecht.nl">s.coskun@dordrecht.nl</a>.
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        c = conn()
+        r = c.execute(
+            "SELECT password, role, active, force_change FROM users WHERE username=?",
+            (u,)
+        ).fetchone()
+        c.close()
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
-if login_clicked:
-    st.write("LOGIN BUTTON GEDRUKT")
-    st.write("Gebruiker:", u)
-    st.write("Wachtwoord hash:", hash_pw(p))
-    st.write("Session vóór:", dict(st.session_state))
-
-    c = conn()
-    r = c.execute("""
-        SELECT password, role, active, force_change FROM users WHERE username=?
-    """, (u,)).fetchone()
-    c.close()
-
-    if r and r[0] == hash_pw(p) and r[2] == 1:
-        st.session_state.user = u
-        st.session_state.role = r[1]
-        st.session_state.force_change = r[3]
-        st.session_state["_tab_perms_cache"] = role_default_permissions()[r[1]]
-
-        st.write("Session ná:", dict(st.session_state))
-
-        audit("LOGIN")
-        st.rerun()
-    else:
-        st.error("Onjuiste inloggegevens of account is geblokkeerd.")
+        if r and r[0] == hash_pw(p) and r[2] == 1:
+            st.session_state.user = u
+            st.session_state.role = r[1]
+            st.session_state.force_change = r[3]
+            st.rerun()
+        else:
+            st.error("Inloggen mislukt")
 
     st.stop()
-
 
 # ================= FORCE PASSWORD CHANGE =================
 if st.session_state.force_change == 1:
@@ -1455,6 +1395,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
