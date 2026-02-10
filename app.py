@@ -735,16 +735,30 @@ def dashboard_shortcuts():
         title = escape(str(s.get("title", "")))
         subtitle = escape(str(s.get("subtitle", "")))
 
-        html = f"""
+img_html = ""
+if s.get("image_url"):
+    img_html = f"""
+        <img src="{s['image_url']}"
+             style="height:40px;margin-bottom:10px;object-fit:contain;">
+    """
+
+html = f"""
 <a href="{url}" target="_blank" style="text-decoration:none;">
-  <div style="border:1px solid #e0e0e0;border-radius:14px;
-              padding:18px;margin-bottom:16px;background:white;
-              box-shadow:0 4px 10px rgba(0,0,0,0.06);">
-    <div style="font-size:22px;font-weight:600;">{title}</div>
-    <div style="color:#666;margin-top:6px;">{subtitle}</div>
+  <div style="
+      border:1px solid #e0e0e0;
+      border-radius:14px;
+      padding:18px;
+      margin-bottom:16px;
+      background:white;
+      box-shadow:0 4px 10px rgba(0,0,0,0.06);
+  ">
+    {img_html}
+    <div style="font-size:20px;font-weight:600;">{title}</div>
+    <div style="color:#666;margin-top:4px;">{subtitle}</div>
   </div>
 </a>
 """
+
         with cols[i]:
             st.markdown(html, unsafe_allow_html=True)
         i = (i + 1) % 3
@@ -1108,6 +1122,7 @@ def users_block():
 
     with st.form("shortcut_form"):
         title = st.text_input("Titel (emoji toegestaan)")
+    image_url = st.text_input("Logo (optioneel)", placeholder="logos/topdesk.png")
         subtitle = st.text_input("Subtitel")
         url = st.text_input("URL")
         roles = st.multiselect(
@@ -1119,7 +1134,7 @@ def users_block():
 
         if st.form_submit_button("💾 Opslaan"):
             c.execute("""
-                INSERT INTO dashboard_shortcuts (title, subtitle, url, roles, active)
+                INSERT INTO dashboard_shortcuts (title, subtitle, url, image url, roles, active)
                 VALUES (?,?,?,?,?)
             """, (title, subtitle, url, ",".join(roles), int(active)))
             c.commit()
@@ -1623,6 +1638,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
