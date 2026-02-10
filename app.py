@@ -764,8 +764,8 @@ def dashboard_shortcuts():
               box-shadow:0 4px 10px rgba(0,0,0,0.06);
           ">
             {img_html}
-            <div style="font-size:20px;font-weight:600;">{title}</div>
-            <div style="color:#666;margin-top:4px;">{subtitle}</div>
+            {f'<div style="font-size:20px;font-weight:600;">{title}</div>' if title else ''}
+            {f'<div style="color:#666;margin-top:4px;">{subtitle}</div>' if subtitle else ''}
           </div>
         </a>
         """
@@ -1666,6 +1666,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
