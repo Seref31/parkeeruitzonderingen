@@ -1,13 +1,3 @@
-def delete_shortcut(shortcut_id: int):
-    """Verwijder één snelkoppeling op id en log dit in audit."""
-    c = conn()
-    try:
-        c.execute("DELETE FROM dashboard_shortcuts WHERE id=?", (int(shortcut_id),))
-        c.commit()
-        audit("SHORTCUT_DELETE", "dashboard_shortcuts", int(shortcut_id))
-    finally:
-        c.close()
-        
 import requests
 
 def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
@@ -264,6 +254,7 @@ def init_db():
     c = conn()
     cur = c.cursor()
 
+    # === USERS ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -274,28 +265,20 @@ def init_db():
         )
     """)
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS audit_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            user TEXT,
-            action TEXT,
-            table_name TEXT,
-            record_id INTEGER
-        )
-    """)
-
+    # === DASHBOARD SHORTCUTS (met afbeelding) ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT,
             subtitle TEXT,
             url TEXT,
+            image_url TEXT,
             roles TEXT,
             active INTEGER
         )
     """)
 
+    # === PERMISSIONS ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS permissions (
             username TEXT,
@@ -354,7 +337,7 @@ def init_db():
     for t, ddl in tables.items():
         cur.execute(f"CREATE TABLE IF NOT EXISTS {t} ({ddl})")
 
-    # === KAARTFOUTEN (HANDHAVING) ===
+    # === KAARTFOUTEN ===
     cur.execute("""
         CREATE TABLE IF NOT EXISTS kaartfouten (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -380,8 +363,6 @@ def init_db():
 
     c.commit()
     c.close()
-
-init_db()
 
 # ================= LOGIN =================
 if "user" not in st.session_state:
@@ -754,19 +735,27 @@ def dashboard_shortcuts():
         title = escape(str(s.get("title", "")))
         subtitle = escape(str(s.get("subtitle", "")))
 
-        html = f"""
+html = f"""
 <a href="{url}" target="_blank" style="text-decoration:none;">
-  <div style="border:1px solid #e0e0e0;border-radius:14px;
-              padding:18px;margin-bottom:16px;background:white;
-              box-shadow:0 4px 10px rgba(0,0,0,0.06);">
-    <div style="font-size:22px;font-weight:600;">{title}</div>
-    <div style="color:#666;margin-top:6px;">{subtitle}</div>
+  <div style="
+      border:1px solid #e0e0e0;
+      border-radius:14px;
+      padding:18px;
+      margin-bottom:16px;
+      background:white;
+      box-shadow:0 4px 10px rgba(0,0,0,0.06);
+  ">
+    {img_html}
+    <div style="font-size:20px;font-weight:600;">{title}</div>
+    <div style="color:#666;margin-top:4px;">{subtitle}</div>
   </div>
 </a>
 """
-        with cols[i]:
-            st.markdown(html, unsafe_allow_html=True)
-        i = (i + 1) % 3
+
+with cols[i]:
+    st.markdown(html, unsafe_allow_html=True)
+
+i = (i + 1) % 3
 
 # ================= GENERIEKE CRUD =================
 def crud_block(table, fields, dropdowns=None):
@@ -1118,57 +1107,42 @@ def users_block():
                     st.session_state["_tab_perms_cache"] = None
                 st.rerun()
 
-    # ================== DASHBOARD SNELKOPPELINGEN (BEHEER) ==================
-st.markdown("---")
-st.subheader("🚀 Dashboard snelkoppelingen")
+    st.markdown("---")
+    st.subheader("🚀 Dashboard snelkoppelingen")
+    st.dataframe(
+        pd.read_sql("SELECT * FROM dashboard_shortcuts", c),
+        use_container_width=True
+    )
 
-c = conn()
-df_sc = pd.read_sql("SELECT * FROM dashboard_shortcuts ORDER BY id DESC", c)
-c.close()
-
-if df_sc.empty:
-    st.info("Nog geen snelkoppelingen.")
-else:
-    st.dataframe(df_sc, use_container_width=True)
-
-# --- Verwijderen ---
-st.markdown("### 🗑️ Snelkoppeling verwijderen")
-sel_del_id = st.selectbox(
-    "Kies ID om te verwijderen",
-    options=[None] + df_sc["id"].astype(int).tolist() if not df_sc.empty else [None],
-    key="shortcut_delete_select"
-)
-
-col_del1, col_del2 = st.columns([1,2])
-with col_del1:
-    do_delete = st.button("❌ Verwijderen", type="secondary", disabled=(sel_del_id is None))
-with col_del2:
-    sure = st.checkbox("Ik weet zeker dat ik deze snelkoppeling wil verwijderen.", value=False)
-
-if do_delete:
-    if not sure:
-        st.warning("Vink de bevestiging aan voordat je verwijdert.")
-    else:
-        delete_shortcut(int(sel_del_id))
-        st.success(f"Snelkoppeling #{sel_del_id} verwijderd")
-        st.rerun()
-
-# --- Bestaand formulier voor toevoegen laten staan ---
 with st.form("shortcut_form"):
     title = st.text_input("Titel (emoji toegestaan)")
+    image_url = st.text_input(
+        "Logo (optioneel)",
+        placeholder="logos/topdesk.png"
+    )
     subtitle = st.text_input("Subtitel")
     url = st.text_input("URL")
-    roles = st.multiselect("Zichtbaar voor rollen", ["admin","editor","viewer"], default=["admin","editor","viewer"])
+    roles = st.multiselect(
+        "Zichtbaar voor rollen",
+        ["admin", "editor", "viewer"],
+        default=["admin", "editor", "viewer"]
+    )
     active = st.checkbox("Actief", True)
 
     if st.form_submit_button("💾 Opslaan"):
-        c = conn()
         c.execute("""
-            INSERT INTO dashboard_shortcuts (title, subtitle, url, roles, active)
-            VALUES (?,?,?,?,?)
-        """, (title, subtitle, url, ",".join(roles), int(active)))
+            INSERT INTO dashboard_shortcuts
+            (title, subtitle, url, image_url, roles, active)
+            VALUES (?,?,?,?,?,?)
+        """, (
+            title,
+            subtitle,
+            url,
+            image_url,
+            ",".join(roles),
+            int(active)
+        ))
         c.commit()
-        c.close()
         audit("SHORTCUT_ADD")
         st.success("Snelkoppeling toegevoegd")
         st.rerun()
@@ -1667,6 +1641,11 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
+
+
+
+
 
 
 
