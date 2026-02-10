@@ -752,9 +752,10 @@ html = f"""
 </a>
 """
 
-        with cols[i]:   # ❌ deze is te ver ingesprongen
-            st.markdown(html, unsafe_allow_html=True)
-        i = (i + 1) % 3
+with cols[i]:
+    st.markdown(html, unsafe_allow_html=True)
+
+i = (i + 1) % 3
 
 # ================= GENERIEKE CRUD =================
 def crud_block(table, fields, dropdowns=None):
@@ -1631,6 +1632,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
