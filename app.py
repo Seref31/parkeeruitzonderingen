@@ -540,6 +540,53 @@ def export_excel(df, name):
     buf = BytesIO()
     df.to_excel(buf, index=False)
     st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
+def import_projecten_excel(file):
+    df = pd.read_excel(file)
+
+    verplichte_kolommen = [
+        "naam",
+        "projectleider",
+        "start",
+        "einde",
+        "prio",
+        "status",
+        "opmerking"
+    ]
+
+    # check kolommen
+    for kolom in verplichte_kolommen:
+        if kolom not in df.columns:
+            st.error(f"Kolom ontbreekt in Excel: {kolom}")
+            return
+
+    c = conn()
+    teller = 0
+
+    for _, r in df.iterrows():
+        if not str(r["naam"]).strip():
+            continue  # naam is verplicht
+
+        c.execute("""
+            INSERT INTO projecten
+            (naam, projectleider, start, einde, prio, status, opmerking)
+            VALUES (?,?,?,?,?,?,?)
+        """, (
+            str(r["naam"]).strip(),
+            str(r["projectleider"]).strip() if pd.notna(r["projectleider"]) else None,
+            parse_iso_date(r["start"]),
+            parse_iso_date(r["einde"]),
+            str(r["prio"]).strip() if pd.notna(r["prio"]) else None,
+            str(r["status"]).strip() if pd.notna(r["status"]) else None,
+            str(r["opmerking"]).strip() if pd.notna(r["opmerking"]) else None
+        ))
+
+        teller += 1
+
+    c.commit()
+    c.close()
+
+    audit("IMPORT_EXCEL", "projecten")
+    st.success(f"✅ {teller} projecten geïmporteerd")
 
 def export_pdf(df, title):
     buf = BytesIO()
@@ -1020,6 +1067,22 @@ def render_contracten():
     )
 
 def render_projecten():
+    st.markdown("### 📥 Projecten importeren (Excel)")
+
+    if has_role("admin", "editor"):
+        file = st.file_uploader(
+            "Upload Excelbestand",
+            type=["xlsx"]
+        )
+
+        if file and st.button("📤 Importeren"):
+            import_projecten_excel(file)
+            st.rerun()
+    else:
+        st.caption("Alleen editor/admin kan importeren.")
+
+    st.markdown("---")
+
     crud_block(
         "projecten",
         ["naam","projectleider","start","einde","prio","status","opmerking"],
@@ -1456,6 +1519,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
