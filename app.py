@@ -751,7 +751,6 @@ if s.get("image_url"):
     <img src="{s.get('image_url')}"
          style="height:40px;margin-bottom:10px;object-fit:contain;">
     """
-
         html = f"""
         <a href="{url}" target="_blank" style="text-decoration:none;">
           <div style="
@@ -1665,6 +1664,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
