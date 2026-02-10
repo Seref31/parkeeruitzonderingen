@@ -375,80 +375,28 @@ init_db()
 
 # ================= LOGIN =================
 if "user" not in st.session_state:
-    # Logo + titel gecentreerd
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        try:
-            st.image(LOGO_PATH, use_container_width=False, width=180)
-        except Exception:
-            pass
-        st.markdown(
-            "<h2 style='text-align:center;margin-top:6px;'>Parkeren Dordrecht</h2>",
-            unsafe_allow_html=True
-        )
-        st.markdown(
-            "<p style='text-align:center;color:#666;'>"
-            "Log in met je <strong>e-mailadres</strong> en wachtwoord."
-            "</p>",
-            unsafe_allow_html=True
-        )
-
-    # Card met inlogvelden
-    st.markdown(
-        """
-        <div style="
-            max-width:520px;margin: 12px auto 0 auto; padding: 24px 22px;
-            border: 1px solid #eaeaea; border-radius: 14px; background: #ffffffaa;
-            box-shadow: 0 6px 22px rgba(0,0,0,0.06);
-        ">
-        """,
-        unsafe_allow_html=True
-    )
-
-    u = st.text_input(
-        "Gebruiker (e-mailadres)",
-        placeholder="@dordrecht.nl"
-    )
+    u = st.text_input("Gebruiker")
     p = st.text_input("Wachtwoord", type="password")
 
-    colA, colB = st.columns([1,1])
-    with colA:
-        login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
-    with colB:
-        st.write("")
+    if st.button("Inloggen"):
+        st.write("LOGIN GEDRUKT")
 
-    st.markdown(
-        """
-        <div style="margin-top:12px;font-size:0.9rem;color:#555;">
-            Wachtwoord vergeten?<br>
-            Stuur dan een e-mail naar
-            <a href="mailto:s.coskun@dordrecht.nl">s.coskun@dordrecht.nl</a>.
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    if login_clicked:
         c = conn()
-        r = c.execute("""
-            SELECT password, role, active, force_change FROM users WHERE username=?
-        """, (u,)).fetchone()
+        r = c.execute(
+            "SELECT password, role, active, force_change FROM users WHERE username=?",
+            (u,)
+        ).fetchone()
         c.close()
 
         if r and r[0] == hash_pw(p) and r[2] == 1:
             st.session_state.user = u
             st.session_state.role = r[1]
             st.session_state.force_change = r[3]
-            st.session_state["_tab_perms_cache"] = None
-            audit("LOGIN")
             st.rerun()
         else:
-            st.error("Onjuiste inloggegevens of account is geblokkeerd.")
+            st.error("Inloggen mislukt")
 
     st.stop()
-
 
 # ================= FORCE PASSWORD CHANGE =================
 if st.session_state.force_change == 1:
@@ -1047,6 +995,7 @@ def render_werkzaamheden():
         st.info("Geen GPS-locaties ingevoerd")
         return
 
+    # ✅ ALLES HIERONDER MOET IN DE FUNCTIE BLIJVEN
     try:
         import folium
         from folium.plugins import MarkerCluster
@@ -1054,60 +1003,30 @@ def render_werkzaamheden():
 
         lat_mean = pd.to_numeric(df_map["latitude"], errors="coerce").mean()
         lon_mean = pd.to_numeric(df_map["longitude"], errors="coerce").mean()
-        center = [
-            lat_mean if pd.notna(lat_mean) else 51.81,
-            lon_mean if pd.notna(lon_mean) else 4.66
-        ]
 
-        m = folium.Map(location=center, zoom_start=12, control_scale=True)
+        m = folium.Map(
+            location=[
+                lat_mean if pd.notna(lat_mean) else 51.81,
+                lon_mean if pd.notna(lon_mean) else 4.66
+            ],
+            zoom_start=12
+        )
+
         cluster = MarkerCluster().add_to(m)
 
-        color_map = {
-            "Gepland": "blue",
-            "In uitvoering": "orange",
-            "Afgerond": "green"
-        }
-
         for _, r in df_map.iterrows():
-            lat = pd.to_numeric(r["latitude"], errors="coerce")
-            lon = pd.to_numeric(r["longitude"], errors="coerce")
-            if pd.isna(lat) or pd.isna(lon):
-                continue
-
-            popup_html = f"""
-<b>{r.get('omschrijving','')}</b><br>
-Status: {r.get('status','')}<br>
-Locatie: {r.get('locatie','')}<br>
-Periode: {r.get('start','?')} – {r.get('einde','?')}<br>
-ID: {r.get('id','')}
-"""
             folium.Marker(
-                location=[float(lat), float(lon)],
-                icon=folium.Icon(
-                    color=color_map.get(str(r["status"]), "gray"),
-                    icon="wrench",
-                    prefix="fa"
-                ),
-                popup=folium.Popup(popup_html, max_width=300)
+                location=[float(r["latitude"]), float(r["longitude"])],
+                popup=f"{r['omschrijving']}"
             ).add_to(cluster)
 
         st_html(m._repr_html_(), height=520)
 
     except Exception as e:
-        st.warning(f"Folium-kaart niet beschikbaar: {e}")
-
-        df_coords = df_map.rename(
-            columns={"latitude": "lat", "longitude": "lon"}
-        )[["lat", "lon"]]
-
-        df_coords["lat"] = pd.to_numeric(df_coords["lat"], errors="coerce")
-        df_coords["lon"] = pd.to_numeric(df_coords["lon"], errors="coerce")
-        df_coords = df_coords.dropna(subset=["lat", "lon"])
-
-        if df_coords.empty:
-            st.info("Geen geldige GPS-coördinaten voor kaartweergave.")
-        else:
-            st.map(df_coords)
+        st.warning(f"Kaartweergave vereist folium. Fout: {e}")
+        st.map(
+            df_map.rename(columns={"latitude":"lat","longitude":"lon"})[["lat","lon"]]
+        )
 
 def render_agenda():
     agenda_block()
@@ -1476,6 +1395,11 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
+
+
+
+
 
 
 
