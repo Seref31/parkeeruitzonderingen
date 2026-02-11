@@ -664,14 +664,20 @@ try:
             except Exception:
                 badge = ""
 
-            st.sidebar.markdown(
-titel   = str(r.get("titel", "") or "")
-locatie = str(r.get("locatie", "") or "")
-tijd_blok = f" om {tijd_txt}" if tijd_txt else ""
-loc_blok  = f" · {locatie}" if locatie else ""
-badge_blok = f" · ⏳ {badge}" if badge else ""
+# Waarden voorbereiden
+titel       = str(r.get("titel", "") or "")
+locatie     = str(r.get("locatie", "") or "")
+tijd_blok   = f" om {tijd_txt}" if tijd_txt else ""
+loc_blok    = f" · {locatie}" if locatie else ""
+badge_blok  = f" · ⏳ {badge}" if badge else ""
 
-regel = f"- **{titel}**  \n  🗓️ {dag_txt}{tijd_blok}{loc_blok}{badge_blok}"
+# Complete regel opbouwen
+regel = (
+    f"- **{titel}**  \n"
+    f"  🗓️ {dag_txt}{tijd_blok}{loc_blok}{badge_blok}"
+)
+
+# Naar de sidebar schrijven
 st.sidebar.markdown(regel)
 
 except Exception as e:
@@ -2059,4 +2065,5 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
