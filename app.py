@@ -90,6 +90,7 @@ def all_tabs_config():
         ("🗂️ Verslagen", "verslagen"),        # 👈 nieuw
         ("👮 Handhaving", "handhaving"),
         ("👥 Gebruikersbeheer", "gebruikers"),
+        ("🛡️ Verslagen beheer", "verslagen_beheer"),
         ("🧾 Audit log", "audit"),
     ]
 
@@ -103,6 +104,9 @@ def role_default_permissions():
         viewer[k] = True
     viewer["gebruikers"] = False
     viewer["audit"] = False
+    admin["verslagen_beheer"] = True
+    editor["verslagen_beheer"] = False
+    viewer["verslagen_beheer"] = False
     return {"admin": admin, "editor": editor, "viewer": viewer}
 
 # ================= HULP =================
@@ -1696,6 +1700,103 @@ def render_handhaving():
 def render_gebruikers():
     users_block()
 
+def render_verslagen_beheer():
+    if not has_role("admin"):
+        st.error("Alleen admins kunnen dit overzicht bekijken.")
+        return
+
+    st.title("🛡️ Verslagen – Administratief overzicht")
+
+    c = conn()
+
+    # -------------------------
+    # A: PER MAP – wie heeft toegang?
+    # -------------------------
+    st.header("📁 Per map: wie heeft toegang?")
+
+    df_folders = pd.read_sql(
+        "SELECT id, name, is_public FROM verslagen_folders WHERE active=1 ORDER BY name",
+        c
+    )
+
+    df_permissions = pd.read_sql(
+        """
+        SELECT folder_id, username
+        FROM verslagen_folder_permissions
+        WHERE allowed=1
+        """,
+        c
+    )
+
+    for _, folder in df_folders.iterrows():
+        fid = int(folder["id"])
+        naam = folder["name"]
+        openbaar = "✔️ Openbaar" if folder["is_public"] == 1 else "❌ Niet openbaar"
+
+        st.subheader(f"📂 {naam}")
+        st.caption(openbaar)
+
+        # gebruikers met expliciete rechten
+        users = df_permissions[df_permissions.folder_id == fid]["username"].tolist()
+
+        if folder["is_public"] == 1:
+            st.info("Iedere ingelogde gebruiker met toegang tot Verslagen kan deze map zien.")
+        elif users:
+            st.write("Toegang voor:")
+            st.write(", ".join(users))
+        else:
+            st.warning("⚠️ Geen gebruikers hebben toegang (alleen admins).")
+
+        st.markdown("---")
+
+    # -------------------------
+    # B: PER GEBRUIKER – welke mappen kan hij/zij zien?
+    # -------------------------
+    st.header("👥 Per gebruiker: welke mappen kunnen ze zien?")
+
+    df_users = pd.read_sql(
+        "SELECT username, role FROM users WHERE active=1 ORDER BY username",
+        c
+    )
+
+    for _, user in df_users.iterrows():
+        uname = user["username"]
+        is_admin_user = (user["role"] == "admin")
+
+        st.subheader(f"👤 {uname} ({user['role']})")
+
+        can_see = []
+
+        for _, folder in df_folders.iterrows():
+            fid = int(folder["id"])
+
+            # admin → altijd toegang
+            if is_admin_user:
+                can_see.append(folder["name"])
+                continue
+
+            # openbaar?
+            if folder["is_public"] == 1:
+                can_see.append(folder["name"])
+                continue
+
+            # expliciete permissie?
+            row = df_permissions[
+                (df_permissions.folder_id == fid) &
+                (df_permissions.username == uname)
+            ]
+            if not row.empty:
+                can_see.append(folder["name"])
+
+        if can_see:
+            st.success("Toegang tot:")
+            st.write(", ".join(can_see))
+        else:
+            st.warning("Geen toegang tot verslagenmappen.")
+
+        st.markdown("---")
+
+    c.close()
 
 def render_audit():
     c = conn()
@@ -2069,6 +2170,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
