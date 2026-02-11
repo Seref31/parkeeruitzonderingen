@@ -634,18 +634,6 @@ try:
         ORDER BY date(datum) ASC, time(COALESCE(starttijd, '00:00')) ASC
         LIMIT 8
         """,
-        c)
-    c.close()
-try:
-    c = conn()
-    df_agenda_sidebar = pd.read_sql(
-        """
-        SELECT id, titel, datum, starttijd, locatie
-        FROM agenda
-        WHERE date(datum) >= date('now')
-        ORDER BY date(datum) ASC, time(COALESCE(starttijd, '00:00')) ASC
-        LIMIT 8
-        """,
         c
     )
     c.close()
@@ -697,7 +685,7 @@ try:
             st.sidebar.markdown(regel)
 
 except Exception as e:
-st.sidebar.warning(f"Agenda kon niet geladen worden: {e}")
+    st.sidebar.warning(f"Agenda kon niet geladen worden: {e}")
 
 # ================= EXPORT =================
 def export_excel(df, name):
@@ -2081,6 +2069,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
