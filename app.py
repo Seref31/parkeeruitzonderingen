@@ -697,7 +697,7 @@ try:
             st.sidebar.markdown(regel)
 
 except Exception as e:
-    st.sidebar.warning(f"Agenda kon niet geladen worden: {e}")}")
+st.sidebar.warning(f"Agenda kon niet geladen worden: {e}")
 
 # ================= EXPORT =================
 def export_excel(df, name):
@@ -2081,6 +2081,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
