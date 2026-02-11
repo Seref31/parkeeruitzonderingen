@@ -665,12 +665,15 @@ try:
                 badge = ""
 
             st.sidebar.markdown(
-                f"- **{r['titel']}**  
-"
-                f"  🗓️ {dag_txt}{(' om ' + tijd_txt) if tijd_txt else ''}"
-                f"{' · ' + (r['locatie'] or '') if r['locatie'] else ''}"
-                f"{' · ⏳ ' + badge if badge else ''}"
-            )
+titel   = str(r.get("titel", "") or "")
+locatie = str(r.get("locatie", "") or "")
+tijd_blok = f" om {tijd_txt}" if tijd_txt else ""
+loc_blok  = f" · {locatie}" if locatie else ""
+badge_blok = f" · ⏳ {badge}" if badge else ""
+
+regel = f"- **{titel}**  \n  🗓️ {dag_txt}{tijd_blok}{loc_blok}{badge_blok}"
+st.sidebar.markdown(regel)
+
 except Exception as e:
     st.sidebar.warning(f"Agenda kon niet geladen worden: {e}")
 
@@ -2056,3 +2059,4 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
