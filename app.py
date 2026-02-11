@@ -636,6 +636,19 @@ try:
         """,
         c)
     c.close()
+try:
+    c = conn()
+    df_agenda_sidebar = pd.read_sql(
+        """
+        SELECT id, titel, datum, starttijd, locatie
+        FROM agenda
+        WHERE date(datum) >= date('now')
+        ORDER BY date(datum) ASC, time(COALESCE(starttijd, '00:00')) ASC
+        LIMIT 8
+        """,
+        c
+    )
+    c.close()
 
     if df_agenda_sidebar.empty:
         st.sidebar.info("Geen komende activiteiten")
@@ -643,18 +656,23 @@ try:
         for _, r in df_agenda_sidebar.iterrows():
             dag_txt = ""
             tijd_txt = ""
+
+            # Datum verwerken
             try:
                 dag_dt = pd.to_datetime(r["datum"]).date()
                 dag_txt = dag_dt.strftime("%d %b %Y")
             except Exception:
-                dag_txt = str(r["datum"] or "")
+                dag_dt = None
+                dag_txt = str(r.get("datum", "") or "")
 
+            # Starttijd verwerken
             try:
                 if pd.notna(r["starttijd"]) and str(r["starttijd"]).strip():
-                    tijd_txt = pd.to_datetime(r["starttijd"]).strftime("%H:%M")
+                    tijd_txt = pd.to_datetime(str(r["starttijd"])).strftime("%H:%M")
             except Exception:
-                tijd_txt = str(r["starttijd"] or "")
+                tijd_txt = str(r.get("starttijd", "") or "")
 
+            # Dagen-badge (bijv. 3d)
             try:
                 if isinstance(dag_dt, date):
                     delta = (dag_dt - date.today()).days
@@ -664,24 +682,22 @@ try:
             except Exception:
                 badge = ""
 
-# Waarden voorbereiden
-titel       = str(r.get("titel", "") or "")
-locatie     = str(r.get("locatie", "") or "")
-tijd_blok   = f" om {tijd_txt}" if tijd_txt else ""
-loc_blok    = f" · {locatie}" if locatie else ""
-badge_blok  = f" · ⏳ {badge}" if badge else ""
+            # Waarden voorbereiden
+            titel      = str(r.get("titel", "") or "")
+            locatie    = str(r.get("locatie", "") or "")
+            tijd_blok  = f" om {tijd_txt}" if tijd_txt else ""
+            loc_blok   = f" · {locatie}" if locatie else ""
+            badge_blok = f" · ⏳ {badge}" if badge else ""
 
-# Complete regel opbouwen
-regel = (
-    f"- **{titel}**  \n"
-    f"  🗓️ {dag_txt}{tijd_blok}{loc_blok}{badge_blok}"
-)
-
-# Naar de sidebar schrijven
-st.sidebar.markdown(regel)
+            # Complete regel opbouwen en tonen
+            regel = (
+                f"- **{titel}**  \n"
+                f"  🗓️ {dag_txt}{tijd_blok}{loc_blok}{badge_blok}"
+            )
+            st.sidebar.markdown(regel)
 
 except Exception as e:
-    st.sidebar.warning(f"Agenda kon niet geladen worden: {e}")
+    st.sidebar.warning(f"Agenda kon niet geladen worden: {e}")}")
 
 # ================= EXPORT =================
 def export_excel(df, name):
@@ -2065,5 +2081,6 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
