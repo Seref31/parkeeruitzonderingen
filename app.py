@@ -40,7 +40,8 @@ UPLOAD_DIR_VERSLAGEN = "uploads/verslagen"
 os.makedirs(UPLOAD_DIR_VERSLAGEN, exist_ok=True)
 
 import streamlit as st
-import sqlite3
+import psycopg2
+import os
 import pandas as pd
 from datetime import datetime, date, time
 from io import BytesIO
@@ -111,7 +112,7 @@ def role_default_permissions():
 
 # ================= HULP =================
 def conn():
-    return sqlite3.connect(DB, check_same_thread=False)
+    return psycopg2.connect(os.environ["DATABASE_URL"])
 
 def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
@@ -2170,6 +2171,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
