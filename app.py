@@ -602,41 +602,38 @@ def import_projecten_excel(file):
     c = conn()
     teller = 0
 
-    for _, r in df.iterrows():
-        if not str(r["naam"]).strip():
-            continue  # naam is verplicht
+for _, r in df.iterrows():
+    if not str(r["naam"]).strip():
+        continue  # naam is verplicht
 
-   connection = conn()
-cur = connection.cursor()
+    connection = conn()
+    cur = connection.cursor()
 
-cur.execute(
-    """
-    INSERT INTO projecten
-    (naam, projectleider, start, einde, prio, status, opmerking)
-    VALUES (%s,%s,%s,%s,%s,%s,%s)
-    RETURNING id
-    """,
-    (
-        str(r["naam"]).strip(),
-        str(r["projectleider"]).strip() if pd.notna(r["projectleider"]) else None,
-        parse_iso_date(r["start"]),
-        parse_iso_date(r["einde"]),
-        str(r["prio"]).strip() if pd.notna(r["prio"]) else None,
-        str(r["status"]).strip() if pd.notna(r["status"]) else None,
-        str(r["opmerking"]).strip() if pd.notna(r["opmerking"]) else None
+    cur.execute(
+        """
+        INSERT INTO projecten
+        (naam, projectleider, start, einde, prio, status, opmerking)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+        RETURNING id
+        """,
+        (
+            str(r["naam"]).strip(),
+            str(r["projectleider"]).strip() if pd.notna(r["projectleider"]) else None,
+            parse_iso_date(r["start"]),
+            parse_iso_date(r["einde"]),
+            str(r["prio"]).strip() if pd.notna(r["prio"]) else None,
+            str(r["status"]).strip() if pd.notna(r["status"]) else None,
+            str(r["opmerking"]).strip() if pd.notna(r["opmerking"]) else None
+        )
     )
-)
 
-rid = cur.fetchone()[0]
+    rid = cur.fetchone()[0]
 
-connection.commit()
-cur.close()
-connection.close()
+    connection.commit()
+    cur.close()
+    connection.close()
 
-        teller += 1
-
-    c.commit()
-    c.close()
+    teller += 1
 
     audit("IMPORT_EXCEL", "projecten")
     st.success(f"✅ {teller} projecten geïmporteerd")
@@ -2059,6 +2056,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
