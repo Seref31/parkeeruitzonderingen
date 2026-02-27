@@ -124,7 +124,7 @@ def audit(action, table=None, record_id=None):
     c = conn()
     c.execute("""
         INSERT INTO audit_log (timestamp, user, action, table_name, record_id)
-        VALUES (?,?,?,?,?)
+        VALUES (%s,%s,%s,%s,%s)
     """, (
         datetime.now().isoformat(timespec="seconds"),
         st.session_state.user,
@@ -194,9 +194,9 @@ def detect_overlapping_uitzondering(kenteken_raw: str, start_val: str, einde_val
     q = """
         SELECT id, naam, kenteken, locatie, type, start, einde
         FROM uitzonderingen
-        WHERE REPLACE(UPPER(kenteken), '-', '') = ?
-          AND date(COALESCE(start, '0001-01-01')) <= date(?)
-          AND date(COALESCE(einde, '9999-12-31')) >= date(?)
+        WHERE REPLACE(UPPER(kenteken), '-', '') = %s
+          AND date(COALESCE(start, '0001-01-01')) <= date(%s)
+          AND date(COALESCE(einde, '9999-12-31')) >= date(%s)
     """
     params = [k_clean, einde_iso, start_iso]
 
@@ -221,7 +221,7 @@ def is_folder_allowed(folder_id: int) -> bool:
         return True
     c = conn()
     try:
-        r = c.execute("SELECT is_public FROM verslagen_folders WHERE id=? AND active=1", (folder_id,)).fetchone()
+        r = c.execute("SELECT is_public FROM verslagen_folders WHERE id=%s AND active=1", (folder_id,)).fetchone()
         if not r:
             return False
         if int(r[0]) == 1:
@@ -229,7 +229,7 @@ def is_folder_allowed(folder_id: int) -> bool:
         p = c.execute(
             """
             SELECT allowed FROM verslagen_folder_permissions
-            WHERE folder_id=? AND username=?
+            WHERE folder_id=%s AND username=%s
             """,
             (folder_id, st.session_state.user)
         ).fetchone()
@@ -439,7 +439,7 @@ if "user" not in st.session_state:
     st.markdown(
         """
         <div style="margin-top:12px;font-size:0.9rem;color:#555;">
-            Wachtwoord vergeten?<br>
+            Wachtwoord vergeten%s<br>
             Stuur dan een e-mail naar
             <a href="mailto:s.coskun@dordrecht.nl">s.coskun@dordrecht.nl</a>.
         </div>
@@ -453,7 +453,7 @@ if "user" not in st.session_state:
         c = conn()
         r = c.execute(
             """
-            SELECT password, role, active, force_change FROM users WHERE username=?
+            SELECT password, role, active, force_change FROM users WHERE username=%s
             """, (u,)
         ).fetchone()
         c.close()
@@ -484,7 +484,7 @@ if st.session_state.force_change == 1:
             c = conn()
             c.execute(
                 """
-                UPDATE users SET password=?, force_change=0 WHERE username=?
+                UPDATE users SET password=%s, force_change=0 WHERE username=%s
                 """, (hash_pw(pw1), st.session_state.user)
             )
             c.commit()
@@ -606,21 +606,32 @@ def import_projecten_excel(file):
         if not str(r["naam"]).strip():
             continue  # naam is verplicht
 
-        c.execute(
-            """
-            INSERT INTO projecten
-            (naam, projectleider, start, einde, prio, status, opmerking)
-            VALUES (?,?,?,?,?,?,?)
-            """,
-            (
-                str(r["naam"]).strip(),
-                str(r["projectleider"]).strip() if pd.notna(r["projectleider"]) else None,
-                parse_iso_date(r["start"]),
-                parse_iso_date(r["einde"]),
-                str(r["prio"]).strip() if pd.notna(r["prio"]) else None,
-                str(r["status"]).strip() if pd.notna(r["status"]) else None,
-                str(r["opmerking"]).strip() if pd.notna(r["opmerking"]) else None
-            ))
+   connection = conn()
+cur = connection.cursor()
+
+cur.execute(
+    """
+    INSERT INTO projecten
+    (naam, projectleider, start, einde, prio, status, opmerking)
+    VALUES (%s,%s,%s,%s,%s,%s,%s)
+    RETURNING id
+    """,
+    (
+        str(r["naam"]).strip(),
+        str(r["projectleider"]).strip() if pd.notna(r["projectleider"]) else None,
+        parse_iso_date(r["start"]),
+        parse_iso_date(r["einde"]),
+        str(r["prio"]).strip() if pd.notna(r["prio"]) else None,
+        str(r["status"]).strip() if pd.notna(r["status"]) else None,
+        str(r["opmerking"]).strip() if pd.notna(r["opmerking"]) else None
+    )
+)
+
+rid = cur.fetchone()[0]
+
+connection.commit()
+cur.close()
+connection.close()
 
         teller += 1
 
@@ -679,8 +690,8 @@ def dashboard_alerts():
         SELECT COUNT(*) AS c
         FROM uitzonderingen
         WHERE einde IS NOT NULL
-          AND date(einde) >= date(?)
-          AND date(einde) <= date(?, '+14 day')
+          AND date(einde) >= date(%s)
+          AND date(einde) <= date(%s, '+14 day')
         """,
         c, params=[today, today])
 
@@ -695,7 +706,7 @@ def dashboard_alerts():
         SELECT COUNT(*) AS c
         FROM contracten
         WHERE einde IS NOT NULL
-          AND date(einde) <= date(?, '+2 month')
+          AND date(einde) <= date(%s, '+2 month')
         """,
         c, params=[today])
 
@@ -845,10 +856,9 @@ def crud_block(table, fields, dropdowns=None):
         if submit_new:
             if validate_and_check_duplicates(is_update=False):
                 c.execute(
-                    f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
+                    f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('%s'*len(fields))})",
                     tuple(values.values())
                 )
-                rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
                 c.commit()
                 audit("INSERT", table, rid)
                 st.success("Record toegevoegd")
@@ -857,7 +867,7 @@ def crud_block(table, fields, dropdowns=None):
         if record is not None and submit_edit:
             if validate_and_check_duplicates(is_update=True, current_id=sel):
                 c.execute(
-                    f"UPDATE {table} SET {','.join(f+'=?' for f in fields)} WHERE id=?",
+                    f"UPDATE {table} SET {','.join(f+'=%s' for f in fields)} WHERE id=%s",
                     (*values.values(), sel)
                 )
                 c.commit()
@@ -866,7 +876,7 @@ def crud_block(table, fields, dropdowns=None):
                 st.rerun()
 
         if has_role("admin") and record is not None and submit_del:
-            c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
+            c.execute(f"DELETE FROM {table} WHERE id=%s", (sel,))
             c.commit()
             audit("DELETE", table, sel)
             st.success("Record verwijderd")
@@ -934,7 +944,7 @@ def agenda_block():
             c.execute(
                 """
                 INSERT INTO agenda (titel, datum, starttijd, eindtijd, locatie, beschrijving, aangemaakt_door, aangemaakt_op)
-                VALUES (?,?,?,?,?,?,?,?)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     titel,
@@ -946,7 +956,6 @@ def agenda_block():
                     st.session_state.user,
                     datetime.now().isoformat(timespec="seconds")
                 ))
-            rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
             c.commit()
             c.close()
             audit("INSERT", "agenda", rid)
@@ -958,8 +967,8 @@ def agenda_block():
             c.execute(
                 """
                 UPDATE agenda
-                SET titel=?, datum=?, starttijd=?, eindtijd=?, locatie=?, beschrijving=?
-                WHERE id=?
+                SET titel=%s, datum=%s, starttijd=%s, eindtijd=%s, locatie=%s, beschrijving=%s
+                WHERE id=%s
                 """,
                 (
                     titel,
@@ -978,7 +987,7 @@ def agenda_block():
 
         if has_role("admin") and record is not None and submit_del:
             c = conn()
-            c.execute("DELETE FROM agenda WHERE id=?", (int(sel),))
+            c.execute("DELETE FROM agenda WHERE id=%s", (int(sel),))
             c.commit()
             c.close()
             audit("DELETE", "agenda", int(sel))
@@ -1012,7 +1021,7 @@ def users_block():
                     c.execute(
                         """
                         INSERT INTO users (username, password, role, active, force_change)
-                        VALUES (?,?,?,?,?)
+                        VALUES (%s,%s,%s,%s,%s)
                         """,
                         (new_username, hash_pw(new_password), new_role, int(new_active), int(force_change)))
                     c.commit()
@@ -1028,7 +1037,7 @@ def users_block():
     sel_user = st.selectbox("Selecteer gebruiker", [None] + df_usernames, key="user_edit_select")
 
     if sel_user:
-        cur = c.execute("SELECT username, role, active, force_change FROM users WHERE username=?", (sel_user,))
+        cur = c.execute("SELECT username, role, active, force_change FROM users WHERE username=%s", (sel_user,))
         row = cur.fetchone()
         if row:
             _, role_cur, active_cur, force_cur = row
@@ -1036,7 +1045,7 @@ def users_block():
                 role_new = st.selectbox("Rol", ["admin", "editor", "viewer"], index=["admin","editor","viewer"].index(role_cur))
                 active_new = st.checkbox("Actief", bool(active_cur))
                 force_new = st.checkbox("Forceer wachtwoordwijziging", bool(force_cur))
-                pw_reset = st.checkbox("Wachtwoord resetten?")
+                pw_reset = st.checkbox("Wachtwoord resetten%s")
                 pw_new = st.text_input("Nieuw wachtwoord", type="password", disabled=not pw_reset)
 
                 col1, col2 = st.columns(2)
@@ -1050,16 +1059,16 @@ def users_block():
                         if pw_reset:
                             c.execute(
                                 """
-                                UPDATE users SET role=?, active=?, force_change=?, password=?
-                                WHERE username=?
+                                UPDATE users SET role=%s, active=%s, force_change=%s, password=%s
+                                WHERE username=%s
                                 """,
                                 (role_new, int(active_new), int(force_new), hash_pw(pw_new), sel_user))
                             audit("USER_UPDATE_RESET_PW", "users", sel_user)
                         else:
                             c.execute(
                                 """
-                                UPDATE users SET role=?, active=?, force_change=?
-                                WHERE username=?
+                                UPDATE users SET role=%s, active=%s, force_change=%s
+                                WHERE username=%s
                                 """,
                                 (role_new, int(active_new), int(force_new), sel_user))
                             audit("USER_UPDATE", "users", sel_user)
@@ -1069,8 +1078,8 @@ def users_block():
                         st.rerun()
 
                 if do_delete:
-                    c.execute("DELETE FROM permissions WHERE username=?", (sel_user,))
-                    c.execute("DELETE FROM users WHERE username=?", (sel_user,))
+                    c.execute("DELETE FROM permissions WHERE username=%s", (sel_user,))
+                    c.execute("DELETE FROM users WHERE username=%s", (sel_user,))
                     c.commit()
                     audit("USER_DELETE", "users", sel_user)
                     st.success("Gebruiker verwijderd")
@@ -1082,7 +1091,7 @@ def users_block():
     sel_perm_user = st.selectbox("Kies gebruiker voor tabrechten", [None] + df_usernames, key="perm_user_select")
 
     if sel_perm_user:
-        df_perm = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=?", c, params=[sel_perm_user])
+        df_perm = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=%s", c, params=[sel_perm_user])
         has_custom = not df_perm.empty
 
         use_role_defaults = st.checkbox("Gebruik rol-standaardrechten (geen maatwerk)", value=not has_custom)
@@ -1094,7 +1103,7 @@ def users_block():
         if use_role_defaults:
             st.info("Rol-standaardrechten zijn actief. Eventuele maatwerkrechten worden verwijderd bij opslaan.")
             if st.button("💾 Opslaan (rol-standaard gebruiken)", key="perm_save_role_defaults"):
-                c.execute("DELETE FROM permissions WHERE username=?", (sel_perm_user,))
+                c.execute("DELETE FROM permissions WHERE username=%s", (sel_perm_user,))
                 c.commit()
                 audit("PERMISSIONS_CLEAR", "permissions", sel_perm_user)
                 st.success("Maatwerk tabrechten verwijderd; rol-standaard is nu actief.")
@@ -1104,7 +1113,7 @@ def users_block():
         else:
             current_allowed = set(df_perm[df_perm["allowed"] == 1]["tab_key"].tolist()) if has_custom else set()
             default_for_role = role_default_permissions().get(
-                c.execute("SELECT role FROM users WHERE username=?", (sel_perm_user,)).fetchone()[0],
+                c.execute("SELECT role FROM users WHERE username=%s", (sel_perm_user,)).fetchone()[0],
                 {}
             )
             help_txt = "Selecteer de tabbladen waar deze gebruiker bij mag. Niet-geselecteerd = geen toegang."
@@ -1117,10 +1126,10 @@ def users_block():
             selected_keys = {k for (lbl, k) in labels_keys if lbl in selected_labels}
 
             if st.button("💾 Opslaan tabrechten", key="perm_save_custom"):
-                c.execute("DELETE FROM permissions WHERE username=?", (sel_perm_user,))
+                c.execute("DELETE FROM permissions WHERE username=%s", (sel_perm_user,))
                 for k in tab_keys:
                     c.execute(
-                        "INSERT INTO permissions (username, tab_key, allowed) VALUES (?,?,?)",
+                        "INSERT INTO permissions (username, tab_key, allowed) VALUES (%s,%s,%s)",
                         (sel_perm_user, k, int(k in selected_keys))
                     )
                 c.commit()
@@ -1152,7 +1161,7 @@ def users_block():
             c.execute(
                 """
                 INSERT INTO dashboard_shortcuts (title, subtitle, url, roles, active)
-                VALUES (?,?,?,?,?)
+                VALUES (%s,%s,%s,%s,%s)
                 """,
                 (title, subtitle, url, ",".join(roles), int(active)))
             c.commit()
@@ -1280,7 +1289,7 @@ def render_werkzaamheden():
 <b>{r.get('omschrijving','(zonder omschrijving)')}</b><br>
 Status: {r.get('status','')}<br>
 Locatie: {r.get('locatie','')}<br>
-Periode: {r.get('start','?')} – {r.get('einde','?')}<br>
+Periode: {r.get('start','%s')} – {r.get('einde','%s')}<br>
 ID: {r.get('id','')}
 """
             folium.Marker(
@@ -1351,7 +1360,7 @@ def render_kaartfouten():
                     """
                     INSERT INTO kaartfouten
                     (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
-                    VALUES (?,?,?,?,?,?,?,?)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     (
                         vak_id.strip() if vak_id else None,
@@ -1365,7 +1374,6 @@ def render_kaartfouten():
                     ))
 
                 kaartfout_id = c.execute(
-                    "SELECT last_insert_rowid()"
                 ).fetchone()[0]
 
                 if fotos:
@@ -1379,7 +1387,7 @@ def render_kaartfouten():
                             """
                             INSERT INTO kaartfout_fotos
                             (kaartfout_id, bestandsnaam, geupload_op)
-                            VALUES (?,?,?)
+                            VALUES (%s,%s,%s)
                             """,
                             (
                                 kaartfout_id,
@@ -1501,7 +1509,7 @@ Melder: {r['melder']}<br><br>
             c = conn()
 
             huidige_status = c.execute(
-                "SELECT status FROM kaartfouten WHERE id=?",
+                "SELECT status FROM kaartfouten WHERE id=%s",
                 (sel_id,)
             ).fetchone()[0]
 
@@ -1516,7 +1524,7 @@ Melder: {r['melder']}<br><br>
 
                 if save_status:
                     c.execute(
-                        "UPDATE kaartfouten SET status=? WHERE id=?",
+                        "UPDATE kaartfouten SET status=%s WHERE id=%s",
                         (nieuwe_status, sel_id)
                     )
                     c.commit()
@@ -1526,7 +1534,7 @@ Melder: {r['melder']}<br><br>
 
             # ---- FOTO'S TONEN ----
             fotos = pd.read_sql(
-                "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
+                "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=%s",
                 c,
                 params=[sel_id]
             )
@@ -1545,7 +1553,7 @@ Melder: {r['melder']}<br><br>
 
                 if st.button("❌ Melding definitief verwijderen"):
                     fotos = c.execute(
-                        "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
+                        "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=%s",
                         (sel_id,)
                     ).fetchall()
 
@@ -1554,8 +1562,8 @@ Melder: {r['melder']}<br><br>
                         if os.path.exists(path):
                             os.remove(path)
 
-                    c.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=?", (sel_id,))
-                    c.execute("DELETE FROM kaartfouten WHERE id=?", (sel_id,))
+                    c.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=%s", (sel_id,))
+                    c.execute("DELETE FROM kaartfouten WHERE id=%s", (sel_id,))
                     c.commit()
 
                     audit("KAARTFOUT_VERWIJDERD", "kaartfouten", sel_id)
@@ -1593,9 +1601,9 @@ def render_verslagen_beheer():
     c = conn()
 
     # -------------------------
-    # A: PER MAP – wie heeft toegang?
+    # A: PER MAP – wie heeft toegang%s
     # -------------------------
-    st.header("📁 Per map: wie heeft toegang?")
+    st.header("📁 Per map: wie heeft toegang%s")
 
     df_folders = pd.read_sql(
         "SELECT id, name, is_public FROM verslagen_folders WHERE active=1 ORDER BY name",
@@ -1633,9 +1641,9 @@ def render_verslagen_beheer():
         st.markdown("---")
 
     # -------------------------
-    # B: PER GEBRUIKER – welke mappen kan hij/zij zien?
+    # B: PER GEBRUIKER – welke mappen kan hij/zij zien%s
     # -------------------------
-    st.header("👥 Per gebruiker: welke mappen kunnen ze zien?")
+    st.header("👥 Per gebruiker: welke mappen kunnen ze zien%s")
 
     df_users = pd.read_sql(
         "SELECT username, role FROM users WHERE active=1 ORDER BY username",
@@ -1658,12 +1666,12 @@ def render_verslagen_beheer():
                 can_see.append(folder["name"])
                 continue
 
-            # openbaar?
+            # openbaar%s
             if folder["is_public"] == 1:
                 can_see.append(folder["name"])
                 continue
 
-            # expliciete permissie?
+            # expliciete permissie%s
             row = df_permissions[
                 (df_permissions.folder_id == fid) &
                 (df_permissions.username == uname)
@@ -1720,7 +1728,7 @@ def render_audit():
 def load_user_permissions(username, role):
     c = conn()
     try:
-        df = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=?", c, params=[username])
+        df = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=%s", c, params=[username])
     finally:
         c.close()
     defaults = role_default_permissions().get(role, {})
@@ -1780,11 +1788,10 @@ def render_verslagen():
                                 c.execute(
                                     """
                                     INSERT INTO verslagen_folders (name, description, is_public, active)
-                                    VALUES (?,?,?,1)
+                                    VALUES (%s,%s,%s,1)
                                     """,
                                     (new_name.strip(), new_desc.strip(), int(new_public)))
                                 c.commit()
-                                rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
                                 audit("VERSLAGEN_FOLDER_CREATE", "verslagen_folders", rid)
                                 st.success("Map aangemaakt.")
                                 st.rerun()
@@ -1812,8 +1819,8 @@ def render_verslagen():
                                 c.execute(
                                     """
                                     UPDATE verslagen_folders
-                                    SET name=?, description=?, is_public=?, active=?
-                                    WHERE id=?
+                                    SET name=%s, description=%s, is_public=%s, active=%s
+                                    WHERE id=%s
                                     """,
                                     (e_name.strip(), e_desc.strip(), int(e_public), int(e_active), fid))
                                 c.commit()
@@ -1824,7 +1831,7 @@ def render_verslagen():
                             if delete:
                                 # verwijder docs + bestanden
                                 c = conn()
-                                docs = c.execute("SELECT id, filename FROM verslagen_docs WHERE folder_id=?", (fid,)).fetchall()
+                                docs = c.execute("SELECT id, filename FROM verslagen_docs WHERE folder_id=%s", (fid,)).fetchall()
                                 for did, fname in docs:
                                     fpath = os.path.join(UPLOAD_DIR_VERSLAGEN, str(fid), fname or "")
                                     if os.path.exists(fpath):
@@ -1832,9 +1839,9 @@ def render_verslagen():
                                             os.remove(fpath)
                                         except Exception:
                                             pass
-                                c.execute("DELETE FROM verslagen_docs WHERE folder_id=?", (fid,))
-                                c.execute("DELETE FROM verslagen_folder_permissions WHERE folder_id=?", (fid,))
-                                c.execute("DELETE FROM verslagen_folders WHERE id=?", (fid,))
+                                c.execute("DELETE FROM verslagen_docs WHERE folder_id=%s", (fid,))
+                                c.execute("DELETE FROM verslagen_folder_permissions WHERE folder_id=%s", (fid,))
+                                c.execute("DELETE FROM verslagen_folders WHERE id=%s", (fid,))
                                 c.commit()
                                 c.close()
                                 # verwijder mapdir
@@ -1861,7 +1868,7 @@ def render_verslagen():
                         df_perm = pd.read_sql(
                             """
                             SELECT username FROM verslagen_folder_permissions
-                            WHERE folder_id=? AND allowed=1
+                            WHERE folder_id=%s AND allowed=1
                             """,
                             c, params=[fid])
                         c.close()
@@ -1873,12 +1880,12 @@ def render_verslagen():
                         )
                         if st.button("💾 Autorisatie opslaan", key=f"save_auth_{fid}"):
                             c = conn()
-                            c.execute("DELETE FROM verslagen_folder_permissions WHERE folder_id=?", (fid,))
+                            c.execute("DELETE FROM verslagen_folder_permissions WHERE folder_id=%s", (fid,))
                             for uname in selected:
                                 c.execute(
                                     """
                                     INSERT INTO verslagen_folder_permissions (folder_id, username, allowed)
-                                    VALUES (?,?,1)
+                                    VALUES (%s,%s,1)
                                     """,
                                     (fid, uname))
                             c.commit()
@@ -1936,7 +1943,7 @@ def render_verslagen():
                                 """
                                 INSERT INTO verslagen_docs
                                 (folder_id, title, meeting_date, tags, filename, uploaded_by, uploaded_on)
-                                VALUES (?,?,?,?,?,?,?)
+                                VALUES (%s,%s,%s,%s,%s,%s,%s)
                                 """,
                                 (
                                     int(sel_folder_id),
@@ -1947,7 +1954,6 @@ def render_verslagen():
                                     st.session_state.user,
                                     datetime.now().isoformat(timespec="seconds")
                                 ))
-                            rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
                             c.commit()
                             c.close()
                             audit("VERSLAGEN_DOC_UPLOAD", "verslagen_docs", rid)
@@ -1963,7 +1969,7 @@ def render_verslagen():
                 """
                 SELECT id, title, meeting_date, tags, filename, uploaded_by, uploaded_on
                 FROM verslagen_docs
-                WHERE folder_id=?
+                WHERE folder_id=%s
                 ORDER BY COALESCE(meeting_date, '0001-01-01') DESC, uploaded_on DESC
                 """,
                 c, params=[int(sel_folder_id)])
@@ -2009,7 +2015,7 @@ def render_verslagen():
                             # DB + bestand weg
                             c = conn()
                             try:
-                                c.execute("DELETE FROM verslagen_docs WHERE id=?", (int(sel_doc),))
+                                c.execute("DELETE FROM verslagen_docs WHERE id=%s", (int(sel_doc),))
                                 c.commit()
                             finally:
                                 c.close()
@@ -2053,6 +2059,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
