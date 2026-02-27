@@ -314,9 +314,13 @@ def global_search_block():
 
 # ================= DB INIT =================
 def init_db():
-    c = conn()
-    cur = c.cursor()
+    conn = psycopg2.connect(
+        os.environ["DATABASE_URL"],
+        sslmode="require"
+    )
+    cur = conn.cursor()
 
+    # USERS
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -324,168 +328,46 @@ def init_db():
             role TEXT,
             active INTEGER,
             force_change INTEGER
-        )
+        );
     """)
 
+    # AUDIT LOG
     cur.execute("""
         CREATE TABLE IF NOT EXISTS audit_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             timestamp TEXT,
-            user TEXT,
+            "user" TEXT,
             action TEXT,
             table_name TEXT,
             record_id INTEGER
-        )
+        );
     """)
 
+    # DASHBOARD SHORTCUTS
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             title TEXT,
             subtitle TEXT,
             url TEXT,
             roles TEXT,
             active INTEGER
-        )
+        );
     """)
 
+    # PERMISSIONS
     cur.execute("""
         CREATE TABLE IF NOT EXISTS permissions (
             username TEXT,
             tab_key TEXT,
             allowed INTEGER,
             PRIMARY KEY (username, tab_key)
-        )
+        );
     """)
 
-    for u, (p, r) in START_USERS.items():
-        cur.execute("""
-            INSERT OR IGNORE INTO users (username,password,role,active,force_change)
-            VALUES (?,?,?,?,1)
-        """, (u, hash_pw(p), r, 1))
-
-    tables = {
-        "uitzonderingen": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            naam TEXT, kenteken TEXT, locatie TEXT, type TEXT,
-            start DATE, einde DATE, toestemming TEXT, opmerking TEXT
-        """,
-        "gehandicapten": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            naam TEXT, kaartnummer TEXT, adres TEXT, locatie TEXT,
-            geldig_tot DATE, besluit_door TEXT, opmerking TEXT
-        """,
-        "contracten": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            leverancier TEXT, contractnummer TEXT, start DATE,
-            einde DATE, contactpersoon TEXT, opmerking TEXT
-        """,
-        "projecten": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            naam TEXT, projectleider TEXT, start DATE, einde DATE,
-            prio TEXT, status TEXT, opmerking TEXT
-        """,
-        "werkzaamheden": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            omschrijving TEXT, locatie TEXT, start DATE, einde DATE,
-            status TEXT, uitvoerder TEXT, latitude REAL,
-            longitude REAL, opmerking TEXT
-        """,
-        "agenda": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            titel TEXT,
-            datum DATE,
-            starttijd TEXT,
-            eindtijd TEXT,
-            locatie TEXT,
-            beschrijving TEXT,
-            aangemaakt_door TEXT,
-            aangemaakt_op TEXT
-        """
-    }
-
-    for t, ddl in tables.items():
-        cur.execute(f"CREATE TABLE IF NOT EXISTS {t} ({ddl})")
-
-    # === KAARTFOUTEN (HANDHAVING) ===
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS kaartfouten (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            vak_id TEXT,
-            melding_type TEXT,
-            omschrijving TEXT,
-            status TEXT,
-            melder TEXT,
-            gemeld_op TEXT,
-            latitude REAL,
-            longitude REAL
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS kaartfout_fotos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            kaartfout_id INTEGER,
-            bestandsnaam TEXT,
-            geupload_op TEXT
-        )
-    """)
-
-    # ================ VERSLAGEN ================
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS verslagen_folders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE,
-            description TEXT,
-            is_public INTEGER DEFAULT 0,
-            active INTEGER DEFAULT 1
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS verslagen_docs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            folder_id INTEGER,
-            title TEXT,
-            meeting_date DATE,
-            tags TEXT,
-            filename TEXT,
-            uploaded_by TEXT,
-            uploaded_on TEXT,
-            FOREIGN KEY(folder_id) REFERENCES verslagen_folders(id)
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS verslagen_folder_permissions (
-            folder_id INTEGER,
-            username TEXT,
-            allowed INTEGER,
-            PRIMARY KEY (folder_id, username),
-            FOREIGN KEY(folder_id) REFERENCES verslagen_folders(id)
-        )
-    """
-    )
-
-    # INITIELE MAPPEN
-    default_folders = [
-        ("Verslagen MPO", "Map voor MPO-verslagen"),
-        ("Verslagen overleg afd. Parkeren", "Afd. Parkeren overlegverslagen"),
-        ("Verslagen Overleg parkeren - Stadswinkel", "Stadswinkel overlegverslagen"),
-        ("Overleg Handhaving - Parkeren", "Handhaving-parkeer overlegverslagen"),
-    ]
-    for nm, desc in default_folders:
-        cur.execute(
-            """
-            INSERT OR IGNORE INTO verslagen_folders (name, description, is_public, active)
-            VALUES (?, ?, 0, 1)
-            """,
-            (nm, desc)
-        )
-
-    c.commit()
-    c.close()
-
-init_db()
-
+    conn.commit()
+    cur.close()
+    conn.close()
 # ================= LOGIN =================
 if "user" not in st.session_state:
         # === POPUP: wachtwoorden gereset i.v.m. update ===
@@ -2171,6 +2053,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
