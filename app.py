@@ -447,9 +447,9 @@ if "user" not in st.session_state:
         unsafe_allow_html=True
     )
 
-    st.markdown("</div>", unsafe_allow_html=True)
+   st.markdown("</div>", unsafe_allow_html=True)
 
-   if login_clicked:
+if login_clicked:
     connection = conn()
     cur = connection.cursor()
 
@@ -478,7 +478,6 @@ if "user" not in st.session_state:
         st.error("Onjuiste inloggegevens of account is geblokkeerd.")
 
 st.stop()
-
 
 # ================= FORCE PASSWORD CHANGE =================
 if st.session_state.force_change == 1:
@@ -2065,6 +2064,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
