@@ -40,7 +40,7 @@ UPLOAD_DIR_VERSLAGEN = "uploads/verslagen"
 os.makedirs(UPLOAD_DIR_VERSLAGEN, exist_ok=True)
 
 import streamlit as st
-import sqlite3
+import psycopg2
 import pandas as pd
 from datetime import datetime, date, time
 from io import BytesIO
@@ -2173,6 +2173,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
