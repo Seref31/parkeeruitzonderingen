@@ -447,7 +447,7 @@ if "user" not in st.session_state:
         unsafe_allow_html=True
     )
 
-   st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
 if login_clicked:
     connection = conn()
@@ -2064,6 +2064,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
