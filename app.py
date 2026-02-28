@@ -517,7 +517,7 @@ try:
         """
         SELECT id, titel, datum, starttijd, locatie
         FROM agenda
-        WHERE date(datum) >= date('now')
+        WHERE date(datum) >= CURRENT_DATE
         ORDER BY date(datum) ASC, time(COALESCE(starttijd, '00:00')) ASC
         LIMIT 8
         """,
@@ -2056,6 +2056,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
