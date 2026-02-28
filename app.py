@@ -228,6 +228,7 @@ def is_folder_allowed(folder_id: int) -> bool:
     cur = connection.cursor()
 
     try:
+        # Check of map actief is en openbaar
         cur.execute(
             "SELECT is_public FROM verslagen_folders WHERE id=%s AND active=1",
             (folder_id,)
@@ -240,6 +241,7 @@ def is_folder_allowed(folder_id: int) -> bool:
         if int(r[0]) == 1:
             return True
 
+        # Check expliciete permissie
         cur.execute(
             "SELECT allowed FROM verslagen_folder_permissions WHERE folder_id=%s AND username=%s",
             (folder_id, st.session_state.user)
@@ -251,15 +253,6 @@ def is_folder_allowed(folder_id: int) -> bool:
     finally:
         cur.close()
         connection.close()
-        
-            SELECT allowed FROM verslagen_folder_permissions
-            WHERE folder_id=%s AND username=%s
-            """,
-            (folder_id, st.session_state.user)
-        ).fetchone()
-        return bool(p and int(p[0]) == 1)
-    finally:
-        c.close()
 
 def ensure_folder_dir(folder_id: int) -> str:
     path = os.path.join(UPLOAD_DIR_VERSLAGEN, str(folder_id))
@@ -2083,6 +2076,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
