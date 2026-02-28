@@ -53,6 +53,9 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 import unicodedata
 
+if "force_change" not in st.session_state:
+    st.session_state.force_change = 0
+
 # ================= BRANDING =================
 LOGO_PATH = "gemeente-dordrecht-transparant-png.png"  # zorg dat dit bestand naast dit script staat
 PAGE_ICON = LOGO_PATH
@@ -2170,6 +2173,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
