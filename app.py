@@ -329,7 +329,7 @@ def load_user_permissions(username, role):
     keys = [k for _, k in all_tabs_config()]
     user_map = {k: False for k in keys}
     for _, r in df.iterrows():
-        user_map[str(r["tab_key")] ] = bool(int(r["allowed"]))
+        user_map[str(r["tab_key"])] = bool(int(r["allowed"]))
     return user_map
 
 
@@ -1335,3 +1335,4 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
