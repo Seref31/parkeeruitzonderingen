@@ -105,13 +105,13 @@ if "user" not in st.session_state:
             (username,)
         )
 
-        if row and row[0] == hash_pw(password) and row[2] == 1:
-            st.session_state.user = username
-            st.session_state.role = row[1]
-            audit("LOGIN")
-            st.rerun()
-        else:
-            st.error("Onjuiste inloggegevens.")
+if row and row[0] == hash_pw(password) and row[2]:
+    st.session_state.user = username
+    st.session_state.role = row[1]
+    audit("LOGIN")
+    st.rerun()
+else:
+    st.error("Onjuiste inloggegevens.")
 
     st.stop()
 
@@ -175,6 +175,7 @@ with st.form("project_form"):
             audit("INSERT", "projecten", rid)
             st.success("Project toegevoegd")
             st.rerun()
+
 
 
 
