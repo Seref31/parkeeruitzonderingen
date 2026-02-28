@@ -79,7 +79,16 @@ def audit(action, table=None, record_id=None):
     )
 
 # ================= LOGIN =================
-
+execute("""
+INSERT INTO users (username, password, role, active)
+VALUES (%s,%s,%s,%s)
+ON CONFLICT (username) DO NOTHING
+""", (
+    "seref",
+    hash_pw("Seref#2026"),
+    "admin",
+    1
+))
 if "user" not in st.session_state:
     st.title("🔐 Login")
 
@@ -166,3 +175,4 @@ with st.form("project_form"):
             audit("INSERT", "projecten", rid)
             st.success("Project toegevoegd")
             st.rerun()
+
