@@ -58,6 +58,66 @@ def insert_returning_id(sql, params=None):
             cur.execute(sql + " RETURNING id", params or ())
             return cur.fetchone()[0]
 
+# ================= INIT DATABASE =================
+
+def init_db():
+
+    execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY,
+        password TEXT NOT NULL,
+        role TEXT NOT NULL,
+        active BOOLEAN DEFAULT TRUE
+    )
+    """)
+
+    execute("""
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id SERIAL PRIMARY KEY,
+        timestamp TEXT,
+        "user" TEXT,
+        action TEXT,
+        table_name TEXT,
+        record_id INTEGER
+    )
+    """)
+
+    execute("""
+    CREATE TABLE IF NOT EXISTS projecten (
+        id SERIAL PRIMARY KEY,
+        naam TEXT,
+        status TEXT
+    )
+    """)
+
+    execute("""
+    CREATE TABLE IF NOT EXISTS uitzonderingen (
+        id SERIAL PRIMARY KEY,
+        naam TEXT,
+        kenteken TEXT,
+        locatie TEXT,
+        type TEXT,
+        start DATE,
+        einde DATE,
+        toestemming TEXT,
+        opmerking TEXT
+    )
+    """)
+
+    # Seed admin
+    execute("""
+    INSERT INTO users (username, password, role, active)
+    VALUES (%s,%s,%s,%s)
+    ON CONFLICT (username) DO NOTHING
+    """, (
+        "seref",
+        hashlib.sha256("Seref#2026".encode()).hexdigest(),
+        "admin",
+        True
+    ))
+
+init_db()
+
 # ================= HELPERS =================
 
 def hash_pw(pw):
@@ -80,18 +140,8 @@ def audit(action, table=None, record_id=None):
 
 # ================= LOGIN =================
 
-execute("""
-INSERT INTO users (username, password, role, active)
-VALUES (%s,%s,%s,%s)
-ON CONFLICT (username) DO NOTHING
-""", (
-    "seref",
-    hash_pw("Seref#2026"),
-    "admin",
-    True
-))
-
 if "user" not in st.session_state:
+
     st.title("🔐 Login")
 
     username = st.text_input("Gebruiker")
@@ -100,11 +150,7 @@ if "user" not in st.session_state:
     if st.button("Inloggen"):
 
         row = fetch_one(
-            """
-            SELECT password, role, active
-            FROM users
-            WHERE username=%s
-            """,
+            "SELECT password, role, active FROM users WHERE username=%s",
             (username,)
         )
 
@@ -147,7 +193,7 @@ col3.metric(
     fetch_one("SELECT COUNT(*) FROM users")[0]
 )
 
-# ================= PROJECTEN CRUD =================
+# ================= PROJECTEN =================
 
 st.markdown("---")
 st.subheader("🧩 Projecten")
@@ -169,17 +215,44 @@ with st.form("project_form"):
             st.error("Naam verplicht")
         else:
             rid = insert_returning_id(
-                """
-                INSERT INTO projecten (naam, status)
-                VALUES (%s,%s)
-                """,
+                "INSERT INTO projecten (naam, status) VALUES (%s,%s)",
                 (naam.strip(), status)
             )
             audit("INSERT", "projecten", rid)
             st.success("Project toegevoegd")
             st.rerun()
 
+# ================= UITZONDERINGEN =================
 
+st.markdown("---")
+st.subheader("🅿️ Uitzonderingen")
 
+df_u = pd.DataFrame(fetch_all("SELECT * FROM uitzonderingen ORDER BY id DESC"))
 
+if not df_u.empty:
+    st.dataframe(df_u, use_container_width=True)
+else:
+    st.info("Geen uitzonderingen gevonden.")
 
+with st.form("uitzondering_form"):
+    naam = st.text_input("Naam")
+    kenteken = st.text_input("Kenteken")
+    locatie = st.text_input("Locatie")
+    type_ = st.text_input("Type")
+    submit_u = st.form_submit_button("Toevoegen")
+
+    if submit_u:
+        if not naam.strip():
+            st.error("Naam verplicht")
+        else:
+            rid = insert_returning_id(
+                """
+                INSERT INTO uitzonderingen
+                (naam, kenteken, locatie, type)
+                VALUES (%s,%s,%s,%s)
+                """,
+                (naam, kenteken, locatie, type_)
+            )
+            audit("INSERT", "uitzonderingen", rid)
+            st.success("Uitzondering toegevoegd")
+            st.rerun()
