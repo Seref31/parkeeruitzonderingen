@@ -79,6 +79,7 @@ def audit(action, table=None, record_id=None):
     )
 
 # ================= LOGIN =================
+
 execute("""
 INSERT INTO users (username, password, role, active)
 VALUES (%s,%s,%s,%s)
@@ -89,6 +90,7 @@ ON CONFLICT (username) DO NOTHING
     "admin",
     True
 ))
+
 if "user" not in st.session_state:
     st.title("🔐 Login")
 
@@ -96,6 +98,7 @@ if "user" not in st.session_state:
     password = st.text_input("Wachtwoord", type="password")
 
     if st.button("Inloggen"):
+
         row = fetch_one(
             """
             SELECT password, role, active
@@ -105,13 +108,13 @@ if "user" not in st.session_state:
             (username,)
         )
 
-if row and row[0] == hash_pw(password) and row[2]:
-    st.session_state.user = username
-    st.session_state.role = row[1]
-    audit("LOGIN")
-    st.rerun()
-else:
-    st.error("Onjuiste inloggegevens.")
+        if row and row[0] == hash_pw(password) and row[2]:
+            st.session_state.user = username
+            st.session_state.role = row[1]
+            audit("LOGIN")
+            st.rerun()
+        else:
+            st.error("Onjuiste inloggegevens.")
 
     st.stop()
 
@@ -175,6 +178,7 @@ with st.form("project_form"):
             audit("INSERT", "projecten", rid)
             st.success("Project toegevoegd")
             st.rerun()
+
 
 
 
