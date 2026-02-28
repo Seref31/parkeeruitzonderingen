@@ -39,6 +39,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 UPLOAD_DIR_VERSLAGEN = "uploads/verslagen"
 os.makedirs(UPLOAD_DIR_VERSLAGEN, exist_ok=True)
 
+import os
 import streamlit as st
 import psycopg2
 import pandas as pd
@@ -52,6 +53,9 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 import unicodedata
+
+# ================= DATABASE =================
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 if "force_change" not in st.session_state:
     st.session_state.force_change = 0
@@ -2173,6 +2177,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
