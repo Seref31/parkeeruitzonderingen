@@ -1,8 +1,13 @@
-streamlit
+streamlit==1.39.0
 pandas
-reportlab
-pdfplumber
+numpy
+psycopg2-binary
 requests
 folium
-numpy
+reportlab
 openpyxl
+pillow
+python-docx
+python-pptx
+pypdf2
+xlrd
