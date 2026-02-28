@@ -1,8 +1,5 @@
-streamlit
+openpyxl>=3.1
+reportlab>=4.0
+pdfplumber>=0.11
 psycopg2-binary
-pandas
-requests
-fpdf
 folium
-streamlit-folium
-openpyxl
