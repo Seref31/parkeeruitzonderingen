@@ -1,105 +1,313 @@
 
+import os
+import re
+import hashlib
+import base64
+import unicodedata
+from io import BytesIO
+from datetime import datetime, date, time
+
 import requests
-
-def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
-    """
-    Zet NL postcode + huisnummer om naar (lat, lon) via PDOK BAG.
-    Retourneert (lat, lon) of (None, None) bij geen resultaat.
-    """
-    try:
-        q = f"{postcode.strip()} {huisnummer.strip()}"
-        url = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free"
-        params = {
-            "q": q,
-            "rows": 1
-        }
-
-        r = requests.get(url, params=params, timeout=5)
-        r.raise_for_status()
-        data = r.json()
-
-        docs = data.get("response", {}).get("docs", [])
-        if not docs:
-            return None, None
-
-        doc = docs[0]
-        lat = float(doc["centroide_ll"].split("(")[1].split()[1].replace(")", ""))
-        lon = float(doc["centroide_ll"].split("(")[1].split()[0])
-
-        return lat, lon
-
-    except Exception:
-        return None, None
-
-import os
-
-UPLOAD_DIR = "uploads/kaartfouten"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-# ================ UPLOAD PAD VERSLAGEN =================
-UPLOAD_DIR_VERSLAGEN = "uploads/verslagen"
-os.makedirs(UPLOAD_DIR_VERSLAGEN, exist_ok=True)
-
-import os
+import pandas as pd
 import streamlit as st
 import psycopg2
-import pandas as pd
-from datetime import datetime, date, time
-from io import BytesIO
-import hashlib
-import re
-import pdfplumber
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet
-import unicodedata
+from psycopg2.extras import RealDictCursor
 
-# ================= DATABASE =================
-DATABASE_URL = os.environ["DATABASE_URL"]
+# =====================
+# CONFIG & BRANDING
+# =====================
+LOGO_PATH = os.environ.get("APP_LOGO", "gemeente-dordrecht-transparant-png.png")
+PAGE_TITLE = os.environ.get("APP_TITLE", "Parkeerbeheer Dashboard")
 
-if "force_change" not in st.session_state:
-    st.session_state.force_change = 0
+st.set_page_config(page_title=PAGE_TITLE, page_icon=LOGO_PATH if os.path.exists(LOGO_PATH) else None, layout="wide")
 
-# ================= BRANDING =================
-LOGO_PATH = "gemeente-dordrecht-transparant-png.png"  # zorg dat dit bestand naast dit script staat
-PAGE_ICON = LOGO_PATH
-
-# ================= CONFIG =================
-st.set_page_config(
-    page_title="Parkeerbeheer Dashboard",
-    layout="wide",
-    page_icon=PAGE_ICON
+st.markdown(
+    """
+    <style>
+      .stApp { background: linear-gradient(180deg, #f7f9fc 0%, #ffffff 100%); }
+      a { text-decoration: none; }
+      .small-muted { color:#666; font-size:0.9rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
-DB = "parkeeruitzonderingen.db"
 
-# Optionele lichte styling
-st.markdown("""
-<style>
-    .stApp { background: linear-gradient(180deg, #f7f9fc 0%, #ffffff 100%); }
-    a { text-decoration: none; }
-</style>
-""", unsafe_allow_html=True)
+# =====================
+# STORAGE PATHS
+# =====================
+BASE_DATA_DIR = os.environ.get("DATA_DIR", "/data")  # Use Railway volume mounted at /data
+UPLOAD_DIR_KAARTFOUTEN = os.path.join(BASE_DATA_DIR, "uploads", "kaartfouten")
+UPLOAD_DIR_VERSLAGEN = os.path.join(BASE_DATA_DIR, "uploads", "verslagen")
+for p in [UPLOAD_DIR_KAARTFOUTEN, UPLOAD_DIR_VERSLAGEN]:
+    os.makedirs(p, exist_ok=True)
 
+# =====================
+# DATABASE (Postgres)
+# =====================
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    st.error("DATABASE_URL ontbreekt als environment variable.")
+    st.stop()
+
+def db_conn():
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
+# =====================
+# SECURITY: password hashing (PBKDF2)
+# =====================
+PBKDF2_ITER = 200_000
+
+# store as: algorithm$iterations$salt_b64$hash_b64
+
+def hash_pw(pw: str) -> str:
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt, PBKDF2_ITER, dklen=32)
+    return f"pbkdf2_sha256${PBKDF2_ITER}${base64.b64encode(salt).decode()}${base64.b64encode(dk).decode()}"
+
+def verify_pw(pw: str, stored: str) -> bool:
+    try:
+        algo, iters_s, salt_b64, hash_b64 = stored.split("$")
+        iters = int(iters_s)
+        salt = base64.b64decode(salt_b64)
+        expected = base64.b64decode(hash_b64)
+        test = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt, iters, dklen=32)
+        return hashlib.compare_digest(test, expected)
+    except Exception:
+        return False
+
+# =====================
+# INIT DB (Postgres DDL)
+# =====================
 START_USERS = {
     "seref": ("Seref#2026", "admin"),
 }
 
-# === TAB CONFIG ===
+def init_db():
+    with db_conn() as con:
+        cur = con.cursor()
+        # users
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                password TEXT,
+                role TEXT,
+                active INTEGER,
+                force_change INTEGER
+            )
+            """
+        )
+        # permissions
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS permissions (
+                username TEXT,
+                tab_key TEXT,
+                allowed INTEGER,
+                PRIMARY KEY (username, tab_key)
+            )
+            """
+        )
+        # audit
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id SERIAL PRIMARY KEY,
+                timestamp TEXT,
+                user TEXT,
+                action TEXT,
+                table_name TEXT,
+                record_id TEXT
+            )
+            """
+        )
+        # dashboard shortcuts
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
+                id SERIAL PRIMARY KEY,
+                title TEXT,
+                subtitle TEXT,
+                url TEXT,
+                roles TEXT,
+                active INTEGER
+            )
+            """
+        )
+        # hoofdtabellen
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS uitzonderingen (
+                id SERIAL PRIMARY KEY,
+                naam TEXT, kenteken TEXT, locatie TEXT, type TEXT,
+                start DATE, einde DATE, toestemming TEXT, opmerking TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gehandicapten (
+                id SERIAL PRIMARY KEY,
+                naam TEXT, kaartnummer TEXT, adres TEXT, locatie TEXT,
+                geldig_tot DATE, besluit_door TEXT, opmerking TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS contracten (
+                id SERIAL PRIMARY KEY,
+                leverancier TEXT, contractnummer TEXT, start DATE,
+                einde DATE, contactpersoon TEXT, opmerking TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS projecten (
+                id SERIAL PRIMARY KEY,
+                naam TEXT, projectleider TEXT, start DATE, einde DATE,
+                prio TEXT, status TEXT, opmerking TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS werkzaamheden (
+                id SERIAL PRIMARY KEY,
+                omschrijving TEXT, locatie TEXT, start DATE, einde DATE,
+                status TEXT, uitvoerder TEXT, latitude DOUBLE PRECISION,
+                longitude DOUBLE PRECISION, opmerking TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agenda (
+                id SERIAL PRIMARY KEY,
+                titel TEXT,
+                datum DATE,
+                starttijd TEXT,
+                eindtijd TEXT,
+                locatie TEXT,
+                beschrijving TEXT,
+                aangemaakt_door TEXT,
+                aangemaakt_op TEXT
+            )
+            """
+        )
+        # kaartfouten
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS kaartfouten (
+                id SERIAL PRIMARY KEY,
+                vak_id TEXT,
+                melding_type TEXT,
+                omschrijving TEXT,
+                status TEXT,
+                melder TEXT,
+                gemeld_op TEXT,
+                latitude DOUBLE PRECISION,
+                longitude DOUBLE PRECISION
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS kaartfout_fotos (
+                id SERIAL PRIMARY KEY,
+                kaartfout_id INTEGER,
+                bestandsnaam TEXT,
+                geupload_op TEXT
+            )
+            """
+        )
+        # verslagen
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verslagen_folders (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE,
+                description TEXT,
+                is_public INTEGER DEFAULT 0,
+                active INTEGER DEFAULT 1
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verslagen_docs (
+                id SERIAL PRIMARY KEY,
+                folder_id INTEGER,
+                title TEXT,
+                meeting_date DATE,
+                tags TEXT,
+                filename TEXT,
+                uploaded_by TEXT,
+                uploaded_on TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verslagen_folder_permissions (
+                folder_id INTEGER,
+                username TEXT,
+                allowed INTEGER,
+                PRIMARY KEY (folder_id, username)
+            )
+            """
+        )
+        # seed users
+        for u, (p, r) in START_USERS.items():
+            cur.execute("SELECT 1 FROM users WHERE username=%s", (u,))
+            if cur.fetchone() is None:
+                cur.execute(
+                    "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,%s,%s,%s)",
+                    (u, hash_pw(p), r, 1, 1),
+                )
+        # default verslagen folders
+        defaults = [
+            ("Verslagen MPO", "Map voor MPO-verslagen"),
+            ("Verslagen overleg afd. Parkeren", "Afd. Parkeren overlegverslagen"),
+            ("Verslagen Overleg parkeren - Stadswinkel", "Stadswinkel overlegverslagen"),
+            ("Overleg Handhaving - Parkeren", "Handhaving-parkeer overlegverslagen"),
+        ]
+        for nm, desc in defaults:
+            cur.execute("INSERT INTO verslagen_folders (name, description, is_public, active) VALUES (%s,%s,0,1) ON CONFLICT (name) DO NOTHING", (nm, desc))
+
+        con.commit()
+
+init_db()
+
+# =====================
+# HELPERS & PERMISSIONS
+# =====================
+
+def audit(action, table=None, record_id=None):
+    try:
+        with db_conn() as con:
+            cur = con.cursor()
+            cur.execute(
+                "INSERT INTO audit_log (timestamp, user, action, table_name, record_id) VALUES (%s,%s,%s,%s,%s)",
+                (datetime.now().isoformat(timespec="seconds"), st.session_state.get("user", "?"), action, table, str(record_id) if record_id is not None else None),
+            )
+            con.commit()
+    except Exception:
+        pass
+
+
 def all_tabs_config():
     return [
         ("📊 Dashboard", "dashboard"),
         ("🅿️ Uitzonderingen", "uitzonderingen"),
-        ("♿ Gehandicapten", "gehandicapten"),
-        ("📄 Contracten", "contracten"),
-        ("🧩 Projecten", "projecten"),
-        ("🛠️ Werkzaamheden", "werkzaamheden"),
         ("📅 Agenda", "agenda"),
-        ("🗂️ Verslagen", "verslagen"),        # 👈 nieuw
+        ("🗂️ Verslagen", "verslagen"),
         ("👮 Handhaving", "handhaving"),
         ("👥 Gebruikersbeheer", "gebruikers"),
-        ("🛡️ Verslagen beheer", "verslagen_beheer"),
         ("🧾 Audit log", "audit"),
     ]
+
 
 def role_default_permissions():
     keys = [k for _, k in all_tabs_config()]
@@ -107,48 +315,45 @@ def role_default_permissions():
     editor = {k: True for k in keys}
     editor["gebruikers"] = False
     viewer = {k: False for k in keys}
-    for k in ["dashboard","uitzonderingen","gehandicapten","contracten","projecten","werkzaamheden","agenda","verslagen"]:
+    for k in ["dashboard", "uitzonderingen", "agenda", "verslagen", "handhaving"]:
         viewer[k] = True
-    viewer["gebruikers"] = False
-    viewer["audit"] = False
-    admin["verslagen_beheer"] = True
-    editor["verslagen_beheer"] = False
-    viewer["verslagen_beheer"] = False
     return {"admin": admin, "editor": editor, "viewer": viewer}
 
-# ================= HULP =================
-def conn():
-    return sqlite3.connect(DB, check_same_thread=False)
 
-def hash_pw(pw):
-    return hashlib.sha256(pw.encode()).hexdigest()
+def load_user_permissions(username, role):
+    with db_conn() as con:
+        df = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=%s", con, params=[username])
+    defaults = role_default_permissions().get(role, {})
+    if df.empty:
+        return dict(defaults)
+    keys = [k for _, k in all_tabs_config()]
+    user_map = {k: False for k in keys}
+    for _, r in df.iterrows():
+        user_map[str(r["tab_key")] ] = bool(int(r["allowed"]))
+    return user_map
+
+
+def is_tab_allowed(tab_key):
+    perms = st.session_state.get("_tab_perms_cache")
+    if perms is None:
+        perms = load_user_permissions(st.session_state.user, st.session_state.role)
+        st.session_state["_tab_perms_cache"] = perms
+    return perms.get(tab_key, False)
+
 
 def has_role(*roles):
     return st.session_state.role in roles
 
-def audit(action, table=None, record_id=None):
-    c = conn()
-    c.execute("""
-        INSERT INTO audit_log (timestamp, user, action, table_name, record_id)
-        VALUES (?,?,?,?,?)
-    """, (
-        datetime.now().isoformat(timespec="seconds"),
-        st.session_state.user,
-        action,
-        table,
-        record_id
-    ))
-    c.commit()
-    c.close()
+# =====================
+# VALIDATIES
+# =====================
 
-# --------- KENTEKEN VALIDATIE + CLEANING (B) ---------
+def _safe_filename(name: str) -> str:
+    name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
+    name = re.sub(r'[^A-Za-z0-9._-]+', '_', name)
+    return name[:180]
+
 def clean_kenteken(raw: str) -> str:
-    """
-    Normaliseer kenteken:
-    - Uppercase
-    - Alleen letters/cijfers
-    - Verwijder spaties, -, ., etc.
-    """
     if not isinstance(raw, str):
         return ""
     s = raw.upper()
@@ -156,13 +361,6 @@ def clean_kenteken(raw: str) -> str:
     return s
 
 def is_valid_kenteken(raw: str) -> bool:
-    """
-    Basale validatie voor NL-kenteken:
-    - 5..8 tekens
-    - bevat zowel letters als cijfers
-    - alleen alfanumeriek
-    (Dit is bewust pragmatisch; de volledige RDW-sidecodes zijn complexer.)
-    """
     s = clean_kenteken(raw)
     if len(s) < 5 or len(s) > 8:
         return False
@@ -173,7 +371,6 @@ def is_valid_kenteken(raw: str) -> bool:
     return has_letter and has_digit
 
 def parse_iso_date(v, default=None):
-    """Parseer datumstring naar ISO (YYYY-MM-DD). Retourneert None bij failure."""
     try:
         if v is None or str(v).strip() == "":
             return default
@@ -184,577 +381,163 @@ def parse_iso_date(v, default=None):
     except Exception:
         return None
 
-def detect_overlapping_uitzondering(kenteken_raw: str, start_val: str, einde_val: str, exclude_id=None):
-    """
-    Check of er in 'uitzonderingen' overlappende periode(s) bestaan voor hetzelfde kenteken.
-    - Vergelijk op REPLACE(UPPER(kenteken), '-', '') = clean_kenteken(...)
-    - Overlap: (start_db <= einde_val) EN (einde_db >= start_val)
-      waarbij lege start/einde in DB behandeld worden als open (0001.. / 9999..)
-    """
-    k_clean = clean_kenteken(kenteken_raw)
-    start_iso = parse_iso_date(start_val, default="0001-01-01")
-    einde_iso = parse_iso_date(einde_val, default="9999-12-31")
-    if start_iso is None or einde_iso is None:
-        return pd.DataFrame([{"fout": "Ongeldige datum (start/einde)"}])
+# =====================
+# GEOCODING (PDOK)
+# =====================
 
-    q = """
-        SELECT id, naam, kenteken, locatie, type, start, einde
-        FROM uitzonderingen
-        WHERE REPLACE(UPPER(kenteken), '-', '') = ?
-          AND date(COALESCE(start, '0001-01-01')) <= date(?)
-          AND date(COALESCE(einde, '9999-12-31')) >= date(?)
-    """
-    params = [k_clean, einde_iso, start_iso]
-
-    c = conn()
-    df = pd.read_sql(q, c, params=params)
-    c.close()
-
-    if exclude_id is not None and not df.empty:
-        df = df[df["id"] != int(exclude_id)]
-
-    return df
-
-# --------- Verslagen helpers ---------
-def _safe_filename(name: str) -> str:
-    # normaliseer en verwijder onveilige tekens
-    name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
-    name = re.sub(r'[^A-Za-z0-9._-]+', '_', name)
-    return name[:180]
-
-def is_folder_allowed(folder_id: int) -> bool:
-    if st.session_state.role == "admin":
-        return True
-    c = conn()
+def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
     try:
-        r = c.execute("SELECT is_public FROM verslagen_folders WHERE id=? AND active=1", (folder_id,)).fetchone()
-        if not r:
-            return False
-        if int(r[0]) == 1:
-            return True
-        p = c.execute(
-            """
-            SELECT allowed FROM verslagen_folder_permissions
-            WHERE folder_id=? AND username=?
-            """,
-            (folder_id, st.session_state.user)
-        ).fetchone()
-        return bool(p and int(p[0]) == 1)
-    finally:
-        c.close()
+        q = f"{postcode.strip()} {huisnummer.strip()}"
+        url = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free"
+        params = {"q": q, "rows": 1}
+        r = requests.get(url, params=params, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+        docs = data.get("response", {}).get("docs", [])
+        if not docs:
+            return None, None
+        doc = docs[0]
+        # centroide_ll sample: "POINT(4.6901 51.8133)" => (lon lat)
+        lon = float(doc["centroide_ll"].split("(")[1].split()[0])
+        lat = float(doc["centroide_ll"].split("(")[1].split()[1].replace(")", ""))
+        return lat, lon
+    except Exception:
+        return None, None
 
-def ensure_folder_dir(folder_id: int) -> str:
-    path = os.path.join(UPLOAD_DIR_VERSLAGEN, str(folder_id))
-    os.makedirs(path, exist_ok=True)
-    return path
+# =====================
+# LOGIN / AUTH
+# =====================
+if "force_change" not in st.session_state:
+    st.session_state.force_change = 0
 
-# --------- GLOBALE ZOEK (A) ---------
-def global_search_block():
-    st.markdown("### 🔎 Globale zoekopdracht")
-    q = st.text_input("Zoek in alle tabellen (naam, kenteken, locatie, …)", key="global_search_q", placeholder="bijv. 'Dordrecht' of '12-AB-3C'")
-    if not q:
-        st.caption("Tip: zoekterm is **case-insensitive** en doorzoekt alleen tabbladen waar je toegang toe hebt.")
-        return
-
-    # welke tabellen + kolommen tonen
-    search_targets = {
-        "uitzonderingen": ["id","naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
-        "gehandicapten": ["id","naam","kaartnummer","adres","locatie","geldig_tot","opmerking"],
-        "contracten": ["id","leverancier","contractnummer","start","einde","contactpersoon","opmerking"],
-        "projecten": ["id","naam","projectleider","start","einde","prio","status","opmerking"],
-        "werkzaamheden": ["id","omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
-        "agenda": ["id","titel","datum","starttijd","eindtijd","locatie","beschrijving","aangemaakt_door","aangemaakt_op"],
-        "verslagen_docs": ["id","title","tags","meeting_date","uploaded_by","uploaded_on","folder_id"],  # 👈 nieuw
-    }
-
-    key_map = {
-        "uitzonderingen": "uitzonderingen",
-        "gehandicapten": "gehandicapten",
-        "contracten": "contracten",
-        "projecten": "projecten",
-        "werkzaamheden": "werkzaamheden",
-        "agenda": "agenda",
-        "verslagen_docs": "verslagen",
-    }
-
-    c = conn()
-    any_hit = False
-    for table, cols in search_targets.items():
-        # alleen tabellen tonen als de user toegang heeft tot het bijbehorende tabblad
-        tab_key = key_map.get(table)
-        if tab_key and not is_tab_allowed(tab_key):
-            continue
-
-        df = pd.read_sql(f"SELECT * FROM {table}", c)
-        if df.empty:
-            continue
-
-        # filter toegankelijke mappen voor verslagen
-        if table == "verslagen_docs":
-            df_folders = pd.read_sql("SELECT id FROM verslagen_folders WHERE active=1", c)
-            allowed_folder_ids = []
-            for fid in df_folders["id"].tolist():
-                try:
-                    if is_folder_allowed(int(fid)):
-                        allowed_folder_ids.append(int(fid))
-                except Exception:
-                    pass
-            if len(allowed_folder_ids) == 0:
-                continue
-            df = df[df["folder_id"].isin(allowed_folder_ids)]
-            if df.empty:
-                continue
-
-        # client-side filter
-        mask = df.astype(str).apply(lambda x: x.str.contains(q, case=False, na=False)).any(axis=1)
-        df_res = df[mask]
-        if not df_res.empty:
-            any_hit = True
-            subset_cols = [c for c in cols if c in df_res.columns]
-            st.markdown(f"#### 🗂️ {table.capitalize()}  	<span style='color:#888'>({len(df_res)})</span>", unsafe_allow_html=True)
-            st.dataframe(df_res[subset_cols] if subset_cols else df_res, use_container_width=True)
-
-    c.close()
-    if not any_hit:
-        st.info("Geen resultaten gevonden.")
-
-# ================= DB INIT =================
-def init_db():
-    c = conn()
-    cur = c.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            password TEXT,
-            role TEXT,
-            active INTEGER,
-            force_change INTEGER
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS audit_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            user TEXT,
-            action TEXT,
-            table_name TEXT,
-            record_id INTEGER
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            subtitle TEXT,
-            url TEXT,
-            roles TEXT,
-            active INTEGER
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS permissions (
-            username TEXT,
-            tab_key TEXT,
-            allowed INTEGER,
-            PRIMARY KEY (username, tab_key)
-        )
-    """)
-
-    for u, (p, r) in START_USERS.items():
-        cur.execute("""
-            INSERT OR IGNORE INTO users (username,password,role,active,force_change)
-            VALUES (?,?,?,?,1)
-        """, (u, hash_pw(p), r, 1))
-
-    tables = {
-        "uitzonderingen": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            naam TEXT, kenteken TEXT, locatie TEXT, type TEXT,
-            start DATE, einde DATE, toestemming TEXT, opmerking TEXT
-        """,
-        "gehandicapten": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            naam TEXT, kaartnummer TEXT, adres TEXT, locatie TEXT,
-            geldig_tot DATE, besluit_door TEXT, opmerking TEXT
-        """,
-        "contracten": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            leverancier TEXT, contractnummer TEXT, start DATE,
-            einde DATE, contactpersoon TEXT, opmerking TEXT
-        """,
-        "projecten": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            naam TEXT, projectleider TEXT, start DATE, einde DATE,
-            prio TEXT, status TEXT, opmerking TEXT
-        """,
-        "werkzaamheden": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            omschrijving TEXT, locatie TEXT, start DATE, einde DATE,
-            status TEXT, uitvoerder TEXT, latitude REAL,
-            longitude REAL, opmerking TEXT
-        """,
-        "agenda": """
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            titel TEXT,
-            datum DATE,
-            starttijd TEXT,
-            eindtijd TEXT,
-            locatie TEXT,
-            beschrijving TEXT,
-            aangemaakt_door TEXT,
-            aangemaakt_op TEXT
-        """
-    }
-
-    for t, ddl in tables.items():
-        cur.execute(f"CREATE TABLE IF NOT EXISTS {t} ({ddl})")
-
-    # === KAARTFOUTEN (HANDHAVING) ===
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS kaartfouten (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            vak_id TEXT,
-            melding_type TEXT,
-            omschrijving TEXT,
-            status TEXT,
-            melder TEXT,
-            gemeld_op TEXT,
-            latitude REAL,
-            longitude REAL
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS kaartfout_fotos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            kaartfout_id INTEGER,
-            bestandsnaam TEXT,
-            geupload_op TEXT
-        )
-    """)
-
-    # ================ VERSLAGEN ================
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS verslagen_folders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE,
-            description TEXT,
-            is_public INTEGER DEFAULT 0,
-            active INTEGER DEFAULT 1
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS verslagen_docs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            folder_id INTEGER,
-            title TEXT,
-            meeting_date DATE,
-            tags TEXT,
-            filename TEXT,
-            uploaded_by TEXT,
-            uploaded_on TEXT,
-            FOREIGN KEY(folder_id) REFERENCES verslagen_folders(id)
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS verslagen_folder_permissions (
-            folder_id INTEGER,
-            username TEXT,
-            allowed INTEGER,
-            PRIMARY KEY (folder_id, username),
-            FOREIGN KEY(folder_id) REFERENCES verslagen_folders(id)
-        )
-    """
-    )
-
-    # INITIELE MAPPEN
-    default_folders = [
-        ("Verslagen MPO", "Map voor MPO-verslagen"),
-        ("Verslagen overleg afd. Parkeren", "Afd. Parkeren overlegverslagen"),
-        ("Verslagen Overleg parkeren - Stadswinkel", "Stadswinkel overlegverslagen"),
-        ("Overleg Handhaving - Parkeren", "Handhaving-parkeer overlegverslagen"),
-    ]
-    for nm, desc in default_folders:
-        cur.execute(
-            """
-            INSERT OR IGNORE INTO verslagen_folders (name, description, is_public, active)
-            VALUES (?, ?, 0, 1)
-            """,
-            (nm, desc)
-        )
-
-    c.commit()
-    c.close()
-
-init_db()
-
-# ================= LOGIN =================
 if "user" not in st.session_state:
-        # === POPUP: wachtwoorden gereset i.v.m. update ===
-    if "pw_reset_notice_closed" not in st.session_state:
-        st.session_state.pw_reset_notice_closed = False
-
-    if not st.session_state.pw_reset_notice_closed:
-        with st.container():
-            st.warning(
-                """
-                **🔔 Belangrijke mededeling**
-
-                In verband met een **update van de website** zijn de **wachtwoorden gereset**.
-
-                👉 U kunt inloggen met het **initiële wachtwoord** dat u eerder per e-mail heeft ontvangen van  
-                **s.coskun@dordrecht.nl**.
-
-                Na het inloggen kunt u **direct uw wachtwoord wijzigen**.
-                """,
-                icon="🔐"
-            )
-
-            if st.button("✔️ Begrepen, sluit melding"):
-                st.session_state.pw_reset_notice_closed = True
-                st.rerun()
-
-    # Logo + titel gecentreerd
-    c1, c2, c3 = st.columns([1, 2, 1])
+    # header
+    c1, c2, c3 = st.columns([1,2,1])
     with c2:
-        try:
+        if os.path.exists(LOGO_PATH):
             st.image(LOGO_PATH, use_container_width=False, width=180)
-        except Exception:
-            pass
-        st.markdown(
-            "<h2 style='text-align:center;margin-top:6px;'>Parkeren Dordrecht</h2>",
-            unsafe_allow_html=True
-        )
-        st.markdown(
-            "<p style='text-align:center;color:#666;'>"
-            "Log in met je <strong>e-mailadres</strong> en wachtwoord."
-            "</p>",
-            unsafe_allow_html=True
-        )
+        st.markdown("<h2 style='text-align:center;margin-top:6px;'>Parkeren Dordrecht</h2>", unsafe_allow_html=True)
+        st.markdown("<p class='small-muted' style='text-align:center'>Log in met je e-mailadres en wachtwoord</p>", unsafe_allow_html=True)
 
-    # Card met inlogvelden
     st.markdown(
         """
-        <div style="
-            max-width:520px;margin: 12px auto 0 auto; padding: 24px 22px;
+        <div style="max-width:520px;margin: 12px auto 0 auto; padding: 24px 22px;
             border: 1px solid #eaeaea; border-radius: 14px; background: #ffffffaa;
-            box-shadow: 0 6px 22px rgba(0,0,0,0.06);
-        ">
+            box-shadow: 0 6px 22px rgba(0,0,0,0.06);">
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
-    u = st.text_input(
-        "Gebruiker (e-mailadres)",
-        placeholder="@dordrecht.nl"
-    )
+    u = st.text_input("Gebruiker (e-mailadres)", placeholder="@dordrecht.nl")
     p = st.text_input("Wachtwoord", type="password")
-
-    colA, colB = st.columns([1,1])
-    with colA:
-        login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
-    with colB:
-        st.write("")
+    login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
 
     st.markdown(
         """
-        <div style="margin-top:12px;font-size:0.9rem;color:#555;">
-            Wachtwoord vergeten?<br>
-            Stuur dan een e-mail naar
-            <a href="mailto:s.coskun@dordrecht.nl">s.coskun@dordrecht.nl</a>.
+        <div class='small-muted' style='margin-top:12px;'>Wachtwoord vergeten? Mail naar s.coskun@dordrecht.nl</div>
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
     if login_clicked:
-        c = conn()
-        r = c.execute(
-            """
-            SELECT password, role, active, force_change FROM users WHERE username=?
-            """, (u,)
-        ).fetchone()
-        c.close()
-
-        if r and r[0] == hash_pw(p) and r[2] == 1:
+        with db_conn() as con:
+            cur = con.cursor()
+            cur.execute("SELECT password, role, active, force_change FROM users WHERE username=%s", (u,))
+            row = cur.fetchone()
+        if row and row.get("active") == 1 and verify_pw(p, row.get("password", "")):
             st.session_state.user = u
-            st.session_state.role = r[1]
-            st.session_state.force_change = r[3]
+            st.session_state.role = row.get("role")
+            st.session_state.force_change = row.get("force_change", 0)
             st.session_state["_tab_perms_cache"] = None
             audit("LOGIN")
             st.rerun()
         else:
             st.error("Onjuiste inloggegevens of account is geblokkeerd.")
-
     st.stop()
 
-
-# ================= FORCE PASSWORD CHANGE =================
+# Force change
 if st.session_state.force_change == 1:
     st.title("🔑 Wachtwoord wijzigen (verplicht)")
     pw1 = st.text_input("Nieuw wachtwoord", type="password")
     pw2 = st.text_input("Herhaal wachtwoord", type="password")
-
     if st.button("Wijzigen"):
         if pw1 != pw2 or len(pw1) < 8:
             st.error("Wachtwoord ongeldig (min. 8 tekens en beide velden gelijk)")
         else:
-            c = conn()
-            c.execute(
-                """
-                UPDATE users SET password=?, force_change=0 WHERE username=?
-                """, (hash_pw(pw1), st.session_state.user)
-            )
-            c.commit()
-            c.close()
-
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute("UPDATE users SET password=%s, force_change=0 WHERE username=%s", (hash_pw(pw1), st.session_state.user))
+                con.commit()
             audit("PASSWORD_CHANGE")
             st.session_state.force_change = 0
             st.rerun()
-
     st.stop()
 
-# ================= SIDEBAR =================
-# optioneel logo in zijbalk
+# =====================
+# SIDEBAR
+# =====================
 try:
-    st.sidebar.image(LOGO_PATH, use_container_width=True)
+    if os.path.exists(LOGO_PATH):
+        st.sidebar.image(LOGO_PATH, use_container_width=True)
 except Exception:
     pass
-
 st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
-
 if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
     st.rerun()
 
-# === Komende activiteiten (links op scherm) ===
-st.sidebar.markdown("### 📅 Komende activiteiten")
+# Sidebar: Komende activiteiten
 try:
-    c = conn()
-    df_agenda_sidebar = pd.read_sql(
-        """
-        SELECT id, titel, datum, starttijd, locatie
-        FROM agenda
-        WHERE date(datum) >= date('now')
-        ORDER BY date(datum) ASC, time(COALESCE(starttijd, '00:00')) ASC
-        LIMIT 8
-        """,
-        c
-    )
-    c.close()
-
-    if df_agenda_sidebar.empty:
+    with db_conn() as con:
+        df_ag = pd.read_sql(
+            """
+            SELECT id, titel, datum, starttijd, locatie
+            FROM agenda
+            WHERE date(datum) >= CURRENT_DATE
+            ORDER BY date(datum) ASC, COALESCE(starttijd,'00:00') ASC
+            LIMIT 8
+            """,
+            con,
+        )
+    st.sidebar.markdown("### 📅 Komende activiteiten")
+    if df_ag.empty:
         st.sidebar.info("Geen komende activiteiten")
     else:
-        for _, r in df_agenda_sidebar.iterrows():
+        for _, r in df_ag.iterrows():
             dag_txt = ""
-            tijd_txt = ""
-
-            # Datum verwerken
             try:
                 dag_dt = pd.to_datetime(r["datum"]).date()
                 dag_txt = dag_dt.strftime("%d %b %Y")
             except Exception:
-                dag_dt = None
                 dag_txt = str(r.get("datum", "") or "")
-
-            # Starttijd verwerken
-            try:
-                if pd.notna(r["starttijd"]) and str(r["starttijd"]).strip():
-                    tijd_txt = pd.to_datetime(str(r["starttijd"])).strftime("%H:%M")
-            except Exception:
-                tijd_txt = str(r.get("starttijd", "") or "")
-
-            # Dagen-badge (bijv. 3d)
-            try:
-                if isinstance(dag_dt, date):
-                    delta = (dag_dt - date.today()).days
-                    badge = f"{delta}d" if delta >= 0 else ""
-                else:
-                    badge = ""
-            except Exception:
-                badge = ""
-
-            # Waarden voorbereiden
-            titel      = str(r.get("titel", "") or "")
-            locatie    = str(r.get("locatie", "") or "")
-            tijd_blok  = f" om {tijd_txt}" if tijd_txt else ""
-            loc_blok   = f" · {locatie}" if locatie else ""
-            badge_blok = f" · ⏳ {badge}" if badge else ""
-
-            # Complete regel opbouwen en tonen
-            regel = (
-                f"- **{titel}**  \n"
-                f"  🗓️ {dag_txt}{tijd_blok}{loc_blok}{badge_blok}"
-            )
-            st.sidebar.markdown(regel)
-
+            tijd_txt = r.get("starttijd") or ""
+            locatie = r.get("locatie") or ""
+            st.sidebar.markdown(f"- **{r.get('titel','')}**  
+  🗓️ {dag_txt}{(' om ' + tijd_txt) if tijd_txt else ''}{(' · ' + locatie) if locatie else ''}")
 except Exception as e:
     st.sidebar.warning(f"Agenda kon niet geladen worden: {e}")
 
-# ================= EXPORT =================
+# =====================
+# GENERIC HELPERS
+# =====================
+
 def export_excel(df, name):
     buf = BytesIO()
     df.to_excel(buf, index=False)
-    st.download_button("📥 Excel", buf.getvalue(), f"{name}.xlsx")
+    buf.seek(0)
+    st.download_button("📥 Excel", buf, f"{name}.xlsx")
 
-def import_projecten_excel(file):
-    df = pd.read_excel(file)
-
-    verplichte_kolommen = [
-        "naam",
-        "projectleider",
-        "start",
-        "einde",
-        "prio",
-        "status",
-        "opmerking"
-    ]
-
-    # check kolommen
-    for kolom in verplichte_kolommen:
-        if kolom not in df.columns:
-            st.error(f"Kolom ontbreekt in Excel: {kolom}")
-            return
-
-    c = conn()
-    teller = 0
-
-    for _, r in df.iterrows():
-        if not str(r["naam"]).strip():
-            continue  # naam is verplicht
-
-        c.execute(
-            """
-            INSERT INTO projecten
-            (naam, projectleider, start, einde, prio, status, opmerking)
-            VALUES (?,?,?,?,?,?,?)
-            """,
-            (
-                str(r["naam"]).strip(),
-                str(r["projectleider"]).strip() if pd.notna(r["projectleider"]) else None,
-                parse_iso_date(r["start"]),
-                parse_iso_date(r["einde"]),
-                str(r["prio"]).strip() if pd.notna(r["prio"]) else None,
-                str(r["status"]).strip() if pd.notna(r["status"]) else None,
-                str(r["opmerking"]).strip() if pd.notna(r["opmerking"]) else None
-            ))
-
-        teller += 1
-
-    c.commit()
-    c.close()
-
-    audit("IMPORT_EXCEL", "projecten")
-    st.success(f"✅ {teller} projecten geïmporteerd")
 
 def export_pdf(df, title):
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet
+    except Exception as e:
+        st.warning(f"PDF export vereist reportlab: {e}")
+        return
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4)
     styles = getSampleStyleSheet()
@@ -767,153 +550,89 @@ def export_pdf(df, title):
     doc.build([Paragraph(title, styles["Title"]), t])
     st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
 
-# ================= SEARCH HELPERS =================
+
 def apply_search(df, search):
     if not search:
         return df
     mask = df.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
     return df[mask]
 
-# ================= DASHBOARD ALERTS =================
-def dashboard_alerts():
+# =====================
+# TABS RENDERERS
+# =====================
+
+def render_dashboard():
     st.markdown("### ⚠️ Aandachtspunten")
-
-    c = conn()
-    today = date.today().isoformat()
     messages = []
-
-    # Projecten zonder einddatum
-    df_proj = pd.read_sql(
-        """
-        SELECT COUNT(*) AS c
-        FROM projecten
-        WHERE einde IS NULL OR TRIM(einde) = ''
-        """,
-        c)
-
-    proj_count = int(df_proj.iloc[0]["c"])
-    if proj_count > 0:
-        messages.append(
-            f"📁 Er zijn **{proj_count} projecten** zonder vastgestelde einddatum."
-        )
-
-    # Aflopende uitzonderingen (binnen 14 dagen)
-    df_u = pd.read_sql(
-        """
-        SELECT COUNT(*) AS c
-        FROM uitzonderingen
-        WHERE einde IS NOT NULL
-          AND date(einde) >= date(?)
-          AND date(einde) <= date(?, '+14 day')
-        """,
-        c, params=[today, today])
-
-    if int(df_u.iloc[0]["c"]) > 0:
-        messages.append(
-            f"⏳ Er lopen **{df_u.iloc[0]['c']} parkeeruitzonderingen** binnenkort af."
-        )
-
-    # Aflopende contracten (binnen 2 maanden)
-    df_c = pd.read_sql(
-        """
-        SELECT COUNT(*) AS c
-        FROM contracten
-        WHERE einde IS NOT NULL
-          AND date(einde) <= date(?, '+2 month')
-        """,
-        c, params=[today])
-
-    if int(df_c.iloc[0]["c"]) > 0:
-        messages.append(
-            f"📄 Er zijn **{df_c.iloc[0]['c']} contracten** die binnen twee maanden aflopen."
-        )
-
-    # Open kaartfouten
-    df_k = pd.read_sql(
-        """
-        SELECT COUNT(*) AS c
-        FROM kaartfouten
-        WHERE status = 'Open'
-        """,
-        c)
-
-    if int(df_k.iloc[0]["c"]) > 0:
-        messages.append(
-            f"🗺️ Er staan **{df_k.iloc[0]['c']} open kaartfouten** geregistreerd."
-        )
-
-    c.close()
+    try:
+        with db_conn() as con:
+            # projecten zonder einddatum
+            c1 = pd.read_sql("SELECT COUNT(*) AS c FROM projecten WHERE einde IS NULL", con).iloc[0]["c"]
+            if int(c1) > 0:
+                messages.append(f"📁 Er zijn **{c1} projecten** zonder vastgestelde einddatum.")
+            # aflopende uitzonderingen binnen 14 dagen
+            c2 = pd.read_sql(
+                """
+                SELECT COUNT(*) AS c FROM uitzonderingen
+                WHERE einde IS NOT NULL AND date(einde) >= CURRENT_DATE AND date(einde) <= CURRENT_DATE + INTERVAL '14 days'
+                """,
+                con,
+            ).iloc[0]["c"]
+            if int(c2) > 0:
+                messages.append(f"⏳ Er lopen **{c2} parkeeruitzonderingen** binnenkort af.")
+            # aflopende contracten binnen 2 maanden
+            c3 = pd.read_sql(
+                """
+                SELECT COUNT(*) AS c FROM contracten
+                WHERE einde IS NOT NULL AND date(einde) <= CURRENT_DATE + INTERVAL '2 months'
+                """,
+                con,
+            ).iloc[0]["c"]
+            if int(c3) > 0:
+                messages.append(f"📄 Er zijn **{c3} contracten** die binnen twee maanden aflopen.")
+            # open kaartfouten
+            c4 = pd.read_sql("SELECT COUNT(*) AS c FROM kaartfouten WHERE status='Open'", con).iloc[0]["c"]
+            if int(c4) > 0:
+                messages.append(f"🗺️ Er staan **{c4} open kaartfouten** geregistreerd.")
+    except Exception as e:
+        st.warning(f"Kon aandachtspunten niet laden: {e}")
 
     if not messages:
         st.caption("Geen actuele aandachtspunten.")
-        return
+    else:
+        with st.expander("Toon aandachtspunten", expanded=False):
+            for m in messages:
+                st.markdown(f"- {m}")
 
-    if st.session_state.role == "viewer":
-        st.info("Er zijn aandachtspunten beschikbaar. Neem indien nodig contact op met een beheerder.")
-        return
+    # metrics
+    try:
+        with db_conn() as con:
+            cols = st.columns(5)
+            cols[0].metric("Uitzonderingen", int(pd.read_sql("SELECT COUNT(*) c FROM uitzonderingen", con).iloc[0]["c"]))
+            cols[1].metric("Gehandicapten", int(pd.read_sql("SELECT COUNT(*) c FROM gehandicapten", con).iloc[0]["c"]))
+            cols[2].metric("Contracten", int(pd.read_sql("SELECT COUNT(*) c FROM contracten", con).iloc[0]["c"]))
+            cols[3].metric("Projecten", int(pd.read_sql("SELECT COUNT(*) c FROM projecten", con).iloc[0]["c"]))
+            cols[4].metric("Werkzaamheden", int(pd.read_sql("SELECT COUNT(*) c FROM werkzaamheden", con).iloc[0]["c"]))
+    except Exception as e:
+        st.warning(f"Kon metrics niet laden: {e}")
 
-    with st.expander("Toon aandachtspunten", expanded=False):
-        for m in messages:
-            st.markdown(f"- {m}")
 
-def dashboard_shortcuts():
-    from html import escape
-
-    c = conn()
-    df = pd.read_sql("SELECT * FROM dashboard_shortcuts WHERE active=1", c)
-    c.close()
-
-    if df.empty:
-        st.info("Geen snelkoppelingen ingesteld")
-        return
-
-    st.markdown("### 🚀 Snelkoppelingen")
-    cols = st.columns(3)
-    i = 0
-
-    for _, s in df.iterrows():
-        roles = [r.strip() for r in str(s.get("roles", "")).split(",") if r.strip()]
-        if st.session_state.role not in roles:
-            continue
-
-        url = escape(str(s.get("url", "")), quote=True)
-        title = escape(str(s.get("title", "")))
-        subtitle = escape(str(s.get("subtitle", "")))
-
-        html = f"""
-<a href="{url}" target="_blank" style="text-decoration:none;">
-  <div style="border:1px solid #e0e0e0;border-radius:14px;
-              padding:18px;margin-bottom:16px;background:white;
-              box-shadow:0 4px 10px rgba(0,0,0,0.06);">
-    <div style="font-size:22px;font-weight:600;">{title}</div>
-    <div style="color:#666;margin-top:6px;">{subtitle}</div>
-  </div>
-</a>
-"""
-        with cols[i]:
-            st.markdown(html, unsafe_allow_html=True)
-        i = (i + 1) % 3
-
-# ================= GENERIEKE CRUD =================
 def crud_block(table, fields, dropdowns=None):
     dropdowns = dropdowns or {}
-    c = conn()
-    df = pd.read_sql(f"SELECT * FROM {table}", c)
+    with db_conn() as con:
+        df = pd.read_sql(f"SELECT * FROM {table}", con)
 
     search = st.text_input("🔍 Zoeken", key=f"{table}_search")
     df = apply_search(df, search)
 
     st.dataframe(df, use_container_width=True)
-
     export_excel(df, table)
     export_pdf(df, table)
 
     if not has_role("admin", "editor"):
-        c.close()
         return
 
-    sel = st.selectbox("✏️ Selecteer record", [None] + df.get("id", pd.Series([], dtype="int")).astype(int).tolist(),
-                       key=f"{table}_select")
+    sel = st.selectbox("✏️ Selecteer record", [None] + df.get("id", pd.Series([], dtype="int")).astype(int).tolist(), key=f"{table}_select")
     record = df[df.id == sel].iloc[0] if sel else None
 
     with st.form(f"{table}_form"):
@@ -933,80 +652,72 @@ def crud_block(table, fields, dropdowns=None):
         submit_edit = col2.form_submit_button("✏️ Wijzigen")
         submit_del = col3.form_submit_button("🗑️ Verwijderen")
 
-        # --------- EXTRA VALIDATIES voor Uitzonderingen (B) ---------
-        def validate_and_check_duplicates(is_update=False, current_id=None):
+        def validate_extras(is_update=False):
             if table != "uitzonderingen":
-                return True  # geen extra checks nodig
-
-            # kenteken validatie
+                return True
             k_raw = values.get("kenteken", "")
             if not is_valid_kenteken(k_raw):
-                st.error("Kenteken ongeldig. Gebruik letters/cijfers (5–8 tekens), bijv. AB123C of 12ABC3.")
+                st.error("Kenteken ongeldig. Gebruik letters/cijfers (5–8 tekens).")
                 return False
-
-            # datums valideren en overlap checken
             start_iso = parse_iso_date(values.get("start"))
             einde_iso = parse_iso_date(values.get("einde"))
-            if start_iso is None or einde_iso is None:
-                st.error("Start/einde datum onjuist. Gebruik formaat YYYY-MM-DD.")
+            if start_iso is None or einde_iso is None or start_iso > einde_iso:
+                st.error("Start/einde datum onjuist of start > einde.")
                 return False
-            if start_iso > einde_iso:
-                st.error("Start mag niet later zijn dan Einde.")
-                return False
-
-            dup_df = detect_overlapping_uitzondering(
-                k_raw, start_iso, einde_iso, exclude_id=(current_id if is_update else None)
-            )
-            if not dup_df.empty and "fout" not in dup_df.columns:
-                st.error("Er bestaat al een uitzondering voor dit kenteken met overlappende periode.")
-                st.dataframe(dup_df, use_container_width=True)
-                return False
-
-            # normaliseer opslagvorm van kenteken (upper, bewaar eventuele '-')
-            values["kenteken"] = values["kenteken"].upper().strip()
+            values["kenteken"] = k_raw.upper().strip()
             return True
 
         if submit_new:
-            if validate_and_check_duplicates(is_update=False):
-                c.execute(
-                    f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?'*len(fields))})",
-                    tuple(values.values())
-                )
-                rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
-                c.commit()
+            if validate_extras(False):
+                placeholders = ",".join(["%s"] * len(fields))
+                with db_conn() as con:
+                    cur = con.cursor()
+                    cur.execute(
+                        f"INSERT INTO {table} ({','.join(fields)}) VALUES ({placeholders}) RETURNING id",
+                        tuple(values[v] if values[v] != '' else None for v in fields),
+                    )
+                    rid = cur.fetchone()["id"]
+                    con.commit()
                 audit("INSERT", table, rid)
                 st.success("Record toegevoegd")
                 st.rerun()
 
         if record is not None and submit_edit:
-            if validate_and_check_duplicates(is_update=True, current_id=sel):
-                c.execute(
-                    f"UPDATE {table} SET {','.join(f+'=?' for f in fields)} WHERE id=?",
-                    (*values.values(), sel)
-                )
-                c.commit()
-                audit("UPDATE", table, sel)
+            if validate_extras(True):
+                with db_conn() as con:
+                    cur = con.cursor()
+                    cur.execute(
+                        f"UPDATE {table} SET {','.join([f + '=%s' for f in fields])} WHERE id=%s",
+                        (*[values[v] if values[v] != '' else None for v in fields], int(sel)),
+                    )
+                    con.commit()
+                audit("UPDATE", table, int(sel))
                 st.success("Record bijgewerkt")
                 st.rerun()
 
         if has_role("admin") and record is not None and submit_del:
-            c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
-            c.commit()
-            audit("DELETE", table, sel)
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute(f"DELETE FROM {table} WHERE id=%s", (int(sel),))
+                con.commit()
+            audit("DELETE", table, int(sel))
             st.success("Record verwijderd")
             st.rerun()
 
-    c.close()
 
-# ================= SPECIFIEKE CRUD VOOR AGENDA =================
-def agenda_block():
-    c = conn()
-    df = pd.read_sql("SELECT * FROM agenda", c)
-    c.close()
+def render_uitzonderingen():
+    crud_block(
+        "uitzonderingen",
+        ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
+        {"type":["Bewoner","Bedrijf","Project"]},
+    )
 
+
+def render_agenda():
+    with db_conn() as con:
+        df = pd.read_sql("SELECT * FROM agenda", con)
     search = st.text_input("🔍 Zoeken", key="agenda_search")
     df = apply_search(df, search)
-
     st.dataframe(df, use_container_width=True)
     export_excel(df, "agenda")
     export_pdf(df, "Agenda")
@@ -1019,905 +730,146 @@ def agenda_block():
 
     with st.form("agenda_form"):
         titel = st.text_input("Titel", value=(record["titel"] if record is not None else ""))
-
-        if record is not None and pd.notna(record.get("datum", None)):
-            try:
-                d_default = pd.to_datetime(record["datum"]).date()
-            except Exception:
-                d_default = date.today()
-        else:
-            d_default = date.today()
+        d_default = pd.to_datetime(record["datum"]).date() if record is not None and pd.notna(record.get("datum")) else date.today()
         datum_val = st.date_input("Datum", value=d_default)
-
         def parse_time(v, default_h=9, default_m=0):
             try:
                 t = pd.to_datetime(str(v)).time()
                 return time(t.hour, t.minute)
             except Exception:
                 return time(default_h, default_m)
-
-        starttijd_val = st.time_input(
-            "Starttijd",
-            value=parse_time(record["starttijd"]) if record is not None else time(9, 0)
-        )
-        eindtijd_val = st.time_input(
-            "Eindtijd",
-            value=parse_time(record["eindtijd"], 10, 0) if record is not None else time(10, 0)
-        )
-
+        starttijd_val = st.time_input("Starttijd", value=parse_time(record["starttijd"]) if record is not None else time(9,0))
+        eindtijd_val = st.time_input("Eindtijd", value=parse_time(record["eindtijd"],10,0) if record is not None else time(10,0))
         locatie = st.text_input("Locatie", value=(record["locatie"] if record is not None else ""))
         beschrijving = st.text_area("Beschrijving", value=(record["beschrijving"] if record is not None else ""))
-
         col1, col2, col3 = st.columns(3)
         submit_new = col1.form_submit_button("💾 Opslaan (nieuw)")
         submit_edit = col2.form_submit_button("✏️ Wijzigen")
         submit_del = col3.form_submit_button("🗑️ Verwijderen")
 
         if submit_new:
-            c = conn()
-            c.execute(
-                """
-                INSERT INTO agenda (titel, datum, starttijd, eindtijd, locatie, beschrijving, aangemaakt_door, aangemaakt_op)
-                VALUES (?,?,?,?,?,?,?,?)
-                """,
-                (
-                    titel,
-                    datum_val.isoformat(),
-                    starttijd_val.strftime("%H:%M"),
-                    eindtijd_val.strftime("%H:%M"),
-                    locatie,
-                    beschrijving,
-                    st.session_state.user,
-                    datetime.now().isoformat(timespec="seconds")
-                ))
-            rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
-            c.commit()
-            c.close()
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute(
+                    """
+                    INSERT INTO agenda (titel, datum, starttijd, eindtijd, locatie, beschrijving, aangemaakt_door, aangemaakt_op)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                    """,
+                    (
+                        titel,
+                        datum_val.isoformat(),
+                        starttijd_val.strftime("%H:%M"),
+                        eindtijd_val.strftime("%H:%M"),
+                        locatie,
+                        beschrijving,
+                        st.session_state.user,
+                        datetime.now().isoformat(timespec="seconds"),
+                    ),
+                )
+                rid = cur.fetchone()["id"]
+                con.commit()
             audit("INSERT", "agenda", rid)
             st.success("Activiteit toegevoegd")
             st.rerun()
 
         if record is not None and submit_edit:
-            c = conn()
-            c.execute(
-                """
-                UPDATE agenda
-                SET titel=?, datum=?, starttijd=?, eindtijd=?, locatie=?, beschrijving=?
-                WHERE id=?
-                """,
-                (
-                    titel,
-                    datum_val.isoformat(),
-                    starttijd_val.strftime("%H:%M"),
-                    eindtijd_val.strftime("%H:%M"),
-                    locatie,
-                    beschrijving,
-                    int(sel)
-                ))
-            c.commit()
-            c.close()
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute(
+                    """
+                    UPDATE agenda SET titel=%s, datum=%s, starttijd=%s, eindtijd=%s, locatie=%s, beschrijving=%s WHERE id=%s
+                    """,
+                    (
+                        titel,
+                        datum_val.isoformat(),
+                        starttijd_val.strftime("%H:%M"),
+                        eindtijd_val.strftime("%H:%M"),
+                        locatie,
+                        beschrijving,
+                        int(sel),
+                    ),
+                )
+                con.commit()
             audit("UPDATE", "agenda", int(sel))
             st.success("Activiteit bijgewerkt")
             st.rerun()
 
         if has_role("admin") and record is not None and submit_del:
-            c = conn()
-            c.execute("DELETE FROM agenda WHERE id=?", (int(sel),))
-            c.commit()
-            c.close()
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute("DELETE FROM agenda WHERE id=%s", (int(sel),))
+                con.commit()
             audit("DELETE", "agenda", int(sel))
             st.success("Activiteit verwijderd")
             st.rerun()
 
-# ================= GEBRUIKERSBEHEER =================
-def users_block():
-    if not has_role("admin"):
-        st.warning("Alleen admins")
-        return
 
-    c = conn()
-    st.subheader("👥 Gebruikers")
-    df_users = pd.read_sql("SELECT username, role, active, force_change FROM users ORDER BY username", c)
-    st.dataframe(df_users, use_container_width=True)
-
-    st.markdown("### ➕ Gebruiker toevoegen")
-    with st.form("user_add_form"):
-        new_username = st.text_input("Gebruikersnaam (uniek)")
-        new_password = st.text_input("Initieel wachtwoord", type="password")
-        new_role = st.selectbox("Rol", ["admin", "editor", "viewer"])
-        new_active = st.checkbox("Actief", True)
-        force_change = st.checkbox("Wachtwoord wijzigen bij eerste login (aanbevolen)", True)
-
-        if st.form_submit_button("💾 Toevoegen"):
-            if not new_username or not new_password or len(new_password) < 8:
-                st.error("Geef een unieke gebruikersnaam en een wachtwoord van minimaal 8 tekens.")
-            else:
-                try:
-                    c.execute(
-                        """
-                        INSERT INTO users (username, password, role, active, force_change)
-                        VALUES (?,?,?,?,?)
-                        """,
-                        (new_username, hash_pw(new_password), new_role, int(new_active), int(force_change)))
-                    c.commit()
-                    audit("USER_CREATE", "users", new_username)
-                    st.success(f"Gebruiker '{new_username}' toegevoegd")
-                    st.session_state["_tab_perms_cache"] = None
-                    st.rerun()
-                except sqlite3.IntegrityError:
-                    st.error("Gebruikersnaam bestaat al.")
-
-    st.markdown("### ✏️ Gebruiker bewerken/verwijderen")
-    df_usernames = df_users["username"].tolist()
-    sel_user = st.selectbox("Selecteer gebruiker", [None] + df_usernames, key="user_edit_select")
-
-    if sel_user:
-        cur = c.execute("SELECT username, role, active, force_change FROM users WHERE username=?", (sel_user,))
-        row = cur.fetchone()
-        if row:
-            _, role_cur, active_cur, force_cur = row
-            with st.form("user_edit_form"):
-                role_new = st.selectbox("Rol", ["admin", "editor", "viewer"], index=["admin","editor","viewer"].index(role_cur))
-                active_new = st.checkbox("Actief", bool(active_cur))
-                force_new = st.checkbox("Forceer wachtwoordwijziging", bool(force_cur))
-                pw_reset = st.checkbox("Wachtwoord resetten?")
-                pw_new = st.text_input("Nieuw wachtwoord", type="password", disabled=not pw_reset)
-
-                col1, col2 = st.columns(2)
-                do_save = col1.form_submit_button("💾 Opslaan wijzigingen")
-                do_delete = col2.form_submit_button("🗑️ Verwijderen")
-
-                if do_save:
-                    if pw_reset and len(pw_new) < 8:
-                        st.error("Nieuw wachtwoord moet minstens 8 tekens zijn.")
-                    else:
-                        if pw_reset:
-                            c.execute(
-                                """
-                                UPDATE users SET role=?, active=?, force_change=?, password=?
-                                WHERE username=?
-                                """,
-                                (role_new, int(active_new), int(force_new), hash_pw(pw_new), sel_user))
-                            audit("USER_UPDATE_RESET_PW", "users", sel_user)
-                        else:
-                            c.execute(
-                                """
-                                UPDATE users SET role=?, active=?, force_change=?
-                                WHERE username=?
-                                """,
-                                (role_new, int(active_new), int(force_new), sel_user))
-                            audit("USER_UPDATE", "users", sel_user)
-                        c.commit()
-                        st.success("Gebruiker bijgewerkt")
-                        st.session_state["_tab_perms_cache"] = None
-                        st.rerun()
-
-                if do_delete:
-                    c.execute("DELETE FROM permissions WHERE username=?", (sel_user,))
-                    c.execute("DELETE FROM users WHERE username=?", (sel_user,))
-                    c.commit()
-                    audit("USER_DELETE", "users", sel_user)
-                    st.success("Gebruiker verwijderd")
-                    st.session_state["_tab_perms_cache"] = None
-                    st.rerun()
-
-    st.markdown("---")
-    st.subheader("🔐 Tab-toegang per gebruiker")
-    sel_perm_user = st.selectbox("Kies gebruiker voor tabrechten", [None] + df_usernames, key="perm_user_select")
-
-    if sel_perm_user:
-        df_perm = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=?", c, params=[sel_perm_user])
-        has_custom = not df_perm.empty
-
-        use_role_defaults = st.checkbox("Gebruik rol-standaardrechten (geen maatwerk)", value=not has_custom)
-
-        labels_keys = all_tabs_config()
-        tab_keys = [k for _, k in labels_keys]
-        labels_map = {k: lbl for (lbl, k) in labels_keys}
-
-        if use_role_defaults:
-            st.info("Rol-standaardrechten zijn actief. Eventuele maatwerkrechten worden verwijderd bij opslaan.")
-            if st.button("💾 Opslaan (rol-standaard gebruiken)", key="perm_save_role_defaults"):
-                c.execute("DELETE FROM permissions WHERE username=?", (sel_perm_user,))
-                c.commit()
-                audit("PERMISSIONS_CLEAR", "permissions", sel_perm_user)
-                st.success("Maatwerk tabrechten verwijderd; rol-standaard is nu actief.")
-                if sel_perm_user == st.session_state.user:
-                    st.session_state["_tab_perms_cache"] = None
-                st.rerun()
-        else:
-            current_allowed = set(df_perm[df_perm["allowed"] == 1]["tab_key"].tolist()) if has_custom else set()
-            default_for_role = role_default_permissions().get(
-                c.execute("SELECT role FROM users WHERE username=?", (sel_perm_user,)).fetchone()[0],
-                {}
-            )
-            help_txt = "Selecteer de tabbladen waar deze gebruiker bij mag. Niet-geselecteerd = geen toegang."
-            selected_labels = st.multiselect(
-                "Toegestane tabbladen",
-                [lbl for (lbl, _) in labels_keys],
-                default=[labels_map[k] for k in (current_allowed if has_custom else {k for k, v in default_for_role.items() if v})],
-                help=help_txt
-            )
-            selected_keys = {k for (lbl, k) in labels_keys if lbl in selected_labels}
-
-            if st.button("💾 Opslaan tabrechten", key="perm_save_custom"):
-                c.execute("DELETE FROM permissions WHERE username=?", (sel_perm_user,))
-                for k in tab_keys:
-                    c.execute(
-                        "INSERT INTO permissions (username, tab_key, allowed) VALUES (?,?,?)",
-                        (sel_perm_user, k, int(k in selected_keys))
-                    )
-                c.commit()
-                audit("PERMISSIONS_SET", "permissions", sel_perm_user)
-                st.success("Tabrechten opgeslagen")
-                if sel_perm_user == st.session_state.user:
-                    st.session_state["_tab_perms_cache"] = None
-                st.rerun()
-
-    st.markdown("---")
-    st.subheader("🚀 Dashboard snelkoppelingen")
-    st.dataframe(
-        pd.read_sql("SELECT * FROM dashboard_shortcuts", c),
-        use_container_width=True
-    )
-
-    with st.form("shortcut_form"):
-        title = st.text_input("Titel (emoji toegestaan)")
-        subtitle = st.text_input("Subtitel")
-        url = st.text_input("URL")
-        roles = st.multiselect(
-            "Zichtbaar voor rollen",
-            ["admin","editor","viewer"],
-            default=["admin","editor","viewer"]
+def is_folder_allowed(folder_id: int) -> bool:
+    if st.session_state.role == "admin":
+        return True
+    with db_conn() as con:
+        cur = con.cursor()
+        cur.execute("SELECT is_public FROM verslagen_folders WHERE id=%s AND active=1", (folder_id,))
+        r = cur.fetchone()
+        if not r:
+            return False
+        if int(r["is_public"]) == 1:
+            return True
+        cur.execute(
+            "SELECT allowed FROM verslagen_folder_permissions WHERE folder_id=%s AND username=%s",
+            (folder_id, st.session_state.user),
         )
-        active = st.checkbox("Actief", True)
+        p = cur.fetchone()
+        return bool(p and int(list(p.values())[0]) == 1)
 
-        if st.form_submit_button("💾 Opslaan"):
-            c.execute(
-                """
-                INSERT INTO dashboard_shortcuts (title, subtitle, url, roles, active)
-                VALUES (?,?,?,?,?)
-                """,
-                (title, subtitle, url, ",".join(roles), int(active)))
-            c.commit()
-            audit("SHORTCUT_ADD")
-            st.success("Snelkoppeling toegevoegd")
-            st.rerun()
 
-    c.close()
+def ensure_folder_dir(folder_id: int) -> str:
+    path = os.path.join(UPLOAD_DIR_VERSLAGEN, str(folder_id))
+    os.makedirs(path, exist_ok=True)
+    return path
 
-# ================= RENDER FUNCTIES PER TAB =================
 
-def render_dashboard():
-    dashboard_alerts()
-
-    # --- Globale zoekbalk (A) ---
-    global_search_block()
-
-    c = conn()
-    cols = st.columns(5)
-    cols[0].metric("Uitzonderingen", pd.read_sql("SELECT COUNT(*) c FROM uitzonderingen", c)["c"][0])
-    cols[1].metric("Gehandicapten", pd.read_sql("SELECT COUNT(*) c FROM gehandicapten", c)["c"][0])
-    cols[2].metric("Contracten", pd.read_sql("SELECT COUNT(*) c FROM contracten", c)["c"][0])
-    cols[3].metric("Projecten", pd.read_sql("SELECT COUNT(*) c FROM projecten", c)["c"][0])
-    cols[4].metric("Werkzaamheden", pd.read_sql("SELECT COUNT(*) c FROM werkzaamheden", c)["c"][0])
-
-    st.markdown("---")
-    dashboard_shortcuts()
-    st.markdown("---")
-
-    c.close()
-
-
-def render_uitzonderingen():
-    crud_block(
-        "uitzonderingen",
-        ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
-        {"type":["Bewoner","Bedrijf","Project"]}
-    )
-
-
-def render_gehandicapten():
-    crud_block(
-        "gehandicapten",
-        ["naam","kaartnummer","adres","locatie","geldig_tot","besluit_door","opmerking"]
-    )
-
-
-def render_contracten():
-    crud_block(
-        "contracten",
-        ["leverancier","contractnummer","start","einde","contactpersoon","opmerking"]
-    )
-
-
-def render_projecten():
-    st.markdown("### 📥 Projecten importeren (Excel)")
-
-    if has_role("admin", "editor"):
-        file = st.file_uploader(
-            "Upload Excelbestand",
-            type=["xlsx"]
-        )
-
-        if file and st.button("📤 Importeren"):
-            import_projecten_excel(file)
-            st.rerun()
-    else:
-        st.caption("Alleen editor/admin kan importeren.")
-
-    st.markdown("---")
-
-    crud_block(
-        "projecten",
-        ["naam","projectleider","start","einde","prio","status","opmerking"],
-        {"prio":["Hoog","Gemiddeld","Laag"], "status":["Niet gestart","Actief","Afgerond"]}
-    )
-
-
-def render_werkzaamheden():
-    crud_block(
-        "werkzaamheden",
-        ["omschrijving","locatie","start","einde","status","uitvoerder","latitude","longitude","opmerking"],
-        {"status":["Gepland","In uitvoering","Afgerond"]}
-    )
-
-    st.markdown("### 🗺️ Werkzaamheden op kaart (cluster)")
-
-    c = conn()
-    df_map = pd.read_sql(
-        """
-        SELECT id, omschrijving, status, locatie, start, einde, latitude, longitude
-        FROM werkzaamheden
-        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-        """,
-        c)
-    c.close()
-
-    if df_map.empty:
-        st.info("Geen GPS-locaties ingevoerd")
-        return
-
-    # ---- Folium kaart met clustering (D) ----
-    try:
-        import folium
-        from folium.plugins import MarkerCluster
-        from streamlit.components.v1 import html as st_html
-
-        # map center
-        lat_mean = df_map["latitude"].astype(float).mean()
-        lon_mean = df_map["longitude"].astype(float).mean()
-        center = [lat_mean if pd.notna(lat_mean) else 51.81, lon_mean if pd.notna(lon_mean) else 4.66]
-
-        m = folium.Map(location=center, zoom_start=12, control_scale=True)
-
-        cluster = MarkerCluster().add_to(m)
-        color_map = {
-            "Gepland": "blue",
-            "In uitvoering": "orange",
-            "Afgerond": "green"
-        }
-
-        for _, r in df_map.iterrows():
-            color = color_map.get(str(r["status"]), "gray")
-            popup_html = f"""
-<b>{r.get('omschrijving','(zonder omschrijving)')}</b><br>
-Status: {r.get('status','')}<br>
-Locatie: {r.get('locatie','')}<br>
-Periode: {r.get('start','?')} – {r.get('einde','?')}<br>
-ID: {r.get('id','')}
-"""
-            folium.Marker(
-                location=[float(r["latitude"]), float(r["longitude"])],
-                icon=folium.Icon(color=color, icon="wrench", prefix="fa"),
-                popup=folium.Popup(popup_html, max_width=300)
-            ).add_to(cluster)
-
-        st_html(m._repr_html_(), height=520)
-
-    except Exception as e:
-        st.warning(f"Kaartweergave vereist het pakket 'folium'. Fout: {e}")
-        st.info("Installeer met: pip install folium")
-        st.map(df_map.rename(columns={"latitude":"lat","longitude":"lon"})[["lat","lon"]])
-
-
-def render_agenda():
-    agenda_block()
-
-
-def render_kaartfouten():
-    st.markdown("## 🗺️ Kaartfouten – parkeervakken")
-
-    # NIEUWE MELDING (incl. foto's)
-    with st.expander("➕ Nieuwe kaartfout melden", expanded=False):
-        with st.form("kaartfout_form"):
-            col1, col2 = st.columns(2)
-
-            with col1:
-                straat = st.text_input("Straatnaam *")
-                huisnummer = st.text_input("Huisnummer *")
-                postcode = st.text_input("Postcode *", placeholder="3311 AB")
-                vak_id = st.text_input("Parkeervak-ID (optioneel)")
-
-            with col2:
-                melding_type = st.selectbox(
-                    "Soort kaartfout",
-                    [
-                        "Geometrie onjuist",
-                        "Type onjuist",
-                        "Parkeervak bestaat niet",
-                        "Parkeervak ontbreekt",
-                        "Overig"
-                    ]
-                )
-
-            st.caption("📍 Locatie wordt automatisch bepaald op basis van postcode en huisnummer")
-
-            omschrijving = st.text_area("Toelichting *")
-
-            fotos = st.file_uploader(
-                "Foto’s toevoegen (optioneel)",
-                type=["jpg", "jpeg", "png"],
-                accept_multiple_files=True
-            )
-
-            submitted = st.form_submit_button("📩 Kaartfout melden")
-
-            if submitted:
-                if not straat or not huisnummer or not postcode or not omschrijving:
-                    st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
-                    st.stop()
-
-                lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
-
-                c = conn()
-                c.execute(
-                    """
-                    INSERT INTO kaartfouten
-                    (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
-                    VALUES (?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        vak_id.strip() if vak_id else None,
-                        melding_type,
-                        f"{straat.strip()} {huisnummer.strip()} - {omschrijving.strip()}",
-                        "Open",
-                        st.session_state.user,
-                        datetime.now().isoformat(timespec="seconds"),
-                        lat,
-                        lon
-                    ))
-
-                kaartfout_id = c.execute(
-                    "SELECT last_insert_rowid()"
-                ).fetchone()[0]
-
-                if fotos:
-                    for f in fotos:
-                        fname = f"{kaartfout_id}_{int(datetime.now().timestamp())}_{f.name}"
-                        path = os.path.join(UPLOAD_DIR, fname)
-                        with open(path, "wb") as out:
-                            out.write(f.getbuffer())
-
-                        c.execute(
-                            """
-                            INSERT INTO kaartfout_fotos
-                            (kaartfout_id, bestandsnaam, geupload_op)
-                            VALUES (?,?,?)
-                            """,
-                            (
-                                kaartfout_id,
-                                fname,
-                                datetime.now().isoformat(timespec="seconds")
-                            ))
-
-                c.commit()
-                c.close()
-
-                audit("KAARTFOUT_MELDING", "kaartfouten", kaartfout_id)
-                st.success("✅ Kaartfout gemeld (incl. foto’s)")
-                st.rerun()
-
-    # OVERZICHT
-    c = conn()
-    df = pd.read_sql(
-        """
-        SELECT id, vak_id, melding_type, status, melder, gemeld_op
-        FROM kaartfouten
-        ORDER BY gemeld_op DESC
-        """,
-        c)
-    c.close()
-
-    if df.empty:
-        st.info("Nog geen kaartfouten gemeld.")
-        return
-
-    st.dataframe(df, use_container_width=True)
-
-    # KAARTWEERGAVE
-    st.markdown("### 📍 Kaartweergave kaartfouten")
-
-    c = conn()
-    df_map = pd.read_sql(
-        """
-        SELECT
-            id,
-            melding_type,
-            omschrijving,
-            status,
-            melder,
-            latitude,
-            longitude
-        FROM kaartfouten
-        WHERE latitude IS NOT NULL
-          AND longitude IS NOT NULL
-        """,
-        c)
-    c.close()
-
-    if df_map.empty:
-        st.info("Geen kaartfouten met GPS-coördinaten.")
-    else:
-        try:
-            import folium
-            from streamlit.components.v1 import html as st_html
-
-            lat_mean = df_map["latitude"].astype(float).mean()
-            lon_mean = df_map["longitude"].astype(float).mean()
-            center = [
-                lat_mean if pd.notna(lat_mean) else 51.8133,
-                lon_mean if pd.notna(lon_mean) else 4.6901
-            ]
-
-            m = folium.Map(
-                location=center,
-                zoom_start=13,
-                control_scale=True
-            )
-
-            kleur = {
-                "Open": "red",
-                "In onderzoek": "orange",
-                "Opgelost": "green"
-            }
-
-            for _, r in df_map.iterrows():
-                popup_html = f"""
-<b>Kaartfout #{r['id']}</b><br>
-Type: {r['melding_type']}<br>
-Status: {r['status']}<br>
-Melder: {r['melder']}<br><br>
-{r['omschrijving']}
-"""
-
-                folium.Marker(
-                    location=[float(r["latitude"]), float(r["longitude"])],
-                    popup=folium.Popup(popup_html, max_width=300),
-                    icon=folium.Icon(
-                        color=kleur.get(r["status"], "blue"),
-                        icon="map-marker",
-                        prefix="fa"
-                    )
-                ).add_to(m)
-
-            st_html(m._repr_html_(), height=520)
-
-        except Exception as e:
-            st.warning(f"Kaart kon niet worden geladen: {e}")
-            st.map(
-                df_map.rename(
-                    columns={"latitude": "lat", "longitude": "lon"}
-                )[["lat", "lon"]]
-            )
-
-    # AFHANDELING + FOTO'S (alleen editor/admin)
-    if has_role("editor", "admin"):
-        st.markdown("### ✏️ Afhandeling & foto’s")
-
-        sel_id = st.selectbox(
-            "Selecteer melding",
-            [None] + df["id"].tolist(),
-            key="kaartfout_select"
-        )
-
-        if sel_id:
-            c = conn()
-
-            huidige_status = c.execute(
-                "SELECT status FROM kaartfouten WHERE id=?",
-                (sel_id,)
-            ).fetchone()[0]
-
-            with st.form("kaartfout_status_form"):
-                nieuwe_status = st.selectbox(
-                    "Status",
-                    ["Open", "In onderzoek", "Opgelost"],
-                    index=["Open", "In onderzoek", "Opgelost"].index(huidige_status)
-                )
-
-                save_status = st.form_submit_button("💾 Status opslaan")
-
-                if save_status:
-                    c.execute(
-                        "UPDATE kaartfouten SET status=? WHERE id=?",
-                        (nieuwe_status, sel_id)
-                    )
-                    c.commit()
-                    audit("KAARTFOUT_STATUS", "kaartfouten", sel_id)
-                    st.success("✅ Status bijgewerkt")
-                    st.rerun()
-
-            # ---- FOTO'S TONEN ----
-            fotos = pd.read_sql(
-                "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
-                c,
-                params=[sel_id]
-            )
-
-            if not fotos.empty:
-                st.markdown("### 📷 Foto’s")
-                for _, r in fotos.iterrows():
-                    path = os.path.join(UPLOAD_DIR, r["bestandsnaam"])
-                    if os.path.exists(path):
-                        st.image(path, use_container_width=True)
-
-            # ---- VERWIJDEREN (ADMIN) ----
-            if has_role("admin"):
-                st.markdown("### 🗑️ Verwijderen (admin)")
-                st.warning("⚠️ Deze actie verwijdert de melding definitief.")
-
-                if st.button("❌ Melding definitief verwijderen"):
-                    fotos = c.execute(
-                        "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
-                        (sel_id,)
-                    ).fetchall()
-
-                    for (fname,) in fotos:
-                        path = os.path.join(UPLOAD_DIR, fname)
-                        if os.path.exists(path):
-                            os.remove(path)
-
-                    c.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=?", (sel_id,))
-                    c.execute("DELETE FROM kaartfouten WHERE id=?", (sel_id,))
-                    c.commit()
-
-                    audit("KAARTFOUT_VERWIJDERD", "kaartfouten", sel_id)
-                    st.success("🗑️ Melding verwijderd")
-                    st.rerun()
-
-            c.close()
-    else:
-        st.caption("ℹ️ Afhandeling alleen zichtbaar voor editor/admin.")
-
-
-def render_handhaving():
-    st.subheader("👮 Handhaving")
-
-    keuze = st.radio(
-        "Onderdeel",
-        ["🗺️ Kaartfouten"],
-        horizontal=True
-    )
-
-    if keuze == "🗺️ Kaartfouten":
-        render_kaartfouten()
-
-
-def render_gebruikers():
-    users_block()
-
-def render_verslagen_beheer():
-    if not has_role("admin"):
-        st.error("Alleen admins kunnen dit overzicht bekijken.")
-        return
-
-    st.title("🛡️ Verslagen – Administratief overzicht")
-
-    c = conn()
-
-    # -------------------------
-    # A: PER MAP – wie heeft toegang?
-    # -------------------------
-    st.header("📁 Per map: wie heeft toegang?")
-
-    df_folders = pd.read_sql(
-        "SELECT id, name, is_public FROM verslagen_folders WHERE active=1 ORDER BY name",
-        c
-    )
-
-    df_permissions = pd.read_sql(
-        """
-        SELECT folder_id, username
-        FROM verslagen_folder_permissions
-        WHERE allowed=1
-        """,
-        c
-    )
-
-    for _, folder in df_folders.iterrows():
-        fid = int(folder["id"])
-        naam = folder["name"]
-        openbaar = "✔️ Openbaar" if folder["is_public"] == 1 else "❌ Niet openbaar"
-
-        st.subheader(f"📂 {naam}")
-        st.caption(openbaar)
-
-        # gebruikers met expliciete rechten
-        users = df_permissions[df_permissions.folder_id == fid]["username"].tolist()
-
-        if folder["is_public"] == 1:
-            st.info("Iedere ingelogde gebruiker met toegang tot Verslagen kan deze map zien.")
-        elif users:
-            st.write("Toegang voor:")
-            st.write(", ".join(users))
-        else:
-            st.warning("⚠️ Geen gebruikers hebben toegang (alleen admins).")
-
-        st.markdown("---")
-
-    # -------------------------
-    # B: PER GEBRUIKER – welke mappen kan hij/zij zien?
-    # -------------------------
-    st.header("👥 Per gebruiker: welke mappen kunnen ze zien?")
-
-    df_users = pd.read_sql(
-        "SELECT username, role FROM users WHERE active=1 ORDER BY username",
-        c
-    )
-
-    for _, user in df_users.iterrows():
-        uname = user["username"]
-        is_admin_user = (user["role"] == "admin")
-
-        st.subheader(f"👤 {uname} ({user['role']})")
-
-        can_see = []
-
-        for _, folder in df_folders.iterrows():
-            fid = int(folder["id"])
-
-            # admin → altijd toegang
-            if is_admin_user:
-                can_see.append(folder["name"])
-                continue
-
-            # openbaar?
-            if folder["is_public"] == 1:
-                can_see.append(folder["name"])
-                continue
-
-            # expliciete permissie?
-            row = df_permissions[
-                (df_permissions.folder_id == fid) &
-                (df_permissions.username == uname)
-            ]
-            if not row.empty:
-                can_see.append(folder["name"])
-
-        if can_see:
-            st.success("Toegang tot:")
-            st.write(", ".join(can_see))
-        else:
-            st.warning("Geen toegang tot verslagenmappen.")
-
-        st.markdown("---")
-
-    c.close()
-
-def render_audit():
-    c = conn()
-
-    st.markdown("### 👤 Activiteiten per gebruiker")
-    df_per_user = pd.read_sql(
-        """
-        SELECT user, COUNT(*) AS acties, MAX(timestamp) AS laatste_actie
-        FROM audit_log
-        GROUP BY user
-        ORDER BY acties DESC
-        """,
-        c)
-    st.dataframe(df_per_user, use_container_width=True)
-
-    st.markdown("---")
-
-    st.markdown("### 🧾 Laatste acties")
-    df_last = pd.read_sql(
-        """
-        SELECT timestamp, user, action, table_name, record_id
-        FROM audit_log
-        ORDER BY id DESC
-        LIMIT 10
-        """,
-        c)
-    st.dataframe(df_last, use_container_width=True)
-
-    st.markdown("---")
-
-    st.markdown("### 📚 Volledig audit log")
-    df_full = pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c)
-    st.dataframe(df_full, use_container_width=True)
-
-    c.close()
-
-# ================= RECHTEN =================
-def load_user_permissions(username, role):
-    c = conn()
-    try:
-        df = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=?", c, params=[username])
-    finally:
-        c.close()
-    defaults = role_default_permissions().get(role, {})
-    if df.empty:
-        return dict(defaults)
-    else:
-        keys = [k for _, k in all_tabs_config()]
-        user_map = {k: False for k in keys}
-        for _, r in df.iterrows():
-            user_map[str(r["tab_key"])] = bool(int(r["allowed"]))
-        return user_map
-
-def is_tab_allowed(tab_key):
-    perms = st.session_state.get("_tab_perms_cache")
-    if perms is None:
-        perms = load_user_permissions(st.session_state.user, st.session_state.role)
-        st.session_state["_tab_perms_cache"] = perms
-    return perms.get(tab_key, False)
-
-# ================= VERSLAGEN TAB =================
 def render_verslagen():
     st.subheader("🗂️ Verslagen")
 
-    # ===== Mappen laden waartoe gebruiker toegang heeft =====
-    c = conn()
-    df_folders = pd.read_sql("SELECT id, name, description, is_public, active FROM verslagen_folders WHERE active=1 ORDER BY name", c)
-    c.close()
+    with db_conn() as con:
+        df_folders = pd.read_sql("SELECT id, name, description, is_public, active FROM verslagen_folders WHERE active=1 ORDER BY name", con)
 
-    # Filter client-side op toegankelijke mappen
+    # mappen met toegang
     folder_options = []
     for _, r in df_folders.iterrows():
         if is_folder_allowed(int(r["id"])):
             pub = " (openbaar)" if int(r["is_public"]) == 1 else ""
-            folder_options.append((f"{r['name']}{pub}", int(r["id"])))
+            folder_options.append((f"{r['name']}{pub}", int(r["id"])) )
 
     if not folder_options and not has_role("admin"):
         st.info("Er zijn (nog) geen mappen waarvoor je toegangsrechten hebt.")
         return
 
-    # ===== Admin: mappenbeheer =====
+    # Admin: mappenbeheer (compact)
     if has_role("admin"):
         with st.expander("🗃️ Mappen beheren (admin)"):
-            st.markdown("Maak mappen aan, wijzig eigenschappen en stel autorisatie per map in.")
             colA, colB = st.columns(2)
             with colA:
                 with st.form("verslagen_new_folder_form"):
                     new_name = st.text_input("Mapnaam *")
                     new_desc = st.text_input("Omschrijving")
-                    new_public = st.checkbox("Openbaar (alle ingelogde gebruikers met tab-toegang)")
-                    create = st.form_submit_button("📁 Map aanmaken")
-                    if create:
+                    new_public = st.checkbox("Openbaar")
+                    if st.form_submit_button("📁 Map aanmaken"):
                         if not new_name.strip():
                             st.error("Mapnaam is verplicht.")
                         else:
-                            c = conn()
-                            try:
-                                c.execute(
-                                    """
-                                    INSERT INTO verslagen_folders (name, description, is_public, active)
-                                    VALUES (?,?,?,1)
-                                    """,
-                                    (new_name.strip(), new_desc.strip(), int(new_public)))
-                                c.commit()
-                                rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
-                                audit("VERSLAGEN_FOLDER_CREATE", "verslagen_folders", rid)
-                                st.success("Map aangemaakt.")
-                                st.rerun()
-                            except sqlite3.IntegrityError:
-                                st.error("Er bestaat al een map met deze naam.")
-                            finally:
-                                c.close()
+                            with db_conn() as con:
+                                cur = con.cursor()
+                                cur.execute(
+                                    "INSERT INTO verslagen_folders (name, description, is_public, active) VALUES (%s,%s,%s,1) ON CONFLICT (name) DO NOTHING",
+                                    (new_name.strip(), new_desc.strip(), int(new_public)),
+                                )
+                                con.commit()
+                            audit("VERSLAGEN_FOLDER_CREATE", "verslagen_folders", new_name)
+                            st.success("Map aangemaakt.")
+                            st.rerun()
             with colB:
-                # bestaande map selecteren en bewerken
                 if not df_folders.empty:
                     sel_edit = st.selectbox("Map bewerken", [None] + df_folders["name"].tolist(), key="verslagen_folder_edit")
                     if sel_edit:
@@ -1930,38 +882,34 @@ def render_verslagen():
                             e_active = st.checkbox("Actief", value=bool(int(r["active"])))
                             col1, col2 = st.columns(2)
                             save = col1.form_submit_button("💾 Opslaan")
-                            delete = col2.form_submit_button("🗑️ Verwijderen (map + documenten)", help="LET OP: verwijdert ook bestanden")
+                            delete = col2.form_submit_button("🗑️ Verwijderen (map + documenten)")
                             if save:
-                                c = conn()
-                                c.execute(
-                                    """
-                                    UPDATE verslagen_folders
-                                    SET name=?, description=?, is_public=?, active=?
-                                    WHERE id=?
-                                    """,
-                                    (e_name.strip(), e_desc.strip(), int(e_public), int(e_active), fid))
-                                c.commit()
-                                c.close()
+                                with db_conn() as con:
+                                    cur = con.cursor()
+                                    cur.execute(
+                                        "UPDATE verslagen_folders SET name=%s, description=%s, is_public=%s, active=%s WHERE id=%s",
+                                        (e_name.strip(), e_desc.strip(), int(e_public), int(e_active), fid),
+                                    )
+                                    con.commit()
                                 audit("VERSLAGEN_FOLDER_UPDATE", "verslagen_folders", fid)
                                 st.success("Map bijgewerkt.")
                                 st.rerun()
                             if delete:
-                                # verwijder docs + bestanden
-                                c = conn()
-                                docs = c.execute("SELECT id, filename FROM verslagen_docs WHERE folder_id=?", (fid,)).fetchall()
-                                for did, fname in docs:
-                                    fpath = os.path.join(UPLOAD_DIR_VERSLAGEN, str(fid), fname or "")
-                                    if os.path.exists(fpath):
-                                        try:
-                                            os.remove(fpath)
-                                        except Exception:
-                                            pass
-                                c.execute("DELETE FROM verslagen_docs WHERE folder_id=?", (fid,))
-                                c.execute("DELETE FROM verslagen_folder_permissions WHERE folder_id=?", (fid,))
-                                c.execute("DELETE FROM verslagen_folders WHERE id=?", (fid,))
-                                c.commit()
-                                c.close()
-                                # verwijder mapdir
+                                with db_conn() as con:
+                                    cur = con.cursor()
+                                    cur.execute("SELECT id, filename FROM verslagen_docs WHERE folder_id=%s", (fid,))
+                                    docs = cur.fetchall()
+                                    for d in docs:
+                                        fpath = os.path.join(UPLOAD_DIR_VERSLAGEN, str(fid), d["filename"] or "")
+                                        if os.path.exists(fpath):
+                                            try:
+                                                os.remove(fpath)
+                                            except Exception:
+                                                pass
+                                    cur.execute("DELETE FROM verslagen_docs WHERE folder_id=%s", (fid,))
+                                    cur.execute("DELETE FROM verslagen_folder_permissions WHERE folder_id=%s", (fid,))
+                                    cur.execute("DELETE FROM verslagen_folders WHERE id=%s", (fid,))
+                                    con.commit()
                                 fdir = os.path.join(UPLOAD_DIR_VERSLAGEN, str(fid))
                                 if os.path.isdir(fdir):
                                     try:
@@ -1972,146 +920,82 @@ def render_verslagen():
                                 st.success("Map verwijderd.")
                                 st.rerun()
 
-                # autorisatie per map
-                if not df_folders.empty:
-                    st.markdown("---")
-                    st.markdown("### 🔐 Autorisatie per map")
-                    sel_auth = st.selectbox("Kies map", [None] + df_folders["name"].tolist(), key="verslagen_folder_auth")
-                    if sel_auth:
-                        r = df_folders[df_folders["name"] == sel_auth].iloc[0]
-                        fid = int(r["id"])
-                        c = conn()
-                        df_users = pd.read_sql("SELECT username FROM users ORDER BY username", c)
-                        df_perm = pd.read_sql(
-                            """
-                            SELECT username FROM verslagen_folder_permissions
-                            WHERE folder_id=? AND allowed=1
-                            """,
-                            c, params=[fid])
-                        c.close()
-                        current_allowed = set(df_perm["username"].tolist())
-                        selected = st.multiselect(
-                            "Gebruikers met toegang",
-                            df_users["username"].tolist(),
-                            default=sorted(list(current_allowed))
-                        )
-                        if st.button("💾 Autorisatie opslaan", key=f"save_auth_{fid}"):
-                            c = conn()
-                            c.execute("DELETE FROM verslagen_folder_permissions WHERE folder_id=?", (fid,))
-                            for uname in selected:
-                                c.execute(
-                                    """
-                                    INSERT INTO verslagen_folder_permissions (folder_id, username, allowed)
-                                    VALUES (?,?,1)
-                                    """,
-                                    (fid, uname))
-                            c.commit()
-                            c.close()
-                            audit("VERSLAGEN_FOLDER_PERMS_SET", "verslagen_folder_permissions", fid)
-                            st.success("Autorisaties opgeslagen.")
-                            st.rerun()
-
-    # ===== Documenten bekijken/uploaden =====
     st.markdown("---")
     st.markdown("### 📁 Documenten")
 
+    sel_folder_id = None
     if folder_options:
         labels = [lbl for (lbl, _) in folder_options]
         values = [fid for (_, fid) in folder_options]
-        idx0 = 0
-        sel_label = st.selectbox("Kies map", labels, index=idx0)
+        sel_label = st.selectbox("Kies map", labels)
         sel_folder_id = values[labels.index(sel_label)]
-    else:
-        if not has_role("admin"):
-            return
-        sel_folder_id = None
 
     if sel_folder_id:
-        # upload & lijst
         colL, colR = st.columns([1,2])
-
         with colL:
             if is_folder_allowed(sel_folder_id) and has_role("admin","editor"):
                 st.markdown("#### 🔼 Upload verslag")
                 with st.form(f"upload_doc_form_{sel_folder_id}"):
                     title = st.text_input("Titel *")
-                    meeting_date = st.date_input("Vergaderdatum")
-                    tags = st.text_input("Tags (komma-gescheiden)", placeholder="bijv. MPO, kwartaal, 2026")
-                    file = st.file_uploader(
-                        "Bestand (pdf/docx/doc/xlsx/pptx)",
-                        type=["pdf","docx","doc","xlsx","pptx"]
-                    )
+                    meeting_date = st.date_input("Vergaderdatum", value=date.today())
+                    tags = st.text_input("Tags (komma-gescheiden)")
+                    file = st.file_uploader("Bestand (pdf/docx/xlsx/pptx)", type=["pdf","docx","xlsx","pptx"]) 
                     up = st.form_submit_button("📤 Upload")
                     if up:
                         if not title.strip() or not file:
                             st.error("Titel en bestand zijn verplicht.")
                         else:
-                            # veilige bestandsnaam
-                            ext = file.name.split(".")[-1].lower()
+                            ext = (file.name.split(".")[-1] or "").lower()
                             name_base = _safe_filename(os.path.splitext(file.name)[0])
                             server_name = _safe_filename(f"{int(datetime.now().timestamp())}_{name_base}.{ext}")
                             folder_dir = ensure_folder_dir(sel_folder_id)
                             save_path = os.path.join(folder_dir, server_name)
                             with open(save_path, "wb") as out:
                                 out.write(file.getbuffer())
-
-                            c = conn()
-                            c.execute(
-                                """
-                                INSERT INTO verslagen_docs
-                                (folder_id, title, meeting_date, tags, filename, uploaded_by, uploaded_on)
-                                VALUES (?,?,?,?,?,?,?)
-                                """,
-                                (
-                                    int(sel_folder_id),
-                                    title.strip(),
-                                    meeting_date.isoformat() if meeting_date else None,
-                                    tags.strip(),
-                                    server_name,
-                                    st.session_state.user,
-                                    datetime.now().isoformat(timespec="seconds")
-                                ))
-                            rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
-                            c.commit()
-                            c.close()
+                            with db_conn() as con:
+                                cur = con.cursor()
+                                cur.execute(
+                                    """
+                                    INSERT INTO verslagen_docs (folder_id, title, meeting_date, tags, filename, uploaded_by, uploaded_on)
+                                    VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                                    """,
+                                    (
+                                        int(sel_folder_id),
+                                        title.strip(),
+                                        meeting_date.isoformat() if meeting_date else None,
+                                        tags.strip(),
+                                        server_name,
+                                        st.session_state.user,
+                                        datetime.now().isoformat(timespec="seconds"),
+                                    ),
+                                )
+                                rid = cur.fetchone()["id"]
+                                con.commit()
                             audit("VERSLAGEN_DOC_UPLOAD", "verslagen_docs", rid)
                             st.success("Bestand geüpload.")
                             st.rerun()
             else:
                 st.info("Je hebt geen uploadrechten in deze map.")
-
         with colR:
-            # Lijst documenten
-            c = conn()
-            df_docs = pd.read_sql(
-                """
-                SELECT id, title, meeting_date, tags, filename, uploaded_by, uploaded_on
-                FROM verslagen_docs
-                WHERE folder_id=?
-                ORDER BY COALESCE(meeting_date, '0001-01-01') DESC, uploaded_on DESC
-                """,
-                c, params=[int(sel_folder_id)])
-            c.close()
-
+            with db_conn() as con:
+                df_docs = pd.read_sql(
+                    """
+                    SELECT id, title, meeting_date, tags, filename, uploaded_by, uploaded_on
+                    FROM verslagen_docs WHERE folder_id=%s
+                    ORDER BY COALESCE(meeting_date, '0001-01-01') DESC, uploaded_on DESC
+                    """,
+                    con,
+                    params=[int(sel_folder_id)],
+                )
             q = st.text_input("🔍 Zoeken (titel/tags/uploader)", key=f"search_docs_{sel_folder_id}")
             if q:
                 mask = df_docs.astype(str).apply(lambda x: x.str.contains(q, case=False, na=False)).any(axis=1)
                 df_docs = df_docs[mask]
-
             if df_docs.empty:
                 st.info("Geen documenten gevonden.")
             else:
-                st.dataframe(
-                    df_docs[["id","title","meeting_date","tags","uploaded_by","uploaded_on"]],
-                    use_container_width=True
-                )
-
-                # Acties: download / verwijderen
-                sel_doc = st.selectbox(
-                    "Kies document voor acties",
-                    [None] + df_docs["id"].astype(int).tolist(),
-                    key=f"doc_select_{sel_folder_id}"
-                )
+                st.dataframe(df_docs[["id","title","meeting_date","tags","uploaded_by","uploaded_on"]], use_container_width=True)
+                sel_doc = st.selectbox("Kies document voor acties", [None] + df_docs["id"].astype(int).tolist(), key=f"doc_select_{sel_folder_id}")
                 if sel_doc:
                     row = df_docs[df_docs["id"] == int(sel_doc)].iloc[0]
                     fpath = os.path.join(UPLOAD_DIR_VERSLAGEN, str(sel_folder_id), row["filename"])
@@ -2119,24 +1003,15 @@ def render_verslagen():
                     with colD:
                         if os.path.exists(fpath):
                             with open(fpath, "rb") as f:
-                                st.download_button(
-                                    "⬇️ Download",
-                                    data=f.read(),
-                                    file_name=row["filename"],
-                                    mime=None
-                                )
+                                st.download_button("⬇️ Download", data=f.read(), file_name=row["filename"]) 
                         else:
                             st.warning("Bestand ontbreekt op de server.")
-
                     with colX:
                         if has_role("admin","editor") and st.button("🗑️ Verwijderen", key=f"del_{sel_doc}"):
-                            # DB + bestand weg
-                            c = conn()
-                            try:
-                                c.execute("DELETE FROM verslagen_docs WHERE id=?", (int(sel_doc),))
-                                c.commit()
-                            finally:
-                                c.close()
+                            with db_conn() as con:
+                                cur = con.cursor()
+                                cur.execute("DELETE FROM verslagen_docs WHERE id=%s", (int(sel_doc),))
+                                con.commit()
                             if os.path.exists(fpath):
                                 try:
                                     os.remove(fpath)
@@ -2146,30 +1021,313 @@ def render_verslagen():
                             st.success("Document verwijderd.")
                             st.rerun()
 
-# ================= UI: TABS DYNAMISCH OP BASIS VAN RECHTEN =================
+
+def render_kaartfouten():
+    st.markdown("## 🗺️ Kaartfouten – parkeervakken")
+    with st.expander("➕ Nieuwe kaartfout melden", expanded=False):
+        with st.form("kaartfout_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                straat = st.text_input("Straatnaam *")
+                huisnummer = st.text_input("Huisnummer *")
+                postcode = st.text_input("Postcode *", placeholder="3311 AB")
+                vak_id = st.text_input("Parkeervak-ID (optioneel)")
+            with col2:
+                melding_type = st.selectbox("Soort kaartfout", ["Geometrie onjuist","Type onjuist","Parkeervak bestaat niet","Parkeervak ontbreekt","Overig"]) 
+            st.caption("📍 Locatie wordt automatisch bepaald op basis van postcode en huisnummer")
+            omschrijving = st.text_area("Toelichting *")
+            fotos = st.file_uploader("Foto’s toevoegen (optioneel)", type=["jpg","jpeg","png"], accept_multiple_files=True)
+            submitted = st.form_submit_button("📩 Kaartfout melden")
+            if submitted:
+                if not straat of not huisnummer or not postcode or not omschrijving:
+                    st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
+                    st.stop()
+                lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
+                with db_conn() as con:
+                    cur = con.cursor()
+                    cur.execute(
+                        """
+                        INSERT INTO kaartfouten (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                        """,
+                        (
+                            vak_id.strip() if vak_id else None,
+                            melding_type,
+                            f"{straat.strip()} {huisnummer.strip()} - {omschrijving.strip()}",
+                            "Open",
+                            st.session_state.user,
+                            datetime.now().isoformat(timespec="seconds"),
+                            lat,
+                            lon,
+                        ),
+                    )
+                    kaartfout_id = cur.fetchone()["id"]
+                    # fotos opslaan
+                    if fotos:
+                        for f in fotos:
+                            fname = f"{kaartfout_id}_{int(datetime.now().timestamp())}_{_safe_filename(f.name)}"
+                            path = os.path.join(UPLOAD_DIR_KAARTFOUTEN, fname)
+                            with open(path, "wb") as out:
+                                out.write(f.getbuffer())
+                            cur.execute(
+                                "INSERT INTO kaartfout_fotos (kaartfout_id, bestandsnaam, geupload_op) VALUES (%s,%s,%s)",
+                                (kaartfout_id, fname, datetime.now().isoformat(timespec="seconds")),
+                            )
+                    con.commit()
+                audit("KAARTFOUT_MELDING", "kaartfouten", kaartfout_id)
+                st.success("✅ Kaartfout gemeld (incl. foto’s)")
+                st.rerun()
+
+    with db_conn() as con:
+        df = pd.read_sql("SELECT id, vak_id, melding_type, status, melder, gemeld_op FROM kaartfouten ORDER BY gemeld_op DESC", con)
+    if df.empty:
+        st.info("Nog geen kaartfouten gemeld.")
+        return
+    st.dataframe(df, use_container_width=True)
+
+    st.markdown("### 📍 Kaartweergave kaartfouten")
+    with db_conn() as con:
+        df_map = pd.read_sql(
+            "SELECT id, melding_type, omschrijving, status, melder, latitude, longitude FROM kaartfouten WHERE latitude IS NOT NULL AND longitude IS NOT NULL",
+            con,
+        )
+    if df_map.empty:
+        st.info("Geen kaartfouten met GPS-coördinaten.")
+    else:
+        try:
+            import folium
+            from streamlit.components.v1 import html as st_html
+            lat_mean = df_map["latitude"].astype(float).mean()
+            lon_mean = df_map["longitude"].astype(float).mean()
+            center = [lat_mean if pd.notna(lat_mean) else 51.8133, lon_mean if pd.notna(lon_mean) else 4.6901]
+            m = folium.Map(location=center, zoom_start=13, control_scale=True)
+            kleur = {"Open":"red","In onderzoek":"orange","Opgelost":"green"}
+            for _, r in df_map.iterrows():
+                popup_html = f"""
+<b>Kaartfout #{r['id']}</b><br>
+Type: {r['melding_type']}<br>
+Status: {r['status']}<br>
+Melder: {r['melder']}<br><br>
+{r['omschrijving']}"""
+                folium.Marker(
+                    location=[float(r["latitude"]), float(r["longitude"])],
+                    popup=folium.Popup(popup_html, max_width=300),
+                    icon=folium.Icon(color=kleur.get(r["status"], "blue"), icon="map-marker", prefix="fa"),
+                ).add_to(m)
+            st_html(m._repr_html_(), height=520)
+        except Exception as e:
+            st.warning(f"Kaart kon niet worden geladen: {e}")
+            st.map(df_map.rename(columns={"latitude":"lat","longitude":"lon"})[["lat","lon"]])
+
+    if has_role("editor", "admin"):
+        st.markdown("### ✏️ Afhandeling & foto’s")
+        sel_id = st.selectbox("Selecteer melding", [None] + df["id"].astype(int).tolist(), key="kaartfout_select")
+        if sel_id:
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute("SELECT status FROM kaartfouten WHERE id=%s", (sel_id,))
+                huidige_status = cur.fetchone()["status"]
+            with st.form("kaartfout_status_form"):
+                nieuwe_status = st.selectbox("Status", ["Open","In onderzoek","Opgelost"], index=["Open","In onderzoek","Opgelost"].index(huidige_status))
+                if st.form_submit_button("💾 Status opslaan"):
+                    with db_conn() as con:
+                        cur = con.cursor()
+                        cur.execute("UPDATE kaartfouten SET status=%s WHERE id=%s", (nieuwe_status, sel_id))
+                        con.commit()
+                    audit("KAARTFOUT_STATUS", "kaartfouten", sel_id)
+                    st.success("✅ Status bijgewerkt")
+                    st.rerun()
+            with db_conn() as con:
+                fotos = pd.read_sql("SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=%s", con, params=[sel_id])
+            if not fotos.empty:
+                st.markdown("### 📷 Foto’s")
+                for _, r in fotos.iterrows():
+                    path = os.path.join(UPLOAD_DIR_KAARTFOUTEN, r["bestandsnaam"])
+                    if os.path.exists(path):
+                        st.image(path, use_container_width=True)
+            if has_role("admin") and st.button("🗑️ Melding definitief verwijderen"):
+                with db_conn() as con:
+                    cur = con.cursor()
+                    cur.execute("SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=%s", (sel_id,))
+                    fotos = cur.fetchall()
+                    for row in fotos:
+                        fname = row.get("bestandsnaam")
+                        p = os.path.join(UPLOAD_DIR_KAARTFOUTEN, fname)
+                        if os.path.exists(p):
+                            try: os.remove(p)
+                            except Exception: pass
+                    cur.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=%s", (sel_id,))
+                    cur.execute("DELETE FROM kaartfouten WHERE id=%s", (sel_id,))
+                    con.commit()
+                audit("KAARTFOUT_VERWIJDERD", "kaartfouten", sel_id)
+                st.success("🗑️ Melding verwijderd")
+                st.rerun()
+
+
+def render_gebruikers():
+    if not has_role("admin"):
+        st.warning("Alleen admins")
+        return
+    with db_conn() as con:
+        df_users = pd.read_sql("SELECT username, role, active, force_change FROM users ORDER BY username", con)
+    st.subheader("👥 Gebruikers")
+    st.dataframe(df_users, use_container_width=True)
+    with st.form("user_add_form"):
+        new_username = st.text_input("Gebruikersnaam (uniek)")
+        new_password = st.text_input("Initieel wachtwoord", type="password")
+        new_role = st.selectbox("Rol", ["admin","editor","viewer"]) 
+        new_active = st.checkbox("Actief", True)
+        force_change = st.checkbox("Wachtwoord wijzigen bij eerste login (aanbevolen)", True)
+        if st.form_submit_button("💾 Toevoegen"):
+            if not new_username or not new_password or len(new_password) < 8:
+                st.error("Geef een unieke gebruikersnaam en een wachtwoord van minimaal 8 tekens.")
+            else:
+                try:
+                    with db_conn() as con:
+                        cur = con.cursor()
+                        cur.execute(
+                            "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,%s,%s,%s)",
+                            (new_username, hash_pw(new_password), new_role, int(new_active), int(force_change)),
+                        )
+                        con.commit()
+                    audit("USER_CREATE", "users", new_username)
+                    st.success(f"Gebruiker '{new_username}' toegevoegd")
+                    st.session_state["_tab_perms_cache"] = None
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Kon gebruiker niet toevoegen: {e}")
+
+    st.markdown("### ✏️ Gebruiker bewerken/verwijderen")
+    df_usernames = df_users["username"].tolist()
+    sel_user = st.selectbox("Selecteer gebruiker", [None] + df_usernames, key="user_edit_select")
+    if sel_user:
+        with db_conn() as con:
+            cur = con.cursor()
+            cur.execute("SELECT username, role, active, force_change FROM users WHERE username=%s", (sel_user,))
+            row = cur.fetchone()
+        if row:
+            with st.form("user_edit_form"):
+                role_new = st.selectbox("Rol", ["admin","editor","viewer"], index=["admin","editor","viewer"].index(row["role"]))
+                active_new = st.checkbox("Actief", bool(row["active"]))
+                force_new = st.checkbox("Forceer wachtwoordwijziging", bool(row["force_change"]))
+                pw_reset = st.checkbox("Wachtwoord resetten?")
+                pw_new = st.text_input("Nieuw wachtwoord", type="password", disabled=not pw_reset)
+                col1, col2 = st.columns(2)
+                do_save = col1.form_submit_button("💾 Opslaan wijzigingen")
+                do_delete = col2.form_submit_button("🗑️ Verwijderen")
+                if do_save:
+                    if pw_reset and len(pw_new) < 8:
+                        st.error("Nieuw wachtwoord moet minstens 8 tekens zijn.")
+                    else:
+                        with db_conn() as con:
+                            cur = con.cursor()
+                            if pw_reset:
+                                cur.execute(
+                                    "UPDATE users SET role=%s, active=%s, force_change=%s, password=%s WHERE username=%s",
+                                    (role_new, int(active_new), int(force_new), hash_pw(pw_new), sel_user),
+                                )
+                                audit("USER_UPDATE_RESET_PW", "users", sel_user)
+                            else:
+                                cur.execute(
+                                    "UPDATE users SET role=%s, active=%s, force_change=%s WHERE username=%s",
+                                    (role_new, int(active_new), int(force_new), sel_user),
+                                )
+                                audit("USER_UPDATE", "users", sel_user)
+                            con.commit()
+                        st.success("Gebruiker bijgewerkt")
+                        st.session_state["_tab_perms_cache"] = None
+                        st.rerun()
+                if do_delete:
+                    with db_conn() as con:
+                        cur = con.cursor()
+                        cur.execute("DELETE FROM permissions WHERE username=%s", (sel_user,))
+                        cur.execute("DELETE FROM users WHERE username=%s", (sel_user,))
+                        con.commit()
+                    audit("USER_DELETE", "users", sel_user)
+                    st.success("Gebruiker verwijderd")
+                    st.session_state["_tab_perms_cache"] = None
+                    st.rerun()
+
+    st.markdown("---")
+    st.subheader("🔐 Tab-toegang per gebruiker")
+    sel_perm_user = st.selectbox("Kies gebruiker voor tabrechten", [None] + df_usernames, key="perm_user_select")
+    if sel_perm_user:
+        with db_conn() as con:
+            df_perm = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=%s", con, params=[sel_perm_user])
+            cur = con.cursor()
+            cur.execute("SELECT role FROM users WHERE username=%s", (sel_perm_user,))
+            role_of_user = cur.fetchone()["role"]
+        has_custom = not df_perm.empty
+        labels_keys = all_tabs_config()
+        tab_keys = [k for _, k in labels_keys]
+        labels_map = {k: lbl for (lbl, k) in labels_keys}
+        if st.checkbox("Gebruik rol-standaardrechten (geen maatwerk)", value=not has_custom):
+            if st.button("💾 Opslaan (rol-standaard gebruiken)", key="perm_save_role_defaults"):
+                with db_conn() as con:
+                    cur = con.cursor()
+                    cur.execute("DELETE FROM permissions WHERE username=%s", (sel_perm_user,))
+                    con.commit()
+                audit("PERMISSIONS_CLEAR", "permissions", sel_perm_user)
+                st.success("Maatwerk tabrechten verwijderd; rol-standaard is nu actief.")
+                if sel_perm_user == st.session_state.user:
+                    st.session_state["_tab_perms_cache"] = None
+                st.rerun()
+        else:
+            default_for_role = role_default_permissions().get(role_of_user, {})
+            selected_labels = st.multiselect(
+                "Toegestane tabbladen",
+                [lbl for (lbl, _) in labels_keys],
+                default=[labels_map[k] for k,v in default_for_role.items() if v],
+            )
+            selected_keys = {k for (lbl, k) in labels_keys if lbl in selected_labels}
+            if st.button("💾 Opslaan tabrechten", key="perm_save_custom"):
+                with db_conn() as con:
+                    cur = con.cursor()
+                    cur.execute("DELETE FROM permissions WHERE username=%s", (sel_perm_user,))
+                    for k in tab_keys:
+                        cur.execute("INSERT INTO permissions (username, tab_key, allowed) VALUES (%s,%s,%s)", (sel_perm_user, k, int(k in selected_keys)))
+                    con.commit()
+                audit("PERMISSIONS_SET", "permissions", sel_perm_user)
+                st.success("Tabrechten opgeslagen")
+                if sel_perm_user == st.session_state.user:
+                    st.session_state["_tab_perms_cache"] = None
+                st.rerun()
+
+
+def render_audit():
+    with db_conn() as con:
+        df_per_user = pd.read_sql("SELECT "user" as user, COUNT(*) AS acties, MAX(timestamp) AS laatste_actie FROM audit_log GROUP BY "user" ORDER BY acties DESC", con)
+        st.markdown("### 👤 Activiteiten per gebruiker")
+        st.dataframe(df_per_user, use_container_width=True)
+        st.markdown("---")
+        df_last = pd.read_sql("SELECT timestamp, "user" as user, action, table_name, record_id FROM audit_log ORDER BY id DESC LIMIT 10", con)
+        st.markdown("### 🧾 Laatste acties")
+        st.dataframe(df_last, use_container_width=True)
+        st.markdown("---")
+        df_full = pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", con)
+        st.markdown("### 📚 Volledig audit log")
+        st.dataframe(df_full, use_container_width=True)
+
+# =====================
+# TAB ROUTER
+# =====================
 
 tab_funcs = {
     "dashboard": render_dashboard,
     "uitzonderingen": render_uitzonderingen,
-    "gehandicapten": render_gehandicapten,
-    "contracten": render_contracten,
-    "projecten": render_projecten,
-    "werkzaamheden": render_werkzaamheden,
     "agenda": render_agenda,
-    "verslagen": render_verslagen,          # 👈 nieuw
-    "handhaving": render_handhaving, 
+    "verslagen": render_verslagen,
+    "handhaving": render_kaartfouten,
     "gebruikers": render_gebruikers,
-    "audit": render_audit
+    "audit": render_audit,
 }
 
 allowed_items = [(lbl, key) for (lbl, key) in all_tabs_config() if is_tab_allowed(key)]
-
 if not allowed_items:
     st.error("Je hebt momenteel geen toegestane tabbladen. Neem contact op met een beheerder.")
     st.stop()
 
 tabs_objs = st.tabs([lbl for (lbl, _) in allowed_items])
-
 for i, (_, key) in enumerate(allowed_items):
     with tabs_objs[i]:
         fn = tab_funcs.get(key)
@@ -2177,11 +1335,3 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
-
-
-
-
-
-
-
-
