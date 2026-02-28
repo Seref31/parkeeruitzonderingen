@@ -223,15 +223,41 @@ def _safe_filename(name: str) -> str:
 def is_folder_allowed(folder_id: int) -> bool:
     if st.session_state.role == "admin":
         return True
-    c = conn()
+
+    connection = conn()
+    cur = connection.cursor()
+
     try:
-        r = c.execute("SELECT is_public FROM verslagen_folders WHERE id=%s AND active=1", (folder_id,)).fetchone()
+        # check of map openbaar is
+        cur.execute(
+            "SELECT is_public FROM verslagen_folders WHERE id=%s AND active=1",
+            (folder_id,)
+        )
+        r = cur.fetchone()
+
         if not r:
             return False
+
         if int(r[0]) == 1:
             return True
-        p = c.execute(
+
+        # check expliciete permissie
+        cur.execute(
             """
+            SELECT allowed
+            FROM verslagen_folder_permissions
+            WHERE folder_id=%s AND username=%s
+            """,
+            (folder_id, st.session_state.user)
+        )
+        p = cur.fetchone()
+
+        return bool(p and int(p[0]) == 1)
+
+    finally:
+        cur.close()
+        connection.close()
+        
             SELECT allowed FROM verslagen_folder_permissions
             WHERE folder_id=%s AND username=%s
             """,
@@ -2063,6 +2089,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
