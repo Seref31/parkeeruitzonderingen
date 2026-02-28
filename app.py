@@ -121,9 +121,11 @@ def has_role(*roles):
     return st.session_state.role in roles
 
 def audit(action, table=None, record_id=None):
-    c = conn()
-    c.execute("""
-        INSERT INTO audit_log (timestamp, user, action, table_name, record_id)
+    connection = conn()
+    cur = connection.cursor()
+
+    cur.execute("""
+        INSERT INTO audit_log (timestamp, "user", action, table_name, record_id)
         VALUES (%s,%s,%s,%s,%s)
     """, (
         datetime.now().isoformat(timespec="seconds"),
@@ -132,8 +134,10 @@ def audit(action, table=None, record_id=None):
         table,
         record_id
     ))
-    c.commit()
-    c.close()
+
+    connection.commit()
+    cur.close()
+    connection.close()
 
 # --------- KENTEKEN VALIDATIE + CLEANING (B) ---------
 def clean_kenteken(raw: str) -> str:
@@ -601,51 +605,46 @@ def import_projecten_excel(file):
         "opmerking"
     ]
 
-    # check kolommen
     for kolom in verplichte_kolommen:
         if kolom not in df.columns:
             st.error(f"Kolom ontbreekt in Excel: {kolom}")
             return
 
-    c = conn()
     teller = 0
-
-for _, r in df.iterrows():
-    if not str(r["naam"]).strip():
-        continue  # naam is verplicht
 
     connection = conn()
     cur = connection.cursor()
 
-    cur.execute(
-        """
-        INSERT INTO projecten
-        (naam, projectleider, start, einde, prio, status, opmerking)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)
-        RETURNING id
-        """,
-        (
-            str(r["naam"]).strip(),
-            str(r["projectleider"]).strip() if pd.notna(r["projectleider"]) else None,
-            parse_iso_date(r["start"]),
-            parse_iso_date(r["einde"]),
-            str(r["prio"]).strip() if pd.notna(r["prio"]) else None,
-            str(r["status"]).strip() if pd.notna(r["status"]) else None,
-            str(r["opmerking"]).strip() if pd.notna(r["opmerking"]) else None
-        )
-    )
+    for _, r in df.iterrows():
+        if not str(r["naam"]).strip():
+            continue
 
-    rid = cur.fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO projecten
+            (naam, projectleider, start, einde, prio, status, opmerking)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                str(r["naam"]).strip(),
+                str(r["projectleider"]).strip() if pd.notna(r["projectleider"]) else None,
+                parse_iso_date(r["start"]),
+                parse_iso_date(r["einde"]),
+                str(r["prio"]).strip() if pd.notna(r["prio"]) else None,
+                str(r["status"]).strip() if pd.notna(r["status"]) else None,
+                str(r["opmerking"]).strip() if pd.notna(r["opmerking"]) else None
+            )
+        )
+
+        teller += 1
 
     connection.commit()
     cur.close()
     connection.close()
 
-    teller += 1
-
-    audit("IMPORT_EXCEL", "projecten")
+    audit("IMPORT_EXCEL", "projecten", None)
     st.success(f"✅ {teller} projecten geïmporteerd")
-
+    
 def export_pdf(df, title):
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4)
@@ -2064,6 +2063,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
