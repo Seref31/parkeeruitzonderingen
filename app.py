@@ -1063,52 +1063,52 @@ def render_kaartfouten():
     if df_map.empty:
         st.info("Geen kaartfouten met GPS-coördinaten.")
     else:
-        try:
-    import folium
-    from streamlit.components.v1 import html
+                try:
+            import folium
+            from streamlit.components.v1 import html
 
-    lat_mean = df_map["latitude"].astype(float).mean()
-    lon_mean = df_map["longitude"].astype(float).mean()
+            lat_mean = df_map["latitude"].astype(float).mean()
+            lon_mean = df_map["longitude"].astype(float).mean()
 
-    center = [
-        lat_mean if pd.notna(lat_mean) else 51.8133,
-        lon_mean if pd.notna(lon_mean) else 4.6901
-    ]
+            center = [
+                lat_mean if pd.notna(lat_mean) else 51.8133,
+                lon_mean if pd.notna(lon_mean) else 4.6901
+            ]
 
-    m = folium.Map(location=center, zoom_start=13, control_scale=True)
+            m = folium.Map(location=center, zoom_start=13, control_scale=True)
 
-    kleur = {
-        "Open": "red",
-        "In onderzoek": "orange",
-        "Opgelost": "green"
-    }
+            kleur = {
+                "Open": "red",
+                "In onderzoek": "orange",
+                "Opgelost": "green"
+            }
 
-    for _, r in df_map.iterrows():
-        popup_html = f"""
-        <b>Kaartfout #{r['id']}</b><br>
-        Type: {r['melding_type']}<br>
-        Status: {r['status']}<br>
-        Melder: {r['melder']}<br><br>
-        {r['omschrijving']}
-        """
+            for _, r in df_map.iterrows():
+                popup_html = f"""
+                <b>Kaartfout #{r['id']}</b><br>
+                Type: {r['melding_type']}<br>
+                Status: {r['status']}<br>
+                Melder: {r['melder']}<br><br>
+                {r['omschrijving']}
+                """
 
-        folium.Marker(
-            location=[float(r["latitude"]), float(r["longitude"])],
-            popup=folium.Popup(popup_html, max_width=300),
-            icon=folium.Icon(
-                color=kleur.get(r["status"], "blue"),
-                icon="map-marker",
-                prefix="fa"
-            ),
-        ).add_to(m)
+                folium.Marker(
+                    location=[float(r["latitude"]), float(r["longitude"])],
+                    popup=folium.Popup(popup_html, max_width=300),
+                    icon=folium.Icon(
+                        color=kleur.get(r["status"], "blue"),
+                        icon="map-marker",
+                        prefix="fa"
+                    ),
+                ).add_to(m)
 
-    html(m._repr_html_(), height=520)
+            html(m.get_root().render(), height=520)
 
-except Exception as e:
-    st.warning(f"Kaart kon niet worden geladen: {e}")
-    st.map(
-        df_map.rename(columns={"latitude": "lat", "longitude": "lon"})[["lat", "lon"]]
-    )
+        except Exception as e:
+            st.warning(f"Kaart kon niet worden geladen: {e}")
+            st.map(
+                df_map.rename(columns={"latitude": "lat", "longitude": "lon"})[["lat", "lon"]]
+            )
 
     if has_role("editor", "admin"):
         st.markdown("### ✏️ Afhandeling & foto’s")
@@ -1414,5 +1414,6 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
