@@ -32,7 +32,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Resilient logo rendering
+# Resilient logo rendering (works with URLs, skips invalid/corrupt images)
 
 def show_logo(path, *, where="main", width=180):
     try:
@@ -48,7 +48,7 @@ def show_logo(path, *, where="main", width=180):
     return False
 
 # =====================
-# STORAGE PATHS
+# STORAGE PATHS (robust fallback)
 # =====================
 import tempfile
 
@@ -68,11 +68,11 @@ def _first_writable_dir(candidates):
     return tempfile.mkdtemp(prefix="parkeer_")
 
 BASE_DATA_DIR = _first_writable_dir([
-    os.environ.get("DATA_DIR"),
-    "/data",
+    os.environ.get("DATA_DIR"),  # preferred via env
+    "/data",                      # Railway volume
     os.path.join(os.getcwd(), "data"),
-    "/mount/tmp/data",
-    "/tmp/data",
+    "/mount/tmp/data",            # Streamlit Cloud
+    "/tmp/data",                  # last resort
 ])
 
 UPLOAD_DIR_KAARTFOUTEN = os.path.join(BASE_DATA_DIR, "uploads", "kaartfouten")
@@ -93,6 +93,7 @@ def db_conn():
 
 # =====================
 # SECURITY: password hashing (PBKDF2)
+# (Voor later als login weer aangezet wordt. Nu alleen gebruikt door Gebruikersbeheer.)
 # =====================
 PBKDF2_ITER = 200_000
 
@@ -103,22 +104,10 @@ def hash_pw(pw: str) -> str:
     dk = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt, PBKDF2_ITER, dklen=32)
     return f"pbkdf2_sha256${PBKDF2_ITER}${base64.b64encode(salt).decode()}${base64.b64encode(dk).decode()}"
 
-def verify_pw(pw: str, stored: str) -> bool:
-    try:
-        algo, iters_s, salt_b64, hash_b64 = stored.split("$")
-        iters = int(iters_s)
-        salt = base64.b64decode(salt_b64)
-        expected = base64.b64decode(hash_b64)
-        test = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt, iters, dklen=32)
-        return hashlib.compare_digest(test, expected)
-    except Exception:
-        return False
-
 # =====================
 # INIT DB (Postgres DDL)
 # =====================
 START_USERS = {
-    "seref": ("Seref#2026", "admin"),
     "s.coskun@dordrecht.nl": ("Seref#2026", "admin"),
 }
 
@@ -161,16 +150,144 @@ def init_db():
             )
             """
         )
-        # enkele hoofdtabellen (ingekort)
-        cur.execute("CREATE TABLE IF NOT EXISTS uitzonderingen (id SERIAL PRIMARY KEY, naam TEXT, kenteken TEXT, locatie TEXT, type TEXT, start DATE, einde DATE, toestemming TEXT, opmerking TEXT)")
-        cur.execute("CREATE TABLE IF NOT EXISTS agenda (id SERIAL PRIMARY KEY, titel TEXT, datum DATE, starttijd TEXT, eindtijd TEXT, locatie TEXT, beschrijving TEXT, aangemaakt_door TEXT, aangemaakt_op TEXT)")
-        cur.execute("CREATE TABLE IF NOT EXISTS verslagen_folders (id SERIAL PRIMARY KEY, name TEXT UNIQUE, description TEXT, is_public INTEGER DEFAULT 0, active INTEGER DEFAULT 1)")
-        cur.execute("CREATE TABLE IF NOT EXISTS verslagen_docs (id SERIAL PRIMARY KEY, folder_id INTEGER, title TEXT, meeting_date DATE, tags TEXT, filename TEXT, uploaded_by TEXT, uploaded_on TEXT)")
-        cur.execute("CREATE TABLE IF NOT EXISTS verslagen_folder_permissions (folder_id INTEGER, username TEXT, allowed INTEGER, PRIMARY KEY (folder_id, username))")
-        cur.execute("CREATE TABLE IF NOT EXISTS kaartfouten (id SERIAL PRIMARY KEY, vak_id TEXT, melding_type TEXT, omschrijving TEXT, status TEXT, melder TEXT, gemeld_op TEXT, latitude DOUBLE PRECISION, longitude DOUBLE PRECISION)")
-        cur.execute("CREATE TABLE IF NOT EXISTS kaartfout_fotos (id SERIAL PRIMARY KEY, kaartfout_id INTEGER, bestandsnaam TEXT, geupload_op TEXT)")
-
-        # seed users
+        # dashboard shortcuts (optioneel)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
+                id SERIAL PRIMARY KEY,
+                title TEXT,
+                subtitle TEXT,
+                url TEXT,
+                roles TEXT,
+                active INTEGER
+            )
+            """
+        )
+        # hoofdtabellen
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS uitzonderingen (
+                id SERIAL PRIMARY KEY,
+                naam TEXT, kenteken TEXT, locatie TEXT, type TEXT,
+                start DATE, einde DATE, toestemming TEXT, opmerking TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gehandicapten (
+                id SERIAL PRIMARY KEY,
+                naam TEXT, kaartnummer TEXT, adres TEXT, locatie TEXT,
+                geldig_tot DATE, besluit_door TEXT, opmerking TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS contracten (
+                id SERIAL PRIMARY KEY,
+                leverancier TEXT, contractnummer TEXT, start DATE,
+                einde DATE, contactpersoon TEXT, opmerking TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS projecten (
+                id SERIAL PRIMARY KEY,
+                naam TEXT, projectleider TEXT, start DATE, einde DATE,
+                prio TEXT, status TEXT, opmerking TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS werkzaamheden (
+                id SERIAL PRIMARY KEY,
+                omschrijving TEXT, locatie TEXT, start DATE, einde DATE,
+                status TEXT, uitvoerder TEXT, latitude DOUBLE PRECISION,
+                longitude DOUBLE PRECISION, opmerking TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agenda (
+                id SERIAL PRIMARY KEY,
+                titel TEXT,
+                datum DATE,
+                starttijd TEXT,
+                eindtijd TEXT,
+                locatie TEXT,
+                beschrijving TEXT,
+                aangemaakt_door TEXT,
+                aangemaakt_op TEXT
+            )
+            """
+        )
+        # kaartfouten
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS kaartfouten (
+                id SERIAL PRIMARY KEY,
+                vak_id TEXT,
+                melding_type TEXT,
+                omschrijving TEXT,
+                status TEXT,
+                melder TEXT,
+                gemeld_op TEXT,
+                latitude DOUBLE PRECISION,
+                longitude DOUBLE PRECISION
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS kaartfout_fotos (
+                id SERIAL PRIMARY KEY,
+                kaartfout_id INTEGER,
+                bestandsnaam TEXT,
+                geupload_op TEXT
+            )
+            """
+        )
+        # verslagen
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verslagen_folders (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE,
+                description TEXT,
+                is_public INTEGER DEFAULT 0,
+                active INTEGER DEFAULT 1
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verslagen_docs (
+                id SERIAL PRIMARY KEY,
+                folder_id INTEGER,
+                title TEXT,
+                meeting_date DATE,
+                tags TEXT,
+                filename TEXT,
+                uploaded_by TEXT,
+                uploaded_on TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verslagen_folder_permissions (
+                folder_id INTEGER,
+                username TEXT,
+                allowed INTEGER,
+                PRIMARY KEY (folder_id, username)
+            )
+            """
+        )
+        # seed 1 admin user (voor later bij login)
         for u, (p, r) in START_USERS.items():
             cur.execute("SELECT 1 FROM users WHERE username=%s", (u,))
             if cur.fetchone() is None:
@@ -178,33 +295,29 @@ def init_db():
                     "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,%s,%s,%s)",
                     (u, hash_pw(p), r, 1, 1),
                 )
+        # default verslagen folders
+        defaults = [
+            ("Verslagen MPO", "Map voor MPO-verslagen"),
+            ("Verslagen overleg afd. Parkeren", "Afd. Parkeren overlegverslagen"),
+            ("Verslagen Overleg parkeren - Stadswinkel", "Stadswinkel overlegverslagen"),
+            ("Overleg Handhaving - Parkeren", "Handhaving-parkeer overlegverslagen"),
+        ]
+        for nm, desc in defaults:
+            cur.execute(
+                "INSERT INTO verslagen_folders (name, description, is_public, active) VALUES (%s,%s,0,1) ON CONFLICT (name) DO NOTHING",
+                (nm, desc)
+            )
+
         con.commit()
 
 init_db()
 
-# --- TEMP ADMIN BOOT (verwijderen na succes!) ---
-try:
-    BOOT_U = os.environ.get("ADMIN_BOOT_USER")
-    BOOT_P = os.environ.get("ADMIN_BOOT_PASS")
-    if BOOT_U and BOOT_P:
-        with db_conn() as con:
-            cur = con.cursor()
-            cur.execute("SELECT 1 FROM users WHERE username=%s", (BOOT_U,))
-            exists = cur.fetchone() is not None
-            if exists:
-                cur.execute(
-                    "UPDATE users SET password=%s, role='admin', active=1, force_change=1 WHERE username=%s",
-                    (hash_pw(BOOT_P), BOOT_U)
-                )
-            else:
-                cur.execute(
-                    "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,'admin',1,1)",
-                    (BOOT_U, hash_pw(BOOT_P))
-                )
-            con.commit()
-except Exception as e:
-    print(f"[BOOT ERROR] {e}")
-# --- /TEMP ADMIN BOOT ---
+# =====================
+# SESSION: vaste admin (tijdelijk, geen login)
+# =====================
+if "user" not in st.session_state:
+    st.session_state.user = os.environ.get("DEV_USER", "dev_admin")
+    st.session_state.role = os.environ.get("DEV_ROLE", "admin")
 
 # =====================
 # HELPERS & PERMISSIONS
@@ -246,6 +359,7 @@ def sql_scalar_int(con, query):
     except Exception:
         return 0
 
+# --------------------------------------------------
 
 def all_tabs_config():
     return [
@@ -262,8 +376,7 @@ def all_tabs_config():
 def role_default_permissions():
     keys = [k for _, k in all_tabs_config()]
     admin = {k: True for k in keys}
-    editor = {k: True for k in keys}
-    editor["gebruikers"] = False
+    editor = {k: True for k in keys}; editor["gebruikers"] = False
     viewer = {k: False for k in keys}
     for k in ["dashboard", "uitzonderingen", "agenda", "verslagen", "handhaving"]:
         viewer[k] = True
@@ -284,6 +397,9 @@ def load_user_permissions(username, role):
 
 
 def is_tab_allowed(tab_key):
+    # Admin ziet alles (zolang we in no-login modus zitten)
+    if st.session_state.role == "admin":
+        return True
     perms = st.session_state.get("_tab_perms_cache")
     if perms is None:
         perms = load_user_permissions(st.session_state.user, st.session_state.role)
@@ -354,105 +470,7 @@ def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
         return None, None
 
 # =====================
-# LOGIN / AUTH (NOOD-OVERRIDE + DEBUG_AUTH)
-# =====================
-if "force_change" not in st.session_state:
-    st.session_state.force_change = 0
-
-if "user" not in st.session_state:
-    # header
-    c1, c2, c3 = st.columns([1,2,1])
-    with c2:
-        show_logo(LOGO_PATH, where="main", width=180)
-        st.markdown("<h2 style='text-align:center;margin-top:6px;'>Parkeren Dordrecht</h2>", unsafe_allow_html=True)
-        st.markdown("<p class='small-muted' style='text-align:center'>Log in met je e-mailadres en wachtwoord</p>", unsafe_allow_html=True)
-
-    st.markdown(
-        """
-        <div style="max-width:520px;margin: 12px auto 0 auto; padding: 24px 22px;
-            border: 1px solid #eaeaea; border-radius: 14px; background: #ffffffaa;
-            box-shadow: 0 6px 22px rgba(0,0,0,0.06);">
-        """,
-        unsafe_allow_html=True,
-    )
-
-    u = st.text_input("Gebruiker (e-mailadres)", placeholder="@dordrecht.nl")
-    p = st.text_input("Wachtwoord", type="password")
-    login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
-
-    # DB host vóór login
-    try:
-        with db_conn() as con:
-            cur = con.cursor()
-            cur.execute("SELECT current_database(), inet_server_addr()::text, inet_server_port()::int")
-            db, host, port = cur.fetchone().values()
-            st.caption(f"🧪 DB: {db} @ {host}:{port}")
-    except Exception as e:
-        st.caption(f"DB check: {e}")
-
-    st.markdown(
-        """
-        <div class='small-muted' style='margin-top:12px;'>Wachtwoord vergeten? Mail naar s.coskun@dordrecht.nl</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if login_clicked:
-        u_in = (u or "").strip()
-        debug_auth = os.environ.get("DEBUG_AUTH") == "1"
-
-        # NOOD-OVERRIDE
-        BOOT_U = os.environ.get("ADMIN_BOOT_USER")
-        BOOT_P = os.environ.get("ADMIN_BOOT_PASS")
-        if BOOT_U and BOOT_P and u_in == BOOT_U and p == BOOT_P:
-            st.session_state.user = BOOT_U
-            st.session_state.role = "admin"
-            st.session_state.force_change = 1
-            st.session_state["_tab_perms_cache"] = None
-            audit("LOGIN_BOOT_OVERRIDE")
-            st.rerun()
-
-        with db_conn() as con:
-            cur = con.cursor()
-            cur.execute("SELECT password, role, active, force_change FROM users WHERE username=%s", (u_in,))
-            row = cur.fetchone()
-
-        if not row:
-            st.error("Gebruiker bestaat niet.") if debug_auth else st.error("Onjuiste inloggegevens of account is geblokkeerd.")
-        elif int(row.get("active") or 0) != 1:
-            st.error("Account is niet actief.") if debug_auth else st.error("Onjuiste inloggegevens of account is geblokkeerd.")
-        elif not verify_pw(p, row.get("password", "")):
-            st.error("Wachtwoord onjuist.") if debug_auth else st.error("Onjuiste inloggegevens of account is geblokkeerd.")
-        else:
-            st.session_state.user = u_in
-            st.session_state.role = row.get("role")
-            st.session_state.force_change = row.get("force_change", 0)
-            st.session_state["_tab_perms_cache"] = None
-            audit("LOGIN")
-            st.rerun()
-    st.stop()
-
-# Force change
-if st.session_state.force_change == 1:
-    st.title("🔑 Wachtwoord wijzigen (verplicht)")
-    pw1 = st.text_input("Nieuw wachtwoord", type="password")
-    pw2 = st.text_input("Herhaal wachtwoord", type="password")
-    if st.button("Wijzigen"):
-        if pw1 != pw2 or len(pw1) < 8:
-            st.error("Wachtwoord ongeldig (min. 8 tekens en beide velden gelijk)")
-        else:
-            with db_conn() as con:
-                cur = con.cursor()
-                cur.execute("UPDATE users SET password=%s, force_change=0 WHERE username=%s", (hash_pw(pw1), st.session_state.user))
-                con.commit()
-            audit("PASSWORD_CHANGE")
-            st.session_state.force_change = 0
-            st.rerun()
-    st.stop()
-
-# =====================
-# SIDEBAR
+# SIDEBAR (no-login)
 # =====================
 try:
     show_logo(LOGO_PATH, where="sidebar")
@@ -461,21 +479,15 @@ except Exception:
 st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
 st.sidebar.caption(f"📁 DATA_DIR in gebruik: {BASE_DATA_DIR}")
 
-if st.sidebar.button("🚪 Uitloggen"):
-    st.session_state.clear()
-    st.rerun()
-
-# Debug in sidebar (DB + users top 20)
+# Debug DB info
 try:
     with db_conn() as con:
         cur = con.cursor()
         cur.execute("SELECT current_database(), inet_server_addr()::text, inet_server_port()::int")
         db, host, port = cur.fetchone().values()
         st.sidebar.caption(f"🧪 DB: {db} @ {host}:{port}")
-        df_debug_users = pd.read_sql("SELECT username FROM users ORDER BY username LIMIT 20", con)
-        st.sidebar.caption("🧪 Users (top 20): " + ", ".join(df_debug_users["username"].astype(str).tolist()))
 except Exception as e:
-    st.sidebar.caption(f"Users-debug: {e}")
+    st.sidebar.caption(f"DB check: {e}")
 
 # =====================
 # GENERIC HELPERS
@@ -583,9 +595,7 @@ def crud_block(table, fields, dropdowns=None):
     export_excel(df.drop(columns=['_id_num']), table)
     export_pdf(df.drop(columns=['_id_num']), table)
 
-    if not has_role("admin", "editor"):
-        return
-
+    # Admin/editor mogen bewerken; in no-login modus ben je admin → dus toegestaan
     id_options = [None] + df['_id_num'].dropna().astype(int).tolist()
     sel = st.selectbox("✏️ Selecteer record", id_options, key=f"{table}_select")
     record = df.loc[df['_id_num'] == sel].iloc[0] if sel is not None and not df.loc[df['_id_num'] == sel].empty else None
@@ -650,7 +660,7 @@ def crud_block(table, fields, dropdowns=None):
                 st.success("Record bijgewerkt")
                 st.rerun()
 
-        if has_role("admin") and record is not None and submit_del:
+        if record is not None and submit_del:
             with db_conn() as con:
                 cur = con.cursor()
                 cur.execute(f"DELETE FROM {table} WHERE id=%s", (int(sel),))
@@ -681,9 +691,6 @@ def render_agenda():
     st.dataframe(df.drop(columns=['_id_num']), use_container_width=True)
     export_excel(df.drop(columns=['_id_num']), "agenda")
     export_pdf(df.drop(columns=['_id_num']), "Agenda")
-
-    if not has_role("admin", "editor"):
-        return
 
     id_options = [None] + df['_id_num'].dropna().astype(int).tolist()
     sel = st.selectbox("✏️ Selecteer record", id_options, key="agenda_select")
@@ -755,7 +762,7 @@ def render_agenda():
             st.success("Activiteit bijgewerkt")
             st.rerun()
 
-        if has_role("admin") and record is not None and submit_del:
+        if record is not None and submit_del:
             with db_conn() as con:
                 cur = con.cursor()
                 cur.execute("DELETE FROM agenda WHERE id=%s", (int(sel),))
@@ -807,7 +814,7 @@ def render_verslagen():
             pub = " (openbaar)" if int(r["is_public"]) == 1 else ""
             folder_options.append((f"{r['name']}{pub}", fid))
 
-    if not folder_options and not has_role("admin"):
+    if not folder_options and st.session_state.role != "admin":
         st.info("Er zijn (nog) geen mappen waarvoor je toegangsrechten hebt.")
         return
 
@@ -901,7 +908,7 @@ def render_verslagen():
     if sel_folder_id:
         colL, colR = st.columns([1,2])
         with colL:
-            if is_folder_allowed(sel_folder_id) and has_role("admin","editor"):
+            if is_folder_allowed(sel_folder_id):
                 st.markdown("#### 🔼 Upload verslag")
                 with st.form(f"upload_doc_form_{sel_folder_id}"):
                     title = st.text_input("Titel *")
@@ -977,7 +984,7 @@ def render_verslagen():
                         else:
                             st.warning("Bestand ontbreekt op de server.")
                     with colX:
-                        if has_role("admin","editor") and st.button("🗑️ Verwijderen", key=f"del_{sel_doc}"):
+                        if st.button("🗑️ Verwijderen", key=f"del_{sel_doc}"):
                             with db_conn() as con:
                                 cur = con.cursor()
                                 cur.execute("DELETE FROM verslagen_docs WHERE id=%s", (int(sel_doc),))
@@ -1063,187 +1070,104 @@ def render_kaartfouten():
     if df_map.empty:
         st.info("Geen kaartfouten met GPS-coördinaten.")
     else:
-                try:
+        try:
             import folium
-            from streamlit.components.v1 import html
-
+            from streamlit.components.v1 import html as st_html
             lat_mean = df_map["latitude"].astype(float).mean()
             lon_mean = df_map["longitude"].astype(float).mean()
-
-            center = [
-                lat_mean if pd.notna(lat_mean) else 51.8133,
-                lon_mean if pd.notna(lon_mean) else 4.6901
-            ]
-
+            center = [lat_mean if pd.notna(lat_mean) else 51.8133, lon_mean if pd.notna(lon_mean) else 4.6901]
             m = folium.Map(location=center, zoom_start=13, control_scale=True)
-
-            kleur = {
-                "Open": "red",
-                "In onderzoek": "orange",
-                "Opgelost": "green"
-            }
-
+            kleur = {"Open":"red","In onderzoek":"orange","Opgelost":"green"}
             for _, r in df_map.iterrows():
                 popup_html = f"""
-                <b>Kaartfout #{r['id']}</b><br>
-                Type: {r['melding_type']}<br>
-                Status: {r['status']}<br>
-                Melder: {r['melder']}<br><br>
-                {r['omschrijving']}
-                """
-
+<b>Kaartfout #{r['id']}</b><br>
+Type: {r['melding_type']}<br>
+Status: {r['status']}<br>
+Melder: {r['melder']}<br><br>
+{r['omschrijving']}"""
                 folium.Marker(
                     location=[float(r["latitude"]), float(r["longitude"])],
                     popup=folium.Popup(popup_html, max_width=300),
-                    icon=folium.Icon(
-                        color=kleur.get(r["status"], "blue"),
-                        icon="map-marker",
-                        prefix="fa"
-                    ),
+                    icon=folium.Icon(color=kleur.get(r["status"], "blue"), icon="map-marker", prefix="fa"),
                 ).add_to(m)
-
-            html(m.get_root().render(), height=520)
-
+            st_html(m._repr_html_(), height=520)
         except Exception as e:
             st.warning(f"Kaart kon niet worden geladen: {e}")
-            st.map(
-                df_map.rename(columns={"latitude": "lat", "longitude": "lon"})[["lat", "lon"]]
-            )
+            st.map(df_map.rename(columns={"latitude":"lat","longitude":"lon"})[["lat","lon"]])
 
-    if has_role("editor", "admin"):
-        st.markdown("### ✏️ Afhandeling & foto’s")
-        df['_id_num'] = pd.to_numeric(df.get('id'), errors='coerce')
-        id_options = [None] + df['_id_num'].dropna().astype(int).tolist()
-        sel_id = st.selectbox("Selecteer melding", id_options, key="kaartfout_select")
-        if sel_id:
-            with db_conn() as con:
-                cur = con.cursor()
-                cur.execute("SELECT status FROM kaartfouten WHERE id=%s", (int(sel_id),))
-                huidige_status = cur.fetchone()["status"]
-            with st.form("kaartfout_status_form"):
-                nieuwe_status = st.selectbox("Status", ["Open","In onderzoek","Opgelost"], index=["Open","In onderzoek","Opgelost"].index(huidige_status))
-                if st.form_submit_button("💾 Status opslaan"):
-                    with db_conn() as con:
-                        cur = con.cursor()
-                        cur.execute("UPDATE kaartfouten SET status=%s WHERE id=%s", (nieuwe_status, int(sel_id)))
-                        con.commit()
-                    audit("KAARTFOUT_STATUS", "kaartfouten", int(sel_id))
-                    st.success("✅ Status bijgewerkt")
-                    st.rerun()
-            with db_conn() as con:
-                fotos = pd.read_sql("SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=%s", con, params=[int(sel_id)])
-            if not fotos.empty:
-                st.markdown("### 📷 Foto’s")
-                for _, r in fotos.iterrows():
-                    path = os.path.join(UPLOAD_DIR_KAARTFOUTEN, r["bestandsnaam"])
-                    if os.path.exists(path):
-                        st.image(path, use_container_width=True)
-            if has_role("admin") and st.button("🗑️ Melding definitief verwijderen"):
+    st.markdown("### ✏️ Afhandeling & foto’s")
+    df['_id_num'] = pd.to_numeric(df.get('id'), errors='coerce')
+    id_options = [None] + df['_id_num'].dropna().astype(int).tolist()
+    sel_id = st.selectbox("Selecteer melding", id_options, key="kaartfout_select")
+    if sel_id:
+        with db_conn() as con:
+            cur = con.cursor()
+            cur.execute("SELECT status FROM kaartfouten WHERE id=%s", (int(sel_id),))
+            huidige_status = cur.fetchone()["status"]
+        with st.form("kaartfout_status_form"):
+            nieuwe_status = st.selectbox("Status", ["Open","In onderzoek","Opgelost"], index=["Open","In onderzoek","Opgelost"].index(huidige_status))
+            if st.form_submit_button("💾 Status opslaan"):
                 with db_conn() as con:
                     cur = con.cursor()
-                    cur.execute("SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=%s", (int(sel_id),))
-                    fotos = cur.fetchall()
-                    for row in fotos:
-                        fname = row.get("bestandsnaam")
-                        p = os.path.join(UPLOAD_DIR_KAARTFOUTEN, fname)
-                        if os.path.exists(p):
-                            try: os.remove(p)
-                            except Exception: pass
-                    cur.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=%s", (int(sel_id),))
-                    cur.execute("DELETE FROM kaartfouten WHERE id=%s", (int(sel_id),))
+                    cur.execute("UPDATE kaartfouten SET status=%s WHERE id=%s", (nieuwe_status, int(sel_id)))
                     con.commit()
-                audit("KAARTFOUT_VERWIJDERD", "kaartfouten", int(sel_id))
-                st.success("🗑️ Melding verwijderd")
+                audit("KAARTFOUT_STATUS", "kaartfouten", int(sel_id))
+                st.success("✅ Status bijgewerkt")
                 st.rerun()
+        with db_conn() as con:
+            fotos = pd.read_sql("SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=%s", con, params=[int(sel_id)])
+        if not fotos.empty:
+            st.markdown("### 📷 Foto’s")
+            for _, r in fotos.iterrows():
+                path = os.path.join(UPLOAD_DIR_KAARTFOUTEN, r["bestandsnaam"])
+                if os.path.exists(path):
+                    st.image(path, use_container_width=True)
+        if st.button("🗑️ Melding definitief verwijderen"):
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute("SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=%s", (int(sel_id),))
+                fotos = cur.fetchall()
+                for row in fotos:
+                    fname = row.get("bestandsnaam")
+                    p = os.path.join(UPLOAD_DIR_KAARTFOUTEN, fname)
+                    if os.path.exists(p):
+                        try: os.remove(p)
+                        except Exception: pass
+                cur.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=%s", (int(sel_id),))
+                cur.execute("DELETE FROM kaartfouten WHERE id=%s", (int(sel_id),))
+                con.commit()
+            audit("KAARTFOUT_VERWIJDERD", "kaartfouten", int(sel_id))
+            st.success("🗑️ Melding verwijderd")
+            st.rerun()
 
 
 def render_gebruikers():
-    if not has_role("admin"):
-        st.warning("Alleen admins")
-        return
-
-    # --- ADMIN ONDERHOUD (tijdelijk, streng) ---
-    with st.expander("🔧 Onderhoud (admin)", expanded=False):
-        st.caption("Verwijdert test/dummy rijen zoals 'username', 'role', 'active', 'force_change' (ook met spaties/hoofdletters).")
-        if st.button("🧹 Verwijder dummy-gebruikers (streng)"):
-            try:
-                with db_conn() as con:
-                    cur = con.cursor()
-                    # permissies van dummy users weghalen
-                    cur.execute(
-                        """
-                        DELETE FROM permissions
-                        WHERE username IN (
-                            SELECT username FROM users
-                            WHERE trim(lower(username)) ~ '^(username|role|active|force_change)$'
-                        )
-                        """
-                    )
-                    # dummy users zelf verwijderen
-                    cur.execute(
-                        """
-                        DELETE FROM users
-                        WHERE trim(lower(username)) ~ '^(username|role|active|force_change)$'
-                        """
-                    )
-                    con.commit()
-                st.success("Dummy-gebruikers verwijderd. Herlaad de pagina (Ctrl+F5).")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Opschonen mislukt: {e}")
-
-    # --- ADMIN HARD RESET (tijdelijk) ---
-    with st.expander("🧨 Hard reset users (tijdelijk)", expanded=False):
-        st.caption("Gebruik alleen als opschonen niet werkte. Verwijdert dummy-rijen en kan 1 echt account aanmaken.")
-        new_mail = st.text_input("E-mailadres om toe te voegen (optioneel)", value="s.coskun@dordrecht.nl")
-        new_pwd  = st.text_input("Tijdelijk wachtwoord (≥8 tekens, optioneel)", type="password")
-        do_reset = st.button("🔥 Verwijder dummy-rijen en voeg dit account toe (indien ingevuld)")
-        if do_reset:
-            try:
-                with db_conn() as con:
-                    cur = con.cursor()
-                    # 1) dummy permissies weg
-                    cur.execute(
-                        """
-                        DELETE FROM permissions
-                        WHERE username IN (
-                            SELECT username FROM users
-                            WHERE trim(lower(username)) ~ '^(username|role|active|force_change)$'
-                        )
-                        """
-                    )
-                    # 2) dummy users weg
-                    cur.execute(
-                        """
-                        DELETE FROM users
-                        WHERE trim(lower(username)) ~ '^(username|role|active|force_change)$'
-                        """
-                    )
-                    # 3) optioneel echt account aanmaken
-                    if new_mail.strip() and len(new_pwd) >= 8:
-                        cur.execute("SELECT 1 FROM users WHERE username=%s", (new_mail.strip(),))
-                        if cur.fetchone() is None:
-                            cur.execute(
-                                "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,%s,%s,%s)",
-                                (new_mail.strip(), hash_pw(new_pwd), "admin", 1, 1)
-                            )
-                    con.commit()
-                st.success("Hard reset uitgevoerd. Herlaad de pagina (Ctrl+F5).")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Hard reset mislukt: {e}")
-    # --- /ADMIN HARD RESET ---
-
+    # geen login → iedereen is admin, maar we houden beheer scherm
     with db_conn() as con:
         df_users = pd.read_sql("SELECT username, role, active, force_change FROM users ORDER BY username", con)
 
-    # Opschonen en dedupliceren
+    # Opschonen en dedupliceren voor keuzelijsten
     if not df_users.empty:
         df_users = df_users[df_users["username"].astype(str).str.strip().ne("")].copy()
     df_usernames = sorted(set(df_users["username"].tolist())) if not df_users.empty else []
 
     st.subheader("👥 Gebruikers")
     st.dataframe(df_users, use_container_width=True)
+
+    # Onderhoudsknop om dummy users te verwijderen
+    with st.expander("🔧 Onderhoud (admin)", expanded=False):
+        st.caption("Verwijdert test/dummy rijen zoals 'username', 'role', 'active', 'force_change'.")
+        if st.button("🧹 Verwijder dummy-gebruikers"):
+            try:
+                with db_conn() as con:
+                    cur = con.cursor()
+                    cur.execute("DELETE FROM permissions WHERE username IN ('username','role','active','force_change')")
+                    cur.execute("DELETE FROM users WHERE username IN ('username','role','active','force_change')")
+                    con.commit()
+                st.success("Dummy-gebruikers verwijderd. Herlaad de pagina.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Opschonen mislukt: {e}")
 
     with st.form("user_add_form"):
         new_username = st.text_input("Gebruikersnaam (uniek)")
@@ -1254,8 +1178,6 @@ def render_gebruikers():
         if st.form_submit_button("💾 Toevoegen"):
             if not new_username or not new_password or len(new_password) < 8:
                 st.error("Geef een unieke gebruikersnaam en een wachtwoord van minimaal 8 tekens.")
-            elif re.fullmatch(r"\s*(username|role|active|force_change)\s*", new_username, flags=re.I):
-                st.error("Deze gebruikersnaam is niet toegestaan.")
             else:
                 try:
                     with db_conn() as con:
@@ -1403,7 +1325,7 @@ tab_funcs = {
 
 allowed_items = [(lbl, key) for (lbl, key) in all_tabs_config() if is_tab_allowed(key)]
 if not allowed_items:
-    st.error("Je hebt momenteel geen toegestane tabbladen. Neem contact op met een beheerder.")
+    st.error("Er zijn geen toegestane tabbladen geconfigureerd.")
     st.stop()
 
 tabs_objs = st.tabs([lbl for (lbl, _) in allowed_items])
@@ -1414,6 +1336,3 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
-
-
-
