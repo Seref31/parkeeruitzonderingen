@@ -517,30 +517,39 @@ if "user" not in st.session_state:
         unsafe_allow_html=True,
     )
 
-    if login_clicked:
-        u = (u or "").strip()  # trim spaties/newlines
-        # NOOD-OVERRIDE (tijdelijk, weghalen na binnenkomst!)
-BOOT_U = os.environ.get("ADMIN_BOOT_USER")
-BOOT_P = os.environ.get("ADMIN_BOOT_PASS")
-if BOOT_U and BOOT_P and (u or "").strip() == BOOT_U and p == BOOT_P:
-    st.session_state.user = BOOT_U
-    st.session_state.role = "admin"
-    st.session_state.force_change = 1
-    audit("LOGIN_BOOT_OVERRIDE")
-    st.rerun()
-        with db_conn() as con:
-            cur = con.cursor()
-            cur.execute("SELECT password, role, active, force_change FROM users WHERE username=%s", (u,))
-            row = cur.fetchone()
-        if row and row.get("active") == 1 and verify_pw(p, row.get("password", "")):
-            st.session_state.user = u
-            st.session_state.role = row.get("role")
-            st.session_state.force_change = row.get("force_change", 0)
-            st.session_state["_tab_perms_cache"] = None
-            audit("LOGIN")
-            st.rerun()
-        else:
-            st.error("Onjuiste inloggegevens of account is geblokkeerd.")
+if login_clicked:
+    u = (u or "").strip()
+
+    # NOOD-OVERRIDE (tijdelijk)
+    BOOT_U = os.environ.get("ADMIN_BOOT_USER")
+    BOOT_P = os.environ.get("ADMIN_BOOT_PASS")
+
+    if BOOT_U and BOOT_P and u == BOOT_U and p == BOOT_P:
+        st.session_state.user = BOOT_U
+        st.session_state.role = "admin"
+        st.session_state.force_change = 1
+        audit("LOGIN_BOOT_OVERRIDE")
+        st.rerun()
+
+    # Normale login via database
+    with db_conn() as con:
+        cur = con.cursor()
+        cur.execute(
+            "SELECT password, role, active, force_change FROM users WHERE username=%s",
+            (u,)
+        )
+        row = cur.fetchone()
+
+    if row and row.get("active") == 1 and verify_pw(p, row.get("password", "")):
+        st.session_state.user = u
+        st.session_state.role = row.get("role")
+        st.session_state.force_change = row.get("force_change", 0)
+        st.session_state["_tab_perms_cache"] = None
+        audit("LOGIN")
+        st.rerun()
+    else:
+        st.error("Onjuiste inloggegevens of account is geblokkeerd.")
+
     st.stop()
 
 # Force change
@@ -1452,4 +1461,5 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
