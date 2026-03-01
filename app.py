@@ -1,3 +1,4 @@
+
 import os
 import re
 import hashlib
@@ -32,13 +33,37 @@ st.markdown(
 )
 
 # =====================
-# STORAGE PATHS
+# STORAGE PATHS (robust fallback)
 # =====================
-BASE_DATA_DIR = os.environ.get("DATA_DIR", "/data")  # Use Railway volume mounted at /data
+import tempfile
+
+def _first_writable_dir(candidates):
+    for path in candidates:
+        if not path:
+            continue
+        try:
+            os.makedirs(path, exist_ok=True)
+            testfile = os.path.join(path, ".write_test")
+            with open(testfile, "w") as f:
+                f.write("ok")
+            os.remove(testfile)
+            return path
+        except Exception:
+            continue
+    return tempfile.mkdtemp(prefix="parkeer_")
+
+BASE_DATA_DIR = _first_writable_dir([
+    os.environ.get("DATA_DIR"),  # preferred via env
+    "/data",                      # Railway volume
+    os.path.join(os.getcwd(), "data"),
+    "/mount/tmp/data",            # Streamlit Cloud
+    "/tmp/data",                  # last resort
+])
+
 UPLOAD_DIR_KAARTFOUTEN = os.path.join(BASE_DATA_DIR, "uploads", "kaartfouten")
 UPLOAD_DIR_VERSLAGEN   = os.path.join(BASE_DATA_DIR, "uploads", "verslagen")
-for p in [UPLOAD_DIR_KAARTFOUTEN, UPLOAD_DIR_VERSLAGEN]:
-    os.makedirs(p, exist_ok=True)
+os.makedirs(UPLOAD_DIR_KAARTFOUTEN, exist_ok=True)
+os.makedirs(UPLOAD_DIR_VERSLAGEN,   exist_ok=True)
 
 # =====================
 # DATABASE (Postgres)
@@ -57,6 +82,7 @@ def db_conn():
 PBKDF2_ITER = 200_000
 
 # store as: algorithm$iterations$salt_b64$hash_b64
+
 def hash_pw(pw: str) -> str:
     salt = os.urandom(16)
     dk = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt, PBKDF2_ITER, dklen=32)
@@ -112,7 +138,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS audit_log (
                 id SERIAL PRIMARY KEY,
                 timestamp TEXT,
-                user TEXT,
+                "user" TEXT,
                 action TEXT,
                 table_name TEXT,
                 record_id TEXT
@@ -284,17 +310,19 @@ init_db()
 # =====================
 # HELPERS & PERMISSIONS
 # =====================
+
 def audit(action, table=None, record_id=None):
     try:
         with db_conn() as con:
             cur = con.cursor()
             cur.execute(
-                "INSERT INTO audit_log (timestamp, user, action, table_name, record_id) VALUES (%s,%s,%s,%s,%s)",
+                'INSERT INTO audit_log (timestamp, "user", action, table_name, record_id) VALUES (%s,%s,%s,%s,%s)',
                 (datetime.now().isoformat(timespec="seconds"), st.session_state.get("user", "?"), action, table, str(record_id) if record_id is not None else None),
             )
             con.commit()
     except Exception:
         pass
+
 
 def all_tabs_config():
     return [
@@ -307,6 +335,7 @@ def all_tabs_config():
         ("🧾 Audit log", "audit"),
     ]
 
+
 def role_default_permissions():
     keys = [k for _, k in all_tabs_config()]
     admin = {k: True for k in keys}
@@ -317,6 +346,7 @@ def role_default_permissions():
         viewer[k] = True
     return {"admin": admin, "editor": editor, "viewer": viewer}
 
+
 def load_user_permissions(username, role):
     with db_conn() as con:
         df = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=%s", con, params=[username])
@@ -326,8 +356,9 @@ def load_user_permissions(username, role):
     keys = [k for _, k in all_tabs_config()]
     user_map = {k: False for k in keys}
     for _, r in df.iterrows():
-        user_map[str(r["tab_key"])] = bool(int(r["allowed"]))  # <-- FIXED
+        user_map[str(r["tab_key"])] = bool(int(r["allowed"]))
     return user_map
+
 
 def is_tab_allowed(tab_key):
     perms = st.session_state.get("_tab_perms_cache")
@@ -336,12 +367,14 @@ def is_tab_allowed(tab_key):
         st.session_state["_tab_perms_cache"] = perms
     return perms.get(tab_key, False)
 
+
 def has_role(*roles):
     return st.session_state.role in roles
 
 # =====================
 # VALIDATIES
 # =====================
+
 def _safe_filename(name: str) -> str:
     name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
     name = re.sub(r'[^A-Za-z0-9._-]+', '_', name)
@@ -378,6 +411,7 @@ def parse_iso_date(v, default=None):
 # =====================
 # GEOCODING (PDOK)
 # =====================
+
 def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
     try:
         q = f"{postcode.strip()} {huisnummer.strip()}"
@@ -390,7 +424,6 @@ def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
         if not docs:
             return None, None
         doc = docs[0]
-        # centroide_ll sample: "POINT(4.6901 51.8133)" => (lon lat)
         lon = float(doc["centroide_ll"].split("(")[1].split()[0])
         lat = float(doc["centroide_ll"].split("(")[1].split()[1].replace(")", ""))
         return lat, lon
@@ -476,6 +509,9 @@ try:
 except Exception:
     pass
 st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
+# debug caption (safe to remove later)
+st.sidebar.caption(f"📁 DATA_DIR in gebruik: {BASE_DATA_DIR}")
+
 if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
     st.rerun()
@@ -507,7 +543,6 @@ try:
             tijd_txt = r.get("starttijd") or ""
             locatie  = r.get("locatie") or ""
 
-            # ---------- FIXED f-string (meerdere f-strings in één call) ----------
             st.sidebar.markdown(
                 f"- **{r.get('titel','')}**  \n"
                 f"  🗓️ {dag_txt}"
@@ -520,11 +555,13 @@ except Exception as e:
 # =====================
 # GENERIC HELPERS
 # =====================
+
 def export_excel(df, name):
     buf = BytesIO()
     df.to_excel(buf, index=False)
     buf.seek(0)
     st.download_button("📥 Excel", buf, f"{name}.xlsx")
+
 
 def export_pdf(df, title):
     try:
@@ -547,6 +584,7 @@ def export_pdf(df, title):
     doc.build([Paragraph(title, styles["Title"]), t])
     st.download_button("📄 PDF", buf.getvalue(), f"{title}.pdf")
 
+
 def apply_search(df, search):
     if not search:
         return df
@@ -556,6 +594,7 @@ def apply_search(df, search):
 # =====================
 # TABS RENDERERS
 # =====================
+
 def render_dashboard():
     st.markdown("### ⚠️ Aandachtspunten")
     messages = []
@@ -611,6 +650,7 @@ def render_dashboard():
     except Exception as e:
         st.warning(f"Kon metrics niet laden: {e}")
 
+
 def crud_block(table, fields, dropdowns=None):
     dropdowns = dropdowns or {}
     with db_conn() as con:
@@ -644,7 +684,7 @@ def crud_block(table, fields, dropdowns=None):
         col1, col2, col3 = st.columns(3)
         submit_new = col1.form_submit_button("💾 Opslaan (nieuw)")
         submit_edit = col2.form_submit_button("✏️ Wijzigen")
-        submit_del  = col3.form_submit_button("🗑️ Verwijderen")
+        submit_del = col3.form_submit_button("🗑️ Verwijderen")
 
         def validate_extras(is_update=False):
             if table != "uitzonderingen":
@@ -698,12 +738,14 @@ def crud_block(table, fields, dropdowns=None):
             st.success("Record verwijderd")
             st.rerun()
 
+
 def render_uitzonderingen():
     crud_block(
         "uitzonderingen",
         ["naam","kenteken","locatie","type","start","einde","toestemming","opmerking"],
         {"type":["Bewoner","Bedrijf","Project"]},
     )
+
 
 def render_agenda():
     with db_conn() as con:
@@ -731,13 +773,13 @@ def render_agenda():
             except Exception:
                 return time(default_h, default_m)
         starttijd_val = st.time_input("Starttijd", value=parse_time(record["starttijd"]) if record is not None else time(9,0))
-        eindtijd_val  = st.time_input("Eindtijd",  value=parse_time(record["eindtijd"],10,0) if record is not None else time(10,0))
+        eindtijd_val = st.time_input("Eindtijd", value=parse_time(record["eindtijd"],10,0) if record is not None else time(10,0))
         locatie = st.text_input("Locatie", value=(record["locatie"] if record is not None else ""))
         beschrijving = st.text_area("Beschrijving", value=(record["beschrijving"] if record is not None else ""))
         col1, col2, col3 = st.columns(3)
         submit_new = col1.form_submit_button("💾 Opslaan (nieuw)")
         submit_edit = col2.form_submit_button("✏️ Wijzigen")
-        submit_del  = col3.form_submit_button("🗑️ Verwijderen")
+        submit_del = col3.form_submit_button("🗑️ Verwijderen")
 
         if submit_new:
             with db_conn() as con:
@@ -795,6 +837,7 @@ def render_agenda():
             st.success("Activiteit verwijderd")
             st.rerun()
 
+
 def is_folder_allowed(folder_id: int) -> bool:
     if st.session_state.role == "admin":
         return True
@@ -813,10 +856,12 @@ def is_folder_allowed(folder_id: int) -> bool:
         p = cur.fetchone()
         return bool(p and int(list(p.values())[0]) == 1)
 
+
 def ensure_folder_dir(folder_id: int) -> str:
     path = os.path.join(UPLOAD_DIR_VERSLAGEN, str(folder_id))
     os.makedirs(path, exist_ok=True)
     return path
+
 
 def render_verslagen():
     st.subheader("🗂️ Verslagen")
@@ -983,7 +1028,7 @@ def render_verslagen():
             if df_docs.empty:
                 st.info("Geen documenten gevonden.")
             else:
-                st.dataframe(df_docs["id title meeting_date tags uploaded_by uploaded_on".split()], use_container_width=True)
+                st.dataframe(df_docs[["id","title","meeting_date","tags","uploaded_by","uploaded_on"]], use_container_width=True)
                 sel_doc = st.selectbox("Kies document voor acties", [None] + df_docs["id"].astype(int).tolist(), key=f"doc_select_{sel_folder_id}")
                 if sel_doc:
                     row = df_docs[df_docs["id"] == int(sel_doc)].iloc[0]
@@ -1010,6 +1055,7 @@ def render_verslagen():
                             st.success("Document verwijderd.")
                             st.rerun()
 
+
 def render_kaartfouten():
     st.markdown("## 🗺️ Kaartfouten – parkeervakken")
     with st.expander("➕ Nieuwe kaartfout melden", expanded=False):
@@ -1021,13 +1067,12 @@ def render_kaartfouten():
                 postcode   = st.text_input("Postcode *", placeholder="3311 AB")
                 vak_id     = st.text_input("Parkeervak-ID (optioneel)")
             with col2:
-                melding_type = st.selectbox("Soort kaartfout", ["Geometrie onjuist","Type onjuist","Parkeervak bestaat niet","Parkeervak ontbreekt","Overig"])
+                melding_type = st.selectbox("Soort kaartfout", ["Geometrie onjuist","Type onjuist","Parkeervak bestaat niet","Parkeervak ontbreekt","Overig"]) 
             st.caption("📍 Locatie wordt automatisch bepaald op basis van postcode en huisnummer")
             omschrijving = st.text_area("Toelichting *")
             fotos = st.file_uploader("Foto’s toevoegen (optioneel)", type=["jpg","jpeg","png"], accept_multiple_files=True)
             submitted = st.form_submit_button("📩 Kaartfout melden")
             if submitted:
-                # -------- FIXED: or i.p.v. of --------
                 if not straat or not huisnummer or not postcode or not omschrijving:
                     st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
                     st.stop()
@@ -1152,6 +1197,7 @@ Melder: {r['melder']}<br><br>
                 st.success("🗑️ Melding verwijderd")
                 st.rerun()
 
+
 def render_gebruikers():
     if not has_role("admin"):
         st.warning("Alleen admins")
@@ -1195,13 +1241,13 @@ def render_gebruikers():
             row = cur.fetchone()
         if row:
             with st.form("user_edit_form"):
-                role_new   = st.selectbox("Rol", ["admin","editor","viewer"], index=["admin","editor","viewer"].index(row["role"]))
+                role_new = st.selectbox("Rol", ["admin","editor","viewer"], index=["admin","editor","viewer"].index(row["role"]))
                 active_new = st.checkbox("Actief", bool(row["active"]))
-                force_new  = st.checkbox("Forceer wachtwoordwijziging", bool(row["force_change"]))
-                pw_reset   = st.checkbox("Wachtwoord resetten?")
-                pw_new     = st.text_input("Nieuw wachtwoord", type="password", disabled=not pw_reset)
+                force_new = st.checkbox("Forceer wachtwoordwijziging", bool(row["force_change"]))
+                pw_reset = st.checkbox("Wachtwoord resetten?")
+                pw_new = st.text_input("Nieuw wachtwoord", type="password", disabled=not pw_reset)
                 col1, col2 = st.columns(2)
-                do_save   = col1.form_submit_button("💾 Opslaan wijzigingen")
+                do_save = col1.form_submit_button("💾 Opslaan wijzigingen")
                 do_delete = col2.form_submit_button("🗑️ Verwijderen")
                 if do_save:
                     if pw_reset and len(pw_new) < 8:
@@ -1281,6 +1327,7 @@ def render_gebruikers():
                     st.session_state["_tab_perms_cache"] = None
                 st.rerun()
 
+
 def render_audit():
     with db_conn() as con:
         df_per_user = pd.read_sql('SELECT "user" as user, COUNT(*) AS acties, MAX(timestamp) AS laatste_actie FROM audit_log GROUP BY "user" ORDER BY acties DESC', con)
@@ -1298,6 +1345,7 @@ def render_audit():
 # =====================
 # TAB ROUTER
 # =====================
+
 tab_funcs = {
     "dashboard": render_dashboard,
     "uitzonderingen": render_uitzonderingen,
