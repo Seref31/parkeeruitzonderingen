@@ -143,7 +143,7 @@ try:
                 )
             con.commit()
 except Exception as e:
-    st.write(f"BOOT ERROR: {e}")
+st.write(f"BOOT ERROR: {e}")
              
 # --- /TEMP ADMIN BOOT ---
 
@@ -1431,6 +1431,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
