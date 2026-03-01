@@ -1145,7 +1145,7 @@ def render_kaartfouten():
             fotos = st.file_uploader("Foto’s toevoegen (optioneel)", type=["jpg","jpeg","png"], accept_multiple_files=True)
             submitted = st.form_submit_button("📩 Kaartfout melden")
             if submitted:
-                if not straat or not huisnummer or not postcode of not omschrijving:
+                if not straat or not huisnummer or not postcode or not omschrijving:
                     st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
                     st.stop()
                 lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
@@ -1485,3 +1485,4 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
