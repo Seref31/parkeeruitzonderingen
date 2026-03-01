@@ -32,7 +32,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Resilient logo rendering (works with URLs, skips invalid/corrupt images)
+# Resilient logo rendering
 
 def show_logo(path, *, where="main", width=180):
     try:
@@ -48,7 +48,7 @@ def show_logo(path, *, where="main", width=180):
     return False
 
 # =====================
-# STORAGE PATHS (robust fallback)
+# STORAGE PATHS
 # =====================
 import tempfile
 
@@ -68,11 +68,11 @@ def _first_writable_dir(candidates):
     return tempfile.mkdtemp(prefix="parkeer_")
 
 BASE_DATA_DIR = _first_writable_dir([
-    os.environ.get("DATA_DIR"),  # preferred via env
-    "/data",                      # Railway volume
+    os.environ.get("DATA_DIR"),
+    "/data",
     os.path.join(os.getcwd(), "data"),
-    "/mount/tmp/data",            # Streamlit Cloud
-    "/tmp/data",                  # last resort
+    "/mount/tmp/data",
+    "/tmp/data",
 ])
 
 UPLOAD_DIR_KAARTFOUTEN = os.path.join(BASE_DATA_DIR, "uploads", "kaartfouten")
@@ -161,104 +161,15 @@ def init_db():
             )
             """
         )
-        # dashboard shortcuts
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
-                id SERIAL PRIMARY KEY,
-                title TEXT,
-                subtitle TEXT,
-                url TEXT,
-                roles TEXT,
-                active INTEGER
-            )
-            """
-        )
-        # hoofdtabellen (subset voor leesbaarheid)
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS uitzonderingen (
-                id SERIAL PRIMARY KEY,
-                naam TEXT, kenteken TEXT, locatie TEXT, type TEXT,
-                start DATE, einde DATE, toestemming TEXT, opmerking TEXT
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS agenda (
-                id SERIAL PRIMARY KEY,
-                titel TEXT,
-                datum DATE,
-                starttijd TEXT,
-                eindtijd TEXT,
-                locatie TEXT,
-                beschrijving TEXT,
-                aangemaakt_door TEXT,
-                aangemaakt_op TEXT
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS verslagen_folders (
-                id SERIAL PRIMARY KEY,
-                name TEXT UNIQUE,
-                description TEXT,
-                is_public INTEGER DEFAULT 0,
-                active INTEGER DEFAULT 1
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS verslagen_docs (
-                id SERIAL PRIMARY KEY,
-                folder_id INTEGER,
-                title TEXT,
-                meeting_date DATE,
-                tags TEXT,
-                filename TEXT,
-                uploaded_by TEXT,
-                uploaded_on TEXT
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS verslagen_folder_permissions (
-                folder_id INTEGER,
-                username TEXT,
-                allowed INTEGER,
-                PRIMARY KEY (folder_id, username)
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS kaartfouten (
-                id SERIAL PRIMARY KEY,
-                vak_id TEXT,
-                melding_type TEXT,
-                omschrijving TEXT,
-                status TEXT,
-                melder TEXT,
-                gemeld_op TEXT,
-                latitude DOUBLE PRECISION,
-                longitude DOUBLE PRECISION
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS kaartfout_fotos (
-                id SERIAL PRIMARY KEY,
-                kaartfout_id INTEGER,
-                bestandsnaam TEXT,
-                geupload_op TEXT
-            )
-            """
-        )
+        # enkele hoofdtabellen (ingekort)
+        cur.execute("CREATE TABLE IF NOT EXISTS uitzonderingen (id SERIAL PRIMARY KEY, naam TEXT, kenteken TEXT, locatie TEXT, type TEXT, start DATE, einde DATE, toestemming TEXT, opmerking TEXT)")
+        cur.execute("CREATE TABLE IF NOT EXISTS agenda (id SERIAL PRIMARY KEY, titel TEXT, datum DATE, starttijd TEXT, eindtijd TEXT, locatie TEXT, beschrijving TEXT, aangemaakt_door TEXT, aangemaakt_op TEXT)")
+        cur.execute("CREATE TABLE IF NOT EXISTS verslagen_folders (id SERIAL PRIMARY KEY, name TEXT UNIQUE, description TEXT, is_public INTEGER DEFAULT 0, active INTEGER DEFAULT 1)")
+        cur.execute("CREATE TABLE IF NOT EXISTS verslagen_docs (id SERIAL PRIMARY KEY, folder_id INTEGER, title TEXT, meeting_date DATE, tags TEXT, filename TEXT, uploaded_by TEXT, uploaded_on TEXT)")
+        cur.execute("CREATE TABLE IF NOT EXISTS verslagen_folder_permissions (folder_id INTEGER, username TEXT, allowed INTEGER, PRIMARY KEY (folder_id, username))")
+        cur.execute("CREATE TABLE IF NOT EXISTS kaartfouten (id SERIAL PRIMARY KEY, vak_id TEXT, melding_type TEXT, omschrijving TEXT, status TEXT, melder TEXT, gemeld_op TEXT, latitude DOUBLE PRECISION, longitude DOUBLE PRECISION)")
+        cur.execute("CREATE TABLE IF NOT EXISTS kaartfout_fotos (id SERIAL PRIMARY KEY, kaartfout_id INTEGER, bestandsnaam TEXT, geupload_op TEXT)")
+
         # seed users
         for u, (p, r) in START_USERS.items():
             cur.execute("SELECT 1 FROM users WHERE username=%s", (u,))
@@ -443,7 +354,7 @@ def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
         return None, None
 
 # =====================
-# LOGIN / AUTH (met NOOD-OVERRIDE + DEBUG_AUTH)
+# LOGIN / AUTH (NOOD-OVERRIDE + DEBUG_AUTH)
 # =====================
 if "force_change" not in st.session_state:
     st.session_state.force_change = 0
@@ -965,7 +876,7 @@ def render_verslagen():
                                                     pass
                                         cur.execute("DELETE FROM verslagen_docs WHERE folder_id=%s", (fid,))
                                         cur.execute("DELETE FROM verslagen_folder_permissions WHERE folder_id=%s", (fid,))
-                                        cur.execute("DELETE FROM verslagen_folders WHERE id=%s", (fid))
+                                        cur.execute("DELETE FROM verslagen_folders WHERE id=%s", (fid,))
                                         con.commit()
                                     fdir = os.path.join(UPLOAD_DIR_VERSLAGEN, str(fid))
                                     if os.path.isdir(fdir):
@@ -1258,7 +1169,48 @@ def render_gebruikers():
                 st.rerun()
             except Exception as e:
                 st.error(f"Opschonen mislukt: {e}")
-    # --- /ADMIN ONDERHOUD ---
+
+    # --- ADMIN HARD RESET (tijdelijk) ---
+    with st.expander("🧨 Hard reset users (tijdelijk)", expanded=False):
+        st.caption("Gebruik alleen als opschonen niet werkte. Verwijdert dummy-rijen en kan 1 echt account aanmaken.")
+        new_mail = st.text_input("E-mailadres om toe te voegen (optioneel)", value="s.coskun@dordrecht.nl")
+        new_pwd  = st.text_input("Tijdelijk wachtwoord (≥8 tekens, optioneel)", type="password")
+        do_reset = st.button("🔥 Verwijder dummy-rijen en voeg dit account toe (indien ingevuld)")
+        if do_reset:
+            try:
+                with db_conn() as con:
+                    cur = con.cursor()
+                    # 1) dummy permissies weg
+                    cur.execute(
+                        """
+                        DELETE FROM permissions
+                        WHERE username IN (
+                            SELECT username FROM users
+                            WHERE trim(lower(username)) ~ '^(username|role|active|force_change)$'
+                        )
+                        """
+                    )
+                    # 2) dummy users weg
+                    cur.execute(
+                        """
+                        DELETE FROM users
+                        WHERE trim(lower(username)) ~ '^(username|role|active|force_change)$'
+                        """
+                    )
+                    # 3) optioneel echt account aanmaken
+                    if new_mail.strip() and len(new_pwd) >= 8:
+                        cur.execute("SELECT 1 FROM users WHERE username=%s", (new_mail.strip(),))
+                        if cur.fetchone() is None:
+                            cur.execute(
+                                "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,%s,%s,%s)",
+                                (new_mail.strip(), hash_pw(new_pwd), "admin", 1, 1)
+                            )
+                    con.commit()
+                st.success("Hard reset uitgevoerd. Herlaad de pagina (Ctrl+F5).")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Hard reset mislukt: {e}")
+    # --- /ADMIN HARD RESET ---
 
     with db_conn() as con:
         df_users = pd.read_sql("SELECT username, role, active, force_change FROM users ORDER BY username", con)
