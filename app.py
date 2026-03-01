@@ -1145,7 +1145,7 @@ def render_kaartfouten():
             fotos = st.file_uploader("Foto’s toevoegen (optioneel)", type=["jpg","jpeg","png"], accept_multiple_files=True)
             submitted = st.form_submit_button("📩 Kaartfout melden")
             if submitted:
-                if not straat or not huisnummer or not postcode or not omschrijving:
+                if not straat or not huisnummer or not postcode of not omschrijving:
                     st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
                     st.stop()
                 lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
@@ -1275,10 +1275,49 @@ def render_gebruikers():
     if not has_role("admin"):
         st.warning("Alleen admins")
         return
+
+    # --- ADMIN ONDERHOUD (tijdelijk) ---
+    with st.expander("🔧 Onderhoud (admin)", expanded=False):
+        st.caption("Verwijdert test/dummy rijen zoals 'username', 'role', 'active', 'force_change'.")
+        if st.button("🧹 Verwijder dummy-gebruikers"):
+            try:
+                with db_conn() as con:
+                    cur = con.cursor()
+                    # verwijder permissies van dummy users
+                    cur.execute(
+                        """
+                        DELETE FROM permissions
+                        WHERE username IN (
+                            SELECT username FROM users
+                            WHERE username IN ('username','role','active','force_change')
+                        )
+                        """
+                    )
+                    # verwijder dummy users zelf
+                    cur.execute(
+                        """
+                        DELETE FROM users
+                        WHERE username IN ('username','role','active','force_change')
+                        """
+                    )
+                    con.commit()
+                st.success("Dummy-gebruikers verwijderd. Herlaad de pagina.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Opschonen mislukt: {e}")
+    # --- /ADMIN ONDERHOUD ---
+
     with db_conn() as con:
         df_users = pd.read_sql("SELECT username, role, active, force_change FROM users ORDER BY username", con)
+
+    # Opschonen en dedupliceren
+    if not df_users.empty:
+        df_users = df_users[df_users["username"].astype(str).str.strip().ne("")].copy()
+    df_usernames = sorted(set(df_users["username"].tolist())) if not df_users.empty else []
+
     st.subheader("👥 Gebruikers")
     st.dataframe(df_users, use_container_width=True)
+
     with st.form("user_add_form"):
         new_username = st.text_input("Gebruikersnaam (uniek)")
         new_password = st.text_input("Initieel wachtwoord", type="password")
@@ -1294,18 +1333,17 @@ def render_gebruikers():
                         cur = con.cursor()
                         cur.execute(
                             "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,%s,%s,%s)",
-                            (new_username, hash_pw(new_password), new_role, int(new_active), int(force_change)),
+                            (new_username.strip(), hash_pw(new_password), new_role, int(new_active), int(force_change)),
                         )
                         con.commit()
-                    audit("USER_CREATE", "users", new_username)
-                    st.success(f"Gebruiker '{new_username}' toegevoegd")
+                    audit("USER_CREATE", "users", new_username.strip())
+                    st.success(f"Gebruiker '{new_username.strip()}' toegevoegd")
                     st.session_state["_tab_perms_cache"] = None
                     st.rerun()
                 except Exception as e:
                     st.error(f"Kon gebruiker niet toevoegen: {e}")
 
     st.markdown("### ✏️ Gebruiker bewerken/verwijderen")
-    df_usernames = df_users["username"].tolist()
     sel_user = st.selectbox("Selecteer gebruiker", [None] + df_usernames, key="user_edit_select")
     if sel_user:
         with db_conn() as con:
@@ -1363,7 +1401,12 @@ def render_gebruikers():
             df_perm = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=%s", con, params=[sel_perm_user])
             cur = con.cursor()
             cur.execute("SELECT role FROM users WHERE username=%s", (sel_perm_user,))
-            role_of_user = cur.fetchone()["role"]
+            row_role = cur.fetchone()
+        if not row_role:
+            st.error(f"Gebruiker '{sel_perm_user}' bestaat niet (meer). Vernieuw de pagina of kies een andere gebruiker.")
+            return
+        role_of_user = row_role["role"]
+
         has_custom = not df_perm.empty
         labels_keys = all_tabs_config()
         tab_keys = [k for _, k in labels_keys]
