@@ -93,7 +93,6 @@ def db_conn():
 
 # =====================
 # SECURITY: password hashing (PBKDF2)
-# (Voor later als login weer aangezet wordt. Nu alleen gebruikt door Gebruikersbeheer.)
 # =====================
 PBKDF2_ITER = 200_000
 
@@ -104,12 +103,20 @@ def hash_pw(pw: str) -> str:
     dk = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt, PBKDF2_ITER, dklen=32)
     return f"pbkdf2_sha256${PBKDF2_ITER}${base64.b64encode(salt).decode()}${base64.b64encode(dk).decode()}"
 
+def verify_pw(pw: str, stored: str) -> bool:
+    try:
+        algo, iters_s, salt_b64, hash_b64 = stored.split("$")
+        iters = int(iters_s)
+        salt = base64.b64decode(salt_b64)
+        expected = base64.b64decode(hash_b64)
+        test = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt, iters, dklen=32)
+        return hashlib.compare_digest(test, expected)
+    except Exception:
+        return False
+
 # =====================
-# INIT DB (Postgres DDL)
+# INIT DB (DDL)
 # =====================
-START_USERS = {
-    "s.coskun@dordrecht.nl": ("Seref#2026", "admin"),
-}
 
 def init_db():
     with db_conn() as con:
@@ -287,37 +294,9 @@ def init_db():
             )
             """
         )
-        # seed 1 admin user (voor later bij login)
-        for u, (p, r) in START_USERS.items():
-            cur.execute("SELECT 1 FROM users WHERE username=%s", (u,))
-            if cur.fetchone() is None:
-                cur.execute(
-                    "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,%s,%s,%s)",
-                    (u, hash_pw(p), r, 1, 1),
-                )
-        # default verslagen folders
-        defaults = [
-            ("Verslagen MPO", "Map voor MPO-verslagen"),
-            ("Verslagen overleg afd. Parkeren", "Afd. Parkeren overlegverslagen"),
-            ("Verslagen Overleg parkeren - Stadswinkel", "Stadswinkel overlegverslagen"),
-            ("Overleg Handhaving - Parkeren", "Handhaving-parkeer overlegverslagen"),
-        ]
-        for nm, desc in defaults:
-            cur.execute(
-                "INSERT INTO verslagen_folders (name, description, is_public, active) VALUES (%s,%s,0,1) ON CONFLICT (name) DO NOTHING",
-                (nm, desc)
-            )
-
         con.commit()
 
 init_db()
-
-# =====================
-# SESSION: vaste admin (tijdelijk, geen login)
-# =====================
-if "user" not in st.session_state:
-    st.session_state.user = os.environ.get("DEV_USER", "dev_admin")
-    st.session_state.role = os.environ.get("DEV_ROLE", "admin")
 
 # =====================
 # HELPERS & PERMISSIONS
@@ -398,9 +377,6 @@ def load_user_permissions(username, role):
 
 
 def is_tab_allowed(tab_key):
-    # Admin ziet alles (zolang we in no-login modus zitten)
-    if st.session_state.role == "admin":
-        return True
     perms = st.session_state.get("_tab_perms_cache")
     if perms is None:
         perms = load_user_permissions(st.session_state.user, st.session_state.role)
@@ -471,7 +447,94 @@ def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
         return None, None
 
 # =====================
-# SIDEBAR (no-login)
+# LOGIN / AUTH (CLEAN)
+# =====================
+if "force_change" not in st.session_state:
+    st.session_state.force_change = 0
+
+if "user" not in st.session_state:
+    # header
+    c1, c2, c3 = st.columns([1,2,1])
+    with c2:
+        show_logo(LOGO_PATH, where="main", width=180)
+        st.markdown("<h2 style='text-align:center;margin-top:6px;'>Parkeren Dordrecht</h2>", unsafe_allow_html=True)
+        st.markdown("<p class='small-muted' style='text-align:center'>Log in met je e-mailadres en wachtwoord</p>", unsafe_allow_html=True)
+
+    st.markdown(
+        """
+        <div style="max-width:520px;margin: 12px auto 0 auto; padding: 24px 22px;
+            border: 1px solid #eaeaea; border-radius: 14px; background: #ffffffaa;
+            box-shadow: 0 6px 22px rgba(0,0,0,0.06);">
+        """,
+        unsafe_allow_html=True,
+    )
+
+    u = st.text_input("Gebruiker (e-mailadres)", placeholder="@dordrecht.nl")
+    p = st.text_input("Wachtwoord", type="password")
+    login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
+
+    # DB host vóór login (debug caption)
+    try:
+        with db_conn() as con:
+            cur = con.cursor()
+            cur.execute("SELECT current_database(), inet_server_addr()::text, inet_server_port()::int")
+            db, host, port = cur.fetchone().values()
+            st.caption(f"🧪 DB: {db} @ {host}:{port}")
+    except Exception as e:
+        st.caption(f"DB check: {e}")
+
+    st.markdown(
+        """
+        <div class='small-muted' style='margin-top:12px;'>Wachtwoord vergeten? Neem contact op met je beheerder.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if login_clicked:
+        u = (u or "").strip()
+        with db_conn() as con:
+            cur = con.cursor()
+            cur.execute("SELECT password, role, active, force_change FROM users WHERE username=%s", (u,))
+            row = cur.fetchone()
+        if not row:
+            st.error("Onbekende gebruiker.")
+            st.stop()
+        if int(row.get("active", 0)) != 1:
+            st.error("Account is niet actief. Neem contact op met je beheerder.")
+            st.stop()
+        if not verify_pw(p, row.get("password", "")):
+            st.error("Onjuist wachtwoord.")
+            st.stop()
+        # success
+        st.session_state.user = u
+        st.session_state.role = row.get("role", "viewer")
+        st.session_state.force_change = row.get("force_change", 0)
+        st.session_state["_tab_perms_cache"] = None
+        audit("LOGIN")
+        st.rerun()
+    st.stop()
+
+# Force change
+if st.session_state.force_change == 1:
+    st.title("🔑 Wachtwoord wijzigen (verplicht)")
+    pw1 = st.text_input("Nieuw wachtwoord", type="password")
+    pw2 = st.text_input("Herhaal wachtwoord", type="password")
+    if st.button("Wijzigen"):
+        if pw1 != pw2 or len(pw1) < 8:
+            st.error("Wachtwoord ongeldig (min. 8 tekens en beide velden gelijk)")
+        else:
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute("UPDATE users SET password=%s, force_change=0 WHERE username=%s", (hash_pw(pw1), st.session_state.user))
+                con.commit()
+            audit("PASSWORD_CHANGE")
+            st.session_state.force_change = 0
+            st.rerun()
+    st.stop()
+
+# =====================
+# SIDEBAR
 # =====================
 try:
     show_logo(LOGO_PATH, where="sidebar")
@@ -480,15 +543,19 @@ except Exception:
 st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
 st.sidebar.caption(f"📁 DATA_DIR in gebruik: {BASE_DATA_DIR}")
 
-# Debug DB info
+if st.sidebar.button("🚪 Uitloggen"):
+    st.session_state.clear()
+    st.rerun()
+
+# Debug in sidebar
 try:
     with db_conn() as con:
         cur = con.cursor()
         cur.execute("SELECT current_database(), inet_server_addr()::text, inet_server_port()::int")
         db, host, port = cur.fetchone().values()
         st.sidebar.caption(f"🧪 DB: {db} @ {host}:{port}")
-except Exception as e:
-    st.sidebar.caption(f"DB check: {e}")
+except Exception:
+    pass
 
 # =====================
 # GENERIC HELPERS
@@ -595,7 +662,10 @@ def render_projecten():
     export_excel(df_show.drop(columns=['_id_num']), "projecten")
     export_pdf(df_show.drop(columns=['_id_num']), "Projecten")
 
-    # CRUD (admin/editor — in no-login: altijd toegestaan)
+    # CRUD (admin/editor)
+    if not has_role("admin", "editor"):
+        return
+
     id_options = [None] + df['_id_num'].dropna().astype(int).tolist()
     sel = st.selectbox("✏️ Selecteer project", id_options, key="projecten_select")
     record = df.loc[df['_id_num'] == sel].iloc[0] if sel is not None and not df.loc[df['_id_num'] == sel].empty else None
@@ -628,49 +698,47 @@ def render_projecten():
                 return False
             return True
 
-        if submit_new:
-            if validate():
-                with db_conn() as con:
-                    cur = con.cursor()
-                    cur.execute(
-                        """
-                        INSERT INTO projecten (naam, projectleider, start, einde, prio, status, opmerking)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
-                        """,
-                        (
-                            naam.strip(), projectleider.strip() or None,
-                            start_val.isoformat() if start_val else None,
-                            einde_val.isoformat() if einde_val else None,
-                            prio, status, opmerking.strip() or None,
-                        ),
-                    )
-                    rid = cur.fetchone()["id"]
-                    con.commit()
-                audit("INSERT", "projecten", rid)
-                st.success("Project toegevoegd")
-                st.rerun()
+        if submit_new and validate():
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute(
+                    """
+                    INSERT INTO projecten (naam, projectleider, start, einde, prio, status, opmerking)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                    """,
+                    (
+                        naam.strip(), projectleider.strip() or None,
+                        start_val.isoformat() if start_val else None,
+                        einde_val.isoformat() if einde_val else None,
+                        prio, status, opmerking.strip() or None,
+                    ),
+                )
+                rid = cur.fetchone()["id"]
+                con.commit()
+            audit("INSERT", "projecten", rid)
+            st.success("Project toegevoegd")
+            st.rerun()
 
-        if record is not None and submit_edit:
-            if validate():
-                with db_conn() as con:
-                    cur = con.cursor()
-                    cur.execute(
-                        """
-                        UPDATE projecten SET naam=%s, projectleider=%s, start=%s, einde=%s, prio=%s, status=%s, opmerking=%s
-                        WHERE id=%s
-                        """,
-                        (
-                            naam.strip(), projectleider.strip() or None,
-                            start_val.isoformat() if start_val else None,
-                            einde_val.isoformat() if einde_val else None,
-                            prio, status, opmerking.strip() or None,
-                            int(sel),
-                        ),
-                    )
-                    con.commit()
-                audit("UPDATE", "projecten", int(sel))
-                st.success("Project bijgewerkt")
-                st.rerun()
+        if record is not None and submit_edit and validate():
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute(
+                    """
+                    UPDATE projecten SET naam=%s, projectleider=%s, start=%s, einde=%s, prio=%s, status=%s, opmerking=%s
+                    WHERE id=%s
+                    """,
+                    (
+                        naam.strip(), projectleider.strip() or None,
+                        start_val.isoformat() if start_val else None,
+                        einde_val.isoformat() if einde_val else None,
+                        prio, status, opmerking.strip() or None,
+                        int(sel),
+                    ),
+                )
+                con.commit()
+            audit("UPDATE", "projecten", int(sel))
+            st.success("Project bijgewerkt")
+            st.rerun()
 
         if record is not None and submit_del:
             with db_conn() as con:
@@ -698,6 +766,9 @@ def crud_block(table, fields, dropdowns=None):
     st.dataframe(df.drop(columns=['_id_num']), use_container_width=True)
     export_excel(df.drop(columns=['_id_num']), table)
     export_pdf(df.drop(columns=['_id_num']), table)
+
+    if not has_role("admin", "editor"):
+        return
 
     id_options = [None] + df['_id_num'].dropna().astype(int).tolist()
     sel = st.selectbox("✏️ Selecteer record", id_options, key=f"{table}_select")
@@ -746,7 +817,7 @@ def crud_block(table, fields, dropdowns=None):
             st.success("Record bijgewerkt")
             st.rerun()
 
-        if record is not None and submit_del:
+        if has_role("admin") and record is not None and submit_del:
             with db_conn() as con:
                 cur = con.cursor()
                 cur.execute(f"DELETE FROM {table} WHERE id=%s", (int(sel),))
@@ -777,6 +848,9 @@ def render_agenda():
     st.dataframe(df.drop(columns=['_id_num']), use_container_width=True)
     export_excel(df.drop(columns=['_id_num']), "agenda")
     export_pdf(df.drop(columns=['_id_num']), "Agenda")
+
+    if not has_role("admin", "editor"):
+        return
 
     id_options = [None] + df['_id_num'].dropna().astype(int).tolist()
     sel = st.selectbox("✏️ Selecteer record", id_options, key="agenda_select")
@@ -848,7 +922,7 @@ def render_agenda():
             st.success("Activiteit bijgewerkt")
             st.rerun()
 
-        if record is not None and submit_del:
+        if has_role("admin") and record is not None and submit_del:
             with db_conn() as con:
                 cur = con.cursor()
                 cur.execute("DELETE FROM agenda WHERE id=%s", (int(sel),))
@@ -900,7 +974,7 @@ def render_verslagen():
             pub = " (openbaar)" if int(r["is_public"]) == 1 else ""
             folder_options.append((f"{r['name']}{pub}", fid))
 
-    if not folder_options and st.session_state.role != "admin":
+    if not folder_options and not has_role("admin"):
         st.info("Er zijn (nog) geen mappen waarvoor je toegangsrechten hebt.")
         return
 
@@ -994,7 +1068,7 @@ def render_verslagen():
     if sel_folder_id:
         colL, colR = st.columns([1,2])
         with colL:
-            if is_folder_allowed(sel_folder_id):
+            if is_folder_allowed(sel_folder_id) and has_role("admin","editor"):
                 st.markdown("#### 🔼 Upload verslag")
                 with st.form(f"upload_doc_form_{sel_folder_id}"):
                     title = st.text_input("Titel *")
@@ -1070,7 +1144,7 @@ def render_verslagen():
                         else:
                             st.warning("Bestand ontbreekt op de server.")
                     with colX:
-                        if st.button("🗑️ Verwijderen", key=f"del_{sel_doc}"):
+                        if has_role("admin","editor") and st.button("🗑️ Verwijderen", key=f"del_{sel_doc}"):
                             with db_conn() as con:
                                 cur = con.cursor()
                                 cur.execute("DELETE FROM verslagen_docs WHERE id=%s", (int(sel_doc),))
@@ -1181,80 +1255,61 @@ Melder: {r['melder']}<br><br>
             st.warning(f"Kaart kon niet worden geladen: {e}")
             st.map(df_map.rename(columns={"latitude":"lat","longitude":"lon"})[["lat","lon"]])
 
-    st.markdown("### ✏️ Afhandeling & foto’s")
-    df['_id_num'] = pd.to_numeric(df.get('id'), errors='coerce')
-    id_options = [None] + df['_id_num'].dropna().astype(int).tolist()
-    sel_id = st.selectbox("Selecteer melding", id_options, key="kaartfout_select")
-    if sel_id:
-        with db_conn() as con:
-            cur = con.cursor()
-            cur.execute("SELECT status FROM kaartfouten WHERE id=%s", (int(sel_id),))
-            huidige_status = cur.fetchone()["status"]
-        with st.form("kaartfout_status_form"):
-            nieuwe_status = st.selectbox("Status", ["Open","In onderzoek","Opgelost"], index=["Open","In onderzoek","Opgelost"].index(huidige_status))
-            if st.form_submit_button("💾 Status opslaan"):
-                with db_conn() as con:
-                    cur = con.cursor()
-                    cur.execute("UPDATE kaartfouten SET status=%s WHERE id=%s", (nieuwe_status, int(sel_id)))
-                    con.commit()
-                audit("KAARTFOUT_STATUS", "kaartfouten", int(sel_id))
-                st.success("✅ Status bijgewerkt")
-                st.rerun()
-        with db_conn() as con:
-            fotos = pd.read_sql("SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=%s", con, params=[int(sel_id)])
-        if not fotos.empty:
-            st.markdown("### 📷 Foto’s")
-            for _, r in fotos.iterrows():
-                path = os.path.join(UPLOAD_DIR_KAARTFOUTEN, r["bestandsnaam"])
-                if os.path.exists(path):
-                    st.image(path, use_container_width=True)
-        if st.button("🗑️ Melding definitief verwijderen"):
+    if has_role("editor", "admin"):
+        st.markdown("### ✏️ Afhandeling & foto’s")
+        df['_id_num'] = pd.to_numeric(df.get('id'), errors='coerce')
+        id_options = [None] + df['_id_num'].dropna().astype(int).tolist()
+        sel_id = st.selectbox("Selecteer melding", id_options, key="kaartfout_select")
+        if sel_id:
             with db_conn() as con:
                 cur = con.cursor()
-                cur.execute("SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=%s", (int(sel_id),))
-                fotos = cur.fetchall()
-                for row in fotos:
-                    fname = row.get("bestandsnaam")
-                    p = os.path.join(UPLOAD_DIR_KAARTFOUTEN, fname)
-                    if os.path.exists(p):
-                        try: os.remove(p)
-                        except Exception: pass
-                cur.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=%s", (int(sel_id),))
-                cur.execute("DELETE FROM kaartfouten WHERE id=%s", (int(sel_id),))
-                con.commit()
-            audit("KAARTFOUT_VERWIJDERD", "kaartfouten", int(sel_id))
-            st.success("🗑️ Melding verwijderd")
-            st.rerun()
+                cur.execute("SELECT status FROM kaartfouten WHERE id=%s", (int(sel_id),))
+                huidige_status = cur.fetchone()["status"]
+            with st.form("kaartfout_status_form"):
+                nieuwe_status = st.selectbox("Status", ["Open","In onderzoek","Opgelost"], index=["Open","In onderzoek","Opgelost"].index(huidige_status))
+                if st.form_submit_button("💾 Status opslaan"):
+                    with db_conn() as con:
+                        cur = con.cursor()
+                        cur.execute("UPDATE kaartfouten SET status=%s WHERE id=%s", (nieuwe_status, int(sel_id)))
+                        con.commit()
+                    audit("KAARTFOUT_STATUS", "kaartfouten", int(sel_id))
+                    st.success("✅ Status bijgewerkt")
+                    st.rerun()
+            with db_conn() as con:
+                fotos = pd.read_sql("SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=%s", con, params=[int(sel_id)])
+            if not fotos.empty:
+                st.markdown("### 📷 Foto’s")
+                for _, r in fotos.iterrows():
+                    path = os.path.join(UPLOAD_DIR_KAARTFOUTEN, r["bestandsnaam"])
+                    if os.path.exists(path):
+                        st.image(path, use_container_width=True)
+            if has_role("admin") and st.button("🗑️ Melding definitief verwijderen"):
+                with db_conn() as con:
+                    cur = con.cursor()
+                    cur.execute("SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=%s", (int(sel_id),))
+                    fotos = cur.fetchall()
+                    for row in fotos:
+                        fname = row.get("bestandsnaam")
+                        p = os.path.join(UPLOAD_DIR_KAARTFOUTEN, fname)
+                        if os.path.exists(p):
+                            try: os.remove(p)
+                            except Exception: pass
+                    cur.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=%s", (int(sel_id),))
+                    cur.execute("DELETE FROM kaartfouten WHERE id=%s", (int(sel_id),))
+                    con.commit()
+                audit("KAARTFOUT_VERWIJDERD", "kaartfouten", int(sel_id))
+                st.success("🗑️ Melding verwijderd")
+                st.rerun()
 
 
 def render_gebruikers():
-    # geen login → iedereen is admin, maar we houden beheer scherm
+    if not has_role("admin"):
+        st.warning("Alleen admins")
+        return
     with db_conn() as con:
         df_users = pd.read_sql("SELECT username, role, active, force_change FROM users ORDER BY username", con)
-
-    # Opschonen en dedupliceren voor keuzelijsten
-    if not df_users.empty:
-        df_users = df_users[df_users["username"].astype(str).str.strip().ne("")].copy()
-    df_usernames = sorted(set(df_users["username"].tolist())) if not df_users.empty else []
-
     st.subheader("👥 Gebruikers")
     st.dataframe(df_users, use_container_width=True)
-
-    # Onderhoudsknop om dummy users te verwijderen
-    with st.expander("🔧 Onderhoud (admin)", expanded=False):
-        st.caption("Verwijdert test/dummy rijen zoals 'username', 'role', 'active', 'force_change'.")
-        if st.button("🧹 Verwijder dummy-gebruikers"):
-            try:
-                with db_conn() as con:
-                    cur = con.cursor()
-                    cur.execute("DELETE FROM permissions WHERE username IN ('username','role','active','force_change')")
-                    cur.execute("DELETE FROM users WHERE username IN ('username','role','active','force_change')")
-                    con.commit()
-                st.success("Dummy-gebruikers verwijderd. Herlaad de pagina.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Opschonen mislukt: {e}")
-
     with st.form("user_add_form"):
         new_username = st.text_input("Gebruikersnaam (uniek)")
         new_password = st.text_input("Initieel wachtwoord", type="password")
@@ -1281,6 +1336,7 @@ def render_gebruikers():
                     st.error(f"Kon gebruiker niet toevoegen: {e}")
 
     st.markdown("### ✏️ Gebruiker bewerken/verwijderen")
+    df_usernames = df_users["username"].tolist()
     sel_user = st.selectbox("Selecteer gebruiker", [None] + df_usernames, key="user_edit_select")
     if sel_user:
         with db_conn() as con:
@@ -1338,12 +1394,7 @@ def render_gebruikers():
             df_perm = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=%s", con, params=[sel_perm_user])
             cur = con.cursor()
             cur.execute("SELECT role FROM users WHERE username=%s", (sel_perm_user,))
-            row_role = cur.fetchone()
-        if not row_role:
-            st.error(f"Gebruiker '{sel_perm_user}' bestaat niet (meer). Vernieuw de pagina of kies een andere gebruiker.")
-            return
-        role_of_user = row_role["role"]
-
+            role_of_user = cur.fetchone()["role"]
         has_custom = not df_perm.empty
         labels_keys = all_tabs_config()
         tab_keys = [k for _, k in labels_keys]
@@ -1412,7 +1463,7 @@ tab_funcs = {
 
 allowed_items = [(lbl, key) for (lbl, key) in all_tabs_config() if is_tab_allowed(key)]
 if not allowed_items:
-    st.error("Er zijn geen toegestane tabbladen geconfigureerd.")
+    st.error("Je hebt momenteel geen toegestane tabbladen. Neem contact op met een beheerder.")
     st.stop()
 
 tabs_objs = st.tabs([lbl for (lbl, _) in allowed_items])
