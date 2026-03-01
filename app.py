@@ -1065,7 +1065,8 @@ def render_kaartfouten():
     else:
         try:
             import folium
-            from streamlit.components.v1 import html as st_html
+            from streamlit.components.v1 import html
+html(m._repr_html_(), height=520)
             lat_mean = df_map["latitude"].astype(float).mean()
             lon_mean = df_map["longitude"].astype(float).mean()
             center = [lat_mean if pd.notna(lat_mean) else 51.8133, lon_mean if pd.notna(lon_mean) else 4.6901]
@@ -1392,3 +1393,4 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
