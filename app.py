@@ -32,6 +32,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Resilient logo rendering (works with URLs, skips invalid/corrupt images)
+def show_logo(path, *, where="main", width=180):
+    try:
+        if not path:
+            return False
+        is_url = str(path).startswith(("http://", "https://"))
+        container = st.sidebar if where == "sidebar" else st
+        if is_url or os.path.exists(path):
+            container.image(path, use_container_width=(where=="sidebar"), width=width)
+            return True
+    except Exception:
+        return False
+    return False
+
 # =====================
 # STORAGE PATHS (robust fallback)
 # =====================
@@ -440,8 +454,7 @@ if "user" not in st.session_state:
     # header
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
-        if os.path.exists(LOGO_PATH):
-            st.image(LOGO_PATH, use_container_width=False, width=180)
+        show_logo(LOGO_PATH, where="main", width=180)
         st.markdown("<h2 style='text-align:center;margin-top:6px;'>Parkeren Dordrecht</h2>", unsafe_allow_html=True)
         st.markdown("<p class='small-muted' style='text-align:center'>Log in met je e-mailadres en wachtwoord</p>", unsafe_allow_html=True)
 
@@ -504,8 +517,7 @@ if st.session_state.force_change == 1:
 # SIDEBAR
 # =====================
 try:
-    if os.path.exists(LOGO_PATH):
-        st.sidebar.image(LOGO_PATH, use_container_width=True)
+    show_logo(LOGO_PATH, where="sidebar")
 except Exception:
     pass
 st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
@@ -773,13 +785,13 @@ def render_agenda():
             except Exception:
                 return time(default_h, default_m)
         starttijd_val = st.time_input("Starttijd", value=parse_time(record["starttijd"]) if record is not None else time(9,0))
-        eindtijd_val = st.time_input("Eindtijd", value=parse_time(record["eindtijd"],10,0) if record is not None else time(10,0))
+        eindtijd_val  = st.time_input("Eindtijd",  value=parse_time(record["eindtijd"],10,0) if record is not None else time(10,0))
         locatie = st.text_input("Locatie", value=(record["locatie"] if record is not None else ""))
         beschrijving = st.text_area("Beschrijving", value=(record["beschrijving"] if record is not None else ""))
         col1, col2, col3 = st.columns(3)
         submit_new = col1.form_submit_button("💾 Opslaan (nieuw)")
         submit_edit = col2.form_submit_button("✏️ Wijzigen")
-        submit_del = col3.form_submit_button("🗑️ Verwijderen")
+        submit_del  = col3.form_submit_button("🗑️ Verwijderen")
 
         if submit_new:
             with db_conn() as con:
@@ -1241,13 +1253,13 @@ def render_gebruikers():
             row = cur.fetchone()
         if row:
             with st.form("user_edit_form"):
-                role_new = st.selectbox("Rol", ["admin","editor","viewer"], index=["admin","editor","viewer"].index(row["role"]))
+                role_new   = st.selectbox("Rol", ["admin","editor","viewer"], index=["admin","editor","viewer"].index(row["role"]))
                 active_new = st.checkbox("Actief", bool(row["active"]))
-                force_new = st.checkbox("Forceer wachtwoordwijziging", bool(row["force_change"]))
-                pw_reset = st.checkbox("Wachtwoord resetten?")
-                pw_new = st.text_input("Nieuw wachtwoord", type="password", disabled=not pw_reset)
+                force_new  = st.checkbox("Forceer wachtwoordwijziging", bool(row["force_change"]))
+                pw_reset   = st.checkbox("Wachtwoord resetten?")
+                pw_new     = st.text_input("Nieuw wachtwoord", type="password", disabled=not pw_reset)
                 col1, col2 = st.columns(2)
-                do_save = col1.form_submit_button("💾 Opslaan wijzigingen")
+                do_save   = col1.form_submit_button("💾 Opslaan wijzigingen")
                 do_delete = col2.form_submit_button("🗑️ Verwijderen")
                 if do_save:
                     if pw_reset and len(pw_new) < 8:
