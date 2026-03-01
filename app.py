@@ -33,6 +33,7 @@ st.markdown(
 )
 
 # Resilient logo rendering (works with URLs, skips invalid/corrupt images)
+
 def show_logo(path, *, where="main", width=180):
     try:
         if not path:
@@ -120,32 +121,6 @@ START_USERS = {
     "seref": ("Seref#2026", "admin"),
     "s.coskun@dordrecht.nl": ("Seref#2026", "admin"),
 }
-
-# --- TEMP ADMIN BOOT (verwijderen na succes!) ---
-try:
-    BOOT_U = os.environ.get("ADMIN_BOOT_USER")
-    BOOT_P = os.environ.get("ADMIN_BOOT_PASS")
-    if BOOT_U and BOOT_P:
-        with db_conn() as con:
-            cur = con.cursor()
-            cur.execute("SELECT 1 FROM users WHERE username=%s", (BOOT_U,))
-            exists = cur.fetchone() is not None
-
-            if exists:
-                cur.execute(
-                    "UPDATE users SET password=%s, role='admin', active=1, force_change=1 WHERE username=%s",
-                    (hash_pw(BOOT_P), BOOT_U)
-                )
-            else:
-                cur.execute(
-                    "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,'admin',1,1)",
-                    (BOOT_U, hash_pw(BOOT_P))
-                )
-            con.commit()
-except Exception as e:
-    st.error(f"BOOT ERROR: {e}")
-             
-# --- /TEMP ADMIN BOOT ---
 
 def init_db():
     with db_conn() as con:
@@ -348,6 +323,32 @@ def init_db():
 
 init_db()
 
+# --- TEMP ADMIN BOOT (verwijderen na succes!) ---
+# Plaats NA init_db(), zodat de tabellen bestaan en hash_pw is gedefinieerd
+try:
+    BOOT_U = os.environ.get("ADMIN_BOOT_USER")
+    BOOT_P = os.environ.get("ADMIN_BOOT_PASS")
+    if BOOT_U and BOOT_P:
+        with db_conn() as con:
+            cur = con.cursor()
+            cur.execute("SELECT 1 FROM users WHERE username=%s", (BOOT_U,))
+            exists = cur.fetchone() is not None
+            if exists:
+                cur.execute(
+                    "UPDATE users SET password=%s, role='admin', active=1, force_change=1 WHERE username=%s",
+                    (hash_pw(BOOT_P), BOOT_U)
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,'admin',1,1)",
+                    (BOOT_U, hash_pw(BOOT_P))
+                )
+            con.commit()
+except Exception as e:
+    # Toon in logs (sidebar is er nog niet vóór login)
+    print(f"[BOOT ERROR] {e}")
+# --- /TEMP ADMIN BOOT ---
+
 # =====================
 # HELPERS & PERMISSIONS
 # =====================
@@ -498,6 +499,16 @@ if "user" not in st.session_state:
     p = st.text_input("Wachtwoord", type="password")
     login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
 
+    # --- LOGIN DEBUG (tijdelijk): toon DB host ook vóór login ---
+    try:
+        with db_conn() as con:
+            cur = con.cursor()
+            cur.execute("SELECT current_database(), inet_server_addr()::text, inet_server_port()::int")
+            db, host, port = cur.fetchone().values()
+            st.caption(f"🧪 DB: {db} @ {host}:{port}")
+    except Exception as e:
+        st.caption(f"DB check: {e}")
+
     st.markdown(
         """
         <div class='small-muted' style='margin-top:12px;'>Wachtwoord vergeten? Mail naar s.coskun@dordrecht.nl</div>
@@ -507,6 +518,7 @@ if "user" not in st.session_state:
     )
 
     if login_clicked:
+        u = (u or "").strip()  # trim spaties/newlines
         with db_conn() as con:
             cur = con.cursor()
             cur.execute("SELECT password, role, active, force_change FROM users WHERE username=%s", (u,))
@@ -835,13 +847,13 @@ def render_agenda():
             except Exception:
                 return time(default_h, default_m)
         starttijd_val = st.time_input("Starttijd", value=parse_time(record["starttijd"]) if record is not None else time(9,0))
-        eindtijd_val  = st.time_input("Eindtijd",  value=parse_time(record["eindtijd"],10,0) if record is not None else time(10,0))
+        eindtijd_val = st.time_input("Eindtijd", value=parse_time(record["eindtijd"],10,0) if record is not None else time(10,0))
         locatie = st.text_input("Locatie", value=(record["locatie"] if record is not None else ""))
         beschrijving = st.text_area("Beschrijving", value=(record["beschrijving"] if record is not None else ""))
         col1, col2, col3 = st.columns(3)
         submit_new = col1.form_submit_button("💾 Opslaan (nieuw)")
         submit_edit = col2.form_submit_button("✏️ Wijzigen")
-        submit_del  = col3.form_submit_button("🗑️ Verwijderen")
+        submit_del = col3.form_submit_button("🗑️ Verwijderen")
 
         if submit_new:
             with db_conn() as con:
@@ -1303,13 +1315,13 @@ def render_gebruikers():
             row = cur.fetchone()
         if row:
             with st.form("user_edit_form"):
-                role_new   = st.selectbox("Rol", ["admin","editor","viewer"], index=["admin","editor","viewer"].index(row["role"]))
+                role_new = st.selectbox("Rol", ["admin","editor","viewer"], index=["admin","editor","viewer"].index(row["role"]))
                 active_new = st.checkbox("Actief", bool(row["active"]))
-                force_new  = st.checkbox("Forceer wachtwoordwijziging", bool(row["force_change"]))
-                pw_reset   = st.checkbox("Wachtwoord resetten?")
-                pw_new     = st.text_input("Nieuw wachtwoord", type="password", disabled=not pw_reset)
+                force_new = st.checkbox("Forceer wachtwoordwijziging", bool(row["force_change"]))
+                pw_reset = st.checkbox("Wachtwoord resetten?")
+                pw_new = st.text_input("Nieuw wachtwoord", type="password", disabled=not pw_reset)
                 col1, col2 = st.columns(2)
-                do_save   = col1.form_submit_button("💾 Opslaan wijzigingen")
+                do_save = col1.form_submit_button("💾 Opslaan wijzigingen")
                 do_delete = col2.form_submit_button("🗑️ Verwijderen")
                 if do_save:
                     if pw_reset and len(pw_new) < 8:
@@ -1431,11 +1443,3 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
-
-
-
-
-
-
-
-
