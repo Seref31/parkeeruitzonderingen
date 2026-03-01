@@ -529,6 +529,29 @@ if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
     st.rerun()
 
+# --- DEBUG (tijdelijk): toon DB info en users die de app ziet ---
+try:
+    with db_conn() as con:
+        cur = con.cursor()
+        # Welke DB/host ziet de app?
+        cur.execute("SELECT current_database(), inet_server_addr()::text, inet_server_port()::int")
+        db, host, port = cur.fetchone().values()
+        st.sidebar.caption(f"🧪 DB: {db} @ {host}:{port}")
+
+        # Bestaat de user 'seref'? En jouw e-mail?
+        exists_df = pd.read_sql(
+            "SELECT username, active, force_change FROM users WHERE username IN (%s, %s) ORDER BY username",
+            con, params=["seref", "s.coskun@dordrecht.nl"]
+        )
+        if not exists_df.empty:
+            st.sidebar.caption("🧪 Users gevonden: " + ", ".join(exists_df["username"].tolist()))
+        else:
+            st.sidebar.caption("🧪 Users gevonden: (leeg)")
+
+except Exception as e:
+    st.sidebar.warning(f"DB debug: {e}")
+# --- /DEBUG ---
+
 # Sidebar: Komende activiteiten
 try:
     with db_conn() as con:
@@ -1382,4 +1405,5 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
