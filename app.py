@@ -174,50 +174,13 @@ def init_db():
             )
             """
         )
-        # hoofdtabellen
+        # hoofdtabellen (subset voor leesbaarheid)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS uitzonderingen (
                 id SERIAL PRIMARY KEY,
                 naam TEXT, kenteken TEXT, locatie TEXT, type TEXT,
                 start DATE, einde DATE, toestemming TEXT, opmerking TEXT
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS gehandicapten (
-                id SERIAL PRIMARY KEY,
-                naam TEXT, kaartnummer TEXT, adres TEXT, locatie TEXT,
-                geldig_tot DATE, besluit_door TEXT, opmerking TEXT
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS contracten (
-                id SERIAL PRIMARY KEY,
-                leverancier TEXT, contractnummer TEXT, start DATE,
-                einde DATE, contactpersoon TEXT, opmerking TEXT
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS projecten (
-                id SERIAL PRIMARY KEY,
-                naam TEXT, projectleider TEXT, start DATE, einde DATE,
-                prio TEXT, status TEXT, opmerking TEXT
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS werkzaamheden (
-                id SERIAL PRIMARY KEY,
-                omschrijving TEXT, locatie TEXT, start DATE, einde DATE,
-                status TEXT, uitvoerder TEXT, latitude DOUBLE PRECISION,
-                longitude DOUBLE PRECISION, opmerking TEXT
             )
             """
         )
@@ -236,33 +199,6 @@ def init_db():
             )
             """
         )
-        # kaartfouten
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS kaartfouten (
-                id SERIAL PRIMARY KEY,
-                vak_id TEXT,
-                melding_type TEXT,
-                omschrijving TEXT,
-                status TEXT,
-                melder TEXT,
-                gemeld_op TEXT,
-                latitude DOUBLE PRECISION,
-                longitude DOUBLE PRECISION
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS kaartfout_fotos (
-                id SERIAL PRIMARY KEY,
-                kaartfout_id INTEGER,
-                bestandsnaam TEXT,
-                geupload_op TEXT
-            )
-            """
-        )
-        # verslagen
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS verslagen_folders (
@@ -298,6 +234,31 @@ def init_db():
             )
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS kaartfouten (
+                id SERIAL PRIMARY KEY,
+                vak_id TEXT,
+                melding_type TEXT,
+                omschrijving TEXT,
+                status TEXT,
+                melder TEXT,
+                gemeld_op TEXT,
+                latitude DOUBLE PRECISION,
+                longitude DOUBLE PRECISION
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS kaartfout_fotos (
+                id SERIAL PRIMARY KEY,
+                kaartfout_id INTEGER,
+                bestandsnaam TEXT,
+                geupload_op TEXT
+            )
+            """
+        )
         # seed users
         for u, (p, r) in START_USERS.items():
             cur.execute("SELECT 1 FROM users WHERE username=%s", (u,))
@@ -306,19 +267,6 @@ def init_db():
                     "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,%s,%s,%s)",
                     (u, hash_pw(p), r, 1, 1),
                 )
-        # default verslagen folders
-        defaults = [
-            ("Verslagen MPO", "Map voor MPO-verslagen"),
-            ("Verslagen overleg afd. Parkeren", "Afd. Parkeren overlegverslagen"),
-            ("Verslagen Overleg parkeren - Stadswinkel", "Stadswinkel overlegverslagen"),
-            ("Overleg Handhaving - Parkeren", "Handhaving-parkeer overlegverslagen"),
-        ]
-        for nm, desc in defaults:
-            cur.execute(
-                "INSERT INTO verslagen_folders (name, description, is_public, active) VALUES (%s,%s,0,1) ON CONFLICT (name) DO NOTHING",
-                (nm, desc)
-            )
-
         con.commit()
 
 init_db()
@@ -363,7 +311,7 @@ def audit(action, table=None, record_id=None):
     except Exception:
         pass
 
-# ---------- numeric coercion helpers ----------
+# numeric coercion helpers
 
 def to_int_safe(x, default=None):
     try:
@@ -377,7 +325,6 @@ def to_int_safe(x, default=None):
 
 
 def sql_scalar_int(con, query):
-    """Run a COUNT or scalar query and return a robust int (0 if anything weird)."""
     try:
         df = pd.read_sql(query, con)
         if df.empty:
@@ -388,7 +335,6 @@ def sql_scalar_int(con, query):
     except Exception:
         return 0
 
-# --------------------------------------------------
 
 def all_tabs_config():
     return [
@@ -497,7 +443,7 @@ def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
         return None, None
 
 # =====================
-# LOGIN / AUTH (met NOOD-OVERRIDE)
+# LOGIN / AUTH (met NOOD-OVERRIDE + DEBUG_AUTH)
 # =====================
 if "force_change" not in st.session_state:
     st.session_state.force_change = 0
@@ -542,33 +488,38 @@ if "user" not in st.session_state:
     )
 
     if login_clicked:
-        u = (u or "").strip()
+        u_in = (u or "").strip()
+        debug_auth = os.environ.get("DEBUG_AUTH") == "1"
 
-        # >>> NOOD-OVERRIDE (tijdelijk): laat direct inloggen met ADMIN_BOOT_* env vars, ook zonder DB-rij
+        # NOOD-OVERRIDE
         BOOT_U = os.environ.get("ADMIN_BOOT_USER")
         BOOT_P = os.environ.get("ADMIN_BOOT_PASS")
-        if BOOT_U and BOOT_P and u == BOOT_U and p == BOOT_P:
+        if BOOT_U and BOOT_P and u_in == BOOT_U and p == BOOT_P:
             st.session_state.user = BOOT_U
             st.session_state.role = "admin"
             st.session_state.force_change = 1
             st.session_state["_tab_perms_cache"] = None
             audit("LOGIN_BOOT_OVERRIDE")
             st.rerun()
-        # <<< einde override
 
         with db_conn() as con:
             cur = con.cursor()
-            cur.execute("SELECT password, role, active, force_change FROM users WHERE username=%s", (u,))
+            cur.execute("SELECT password, role, active, force_change FROM users WHERE username=%s", (u_in,))
             row = cur.fetchone()
-        if row and row.get("active") == 1 and verify_pw(p, row.get("password", "")):
-            st.session_state.user = u
+
+        if not row:
+            st.error("Gebruiker bestaat niet.") if debug_auth else st.error("Onjuiste inloggegevens of account is geblokkeerd.")
+        elif int(row.get("active") or 0) != 1:
+            st.error("Account is niet actief.") if debug_auth else st.error("Onjuiste inloggegevens of account is geblokkeerd.")
+        elif not verify_pw(p, row.get("password", "")):
+            st.error("Wachtwoord onjuist.") if debug_auth else st.error("Onjuiste inloggegevens of account is geblokkeerd.")
+        else:
+            st.session_state.user = u_in
             st.session_state.role = row.get("role")
             st.session_state.force_change = row.get("force_change", 0)
             st.session_state["_tab_perms_cache"] = None
             audit("LOGIN")
             st.rerun()
-        else:
-            st.error("Onjuiste inloggegevens of account is geblokkeerd.")
     st.stop()
 
 # Force change
@@ -603,15 +554,17 @@ if st.sidebar.button("🚪 Uitloggen"):
     st.session_state.clear()
     st.rerun()
 
-# Debug in sidebar (tijdelijk)
+# Debug in sidebar (DB + users top 20)
 try:
     with db_conn() as con:
         cur = con.cursor()
         cur.execute("SELECT current_database(), inet_server_addr()::text, inet_server_port()::int")
         db, host, port = cur.fetchone().values()
         st.sidebar.caption(f"🧪 DB: {db} @ {host}:{port}")
-except Exception:
-    pass
+        df_debug_users = pd.read_sql("SELECT username FROM users ORDER BY username LIMIT 20", con)
+        st.sidebar.caption("🧪 Users (top 20): " + ", ".join(df_debug_users["username"].astype(str).tolist()))
+except Exception as e:
+    st.sidebar.caption(f"Users-debug: {e}")
 
 # =====================
 # GENERIC HELPERS
@@ -1012,7 +965,7 @@ def render_verslagen():
                                                     pass
                                         cur.execute("DELETE FROM verslagen_docs WHERE folder_id=%s", (fid,))
                                         cur.execute("DELETE FROM verslagen_folder_permissions WHERE folder_id=%s", (fid,))
-                                        cur.execute("DELETE FROM verslagen_folders WHERE id=%s", (fid,))
+                                        cur.execute("DELETE FROM verslagen_folders WHERE id=%s", (fid))
                                         con.commit()
                                     fdir = os.path.join(UPLOAD_DIR_VERSLAGEN, str(fid))
                                     if os.path.isdir(fdir):
@@ -1276,32 +1229,32 @@ def render_gebruikers():
         st.warning("Alleen admins")
         return
 
-    # --- ADMIN ONDERHOUD (tijdelijk) ---
+    # --- ADMIN ONDERHOUD (tijdelijk, streng) ---
     with st.expander("🔧 Onderhoud (admin)", expanded=False):
-        st.caption("Verwijdert test/dummy rijen zoals 'username', 'role', 'active', 'force_change'.")
-        if st.button("🧹 Verwijder dummy-gebruikers"):
+        st.caption("Verwijdert test/dummy rijen zoals 'username', 'role', 'active', 'force_change' (ook met spaties/hoofdletters).")
+        if st.button("🧹 Verwijder dummy-gebruikers (streng)"):
             try:
                 with db_conn() as con:
                     cur = con.cursor()
-                    # verwijder permissies van dummy users
+                    # permissies van dummy users weghalen
                     cur.execute(
                         """
                         DELETE FROM permissions
                         WHERE username IN (
                             SELECT username FROM users
-                            WHERE username IN ('username','role','active','force_change')
+                            WHERE trim(lower(username)) ~ '^(username|role|active|force_change)$'
                         )
                         """
                     )
-                    # verwijder dummy users zelf
+                    # dummy users zelf verwijderen
                     cur.execute(
                         """
                         DELETE FROM users
-                        WHERE username IN ('username','role','active','force_change')
+                        WHERE trim(lower(username)) ~ '^(username|role|active|force_change)$'
                         """
                     )
                     con.commit()
-                st.success("Dummy-gebruikers verwijderd. Herlaad de pagina.")
+                st.success("Dummy-gebruikers verwijderd. Herlaad de pagina (Ctrl+F5).")
                 st.rerun()
             except Exception as e:
                 st.error(f"Opschonen mislukt: {e}")
@@ -1327,6 +1280,8 @@ def render_gebruikers():
         if st.form_submit_button("💾 Toevoegen"):
             if not new_username or not new_password or len(new_password) < 8:
                 st.error("Geef een unieke gebruikersnaam en een wachtwoord van minimaal 8 tekens.")
+            elif re.fullmatch(r"\s*(username|role|active|force_change)\s*", new_username, flags=re.I):
+                st.error("Deze gebruikersnaam is niet toegestaan.")
             else:
                 try:
                     with db_conn() as con:
@@ -1485,4 +1440,3 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
-
