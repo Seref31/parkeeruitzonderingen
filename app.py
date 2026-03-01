@@ -366,6 +366,7 @@ def all_tabs_config():
         ("📊 Dashboard", "dashboard"),
         ("🅿️ Uitzonderingen", "uitzonderingen"),
         ("📅 Agenda", "agenda"),
+        ("📁 Projecten", "projecten"),
         ("🗂️ Verslagen", "verslagen"),
         ("👮 Handhaving", "handhaving"),
         ("👥 Gebruikersbeheer", "gebruikers"),
@@ -378,7 +379,7 @@ def role_default_permissions():
     admin = {k: True for k in keys}
     editor = {k: True for k in keys}; editor["gebruikers"] = False
     viewer = {k: False for k in keys}
-    for k in ["dashboard", "uitzonderingen", "agenda", "verslagen", "handhaving"]:
+    for k in ["dashboard", "uitzonderingen", "agenda", "projecten", "verslagen", "handhaving"]:
         viewer[k] = True
     return {"admin": admin, "editor": editor, "viewer": viewer}
 
@@ -568,14 +569,117 @@ def render_dashboard():
     # metrics
     try:
         with db_conn() as con:
-            cols = st.columns(5)
+            cols = st.columns(6)
             cols[0].metric("Uitzonderingen", sql_scalar_int(con, "SELECT COUNT(*) c FROM uitzonderingen"))
             cols[1].metric("Gehandicapten", sql_scalar_int(con, "SELECT COUNT(*) c FROM gehandicapten"))
             cols[2].metric("Contracten", sql_scalar_int(con, "SELECT COUNT(*) c FROM contracten"))
             cols[3].metric("Projecten", sql_scalar_int(con, "SELECT COUNT(*) c FROM projecten"))
             cols[4].metric("Werkzaamheden", sql_scalar_int(con, "SELECT COUNT(*) c FROM werkzaamheden"))
+            cols[5].metric("Verslagen", sql_scalar_int(con, "SELECT COUNT(*) c FROM verslagen_docs"))
     except Exception as e:
         st.warning(f"Kon metrics niet laden: {e}")
+
+
+def render_projecten():
+    st.subheader("📁 Projecten")
+    with db_conn() as con:
+        df = pd.read_sql("SELECT * FROM projecten ORDER BY COALESCE(start,'1900-01-01') DESC, id DESC", con)
+    if 'id' in df.columns:
+        df['_id_num'] = pd.to_numeric(df['id'], errors='coerce')
+    else:
+        df['_id_num'] = pd.Series(dtype='float64')
+
+    search = st.text_input("🔍 Zoeken", key="projecten_search")
+    df_show = apply_search(df, search)
+    st.dataframe(df_show.drop(columns=['_id_num']), use_container_width=True)
+    export_excel(df_show.drop(columns=['_id_num']), "projecten")
+    export_pdf(df_show.drop(columns=['_id_num']), "Projecten")
+
+    # CRUD (admin/editor — in no-login: altijd toegestaan)
+    id_options = [None] + df['_id_num'].dropna().astype(int).tolist()
+    sel = st.selectbox("✏️ Selecteer project", id_options, key="projecten_select")
+    record = df.loc[df['_id_num'] == sel].iloc[0] if sel is not None and not df.loc[df['_id_num'] == sel].empty else None
+
+    PRIO_OPT = ["Laag","Normaal","Hoog","Kritisch"]
+    STATUS_OPT = ["Gepland","Lopend","On hold","Afgerond","Geannuleerd"]
+
+    with st.form("projecten_form"):
+        naam = st.text_input("Naam *", value=(record["naam"] if record is not None else ""))
+        projectleider = st.text_input("Projectleider", value=(record["projectleider"] if record is not None else ""))
+        d_start = pd.to_datetime(record["start"]).date() if record is not None and pd.notna(record.get("start")) else date.today()
+        start_val = st.date_input("Start", value=d_start)
+        d_einde = pd.to_datetime(record["einde"]).date() if record is not None and pd.notna(record.get("einde")) else None
+        einde_val = st.date_input("Einde", value=(d_einde or date.today())) if record is not None and pd.notna(record.get("einde")) else st.date_input("Einde", value=date.today())
+        prio = st.selectbox("Prioriteit", PRIO_OPT, index=PRIO_OPT.index(record["prio"]) if record is not None and record.get("prio") in PRIO_OPT else 1)
+        status = st.selectbox("Status", STATUS_OPT, index=STATUS_OPT.index(record["status"]) if record is not None and record.get("status") in STATUS_OPT else 0)
+        opmerking = st.text_area("Opmerking", value=(record["opmerking"] if record is not None else ""))
+
+        col1, col2, col3 = st.columns(3)
+        submit_new = col1.form_submit_button("💾 Opslaan (nieuw)")
+        submit_edit = col2.form_submit_button("✏️ Wijzigen")
+        submit_del = col3.form_submit_button("🗑️ Verwijderen")
+
+        def validate():
+            if not naam.strip():
+                st.error("Naam is verplicht.")
+                return False
+            if einde_val and start_val and (str(einde_val) < str(start_val)):
+                st.error("Einde kan niet vóór start liggen.")
+                return False
+            return True
+
+        if submit_new:
+            if validate():
+                with db_conn() as con:
+                    cur = con.cursor()
+                    cur.execute(
+                        """
+                        INSERT INTO projecten (naam, projectleider, start, einde, prio, status, opmerking)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                        """,
+                        (
+                            naam.strip(), projectleider.strip() or None,
+                            start_val.isoformat() if start_val else None,
+                            einde_val.isoformat() if einde_val else None,
+                            prio, status, opmerking.strip() or None,
+                        ),
+                    )
+                    rid = cur.fetchone()["id"]
+                    con.commit()
+                audit("INSERT", "projecten", rid)
+                st.success("Project toegevoegd")
+                st.rerun()
+
+        if record is not None and submit_edit:
+            if validate():
+                with db_conn() as con:
+                    cur = con.cursor()
+                    cur.execute(
+                        """
+                        UPDATE projecten SET naam=%s, projectleider=%s, start=%s, einde=%s, prio=%s, status=%s, opmerking=%s
+                        WHERE id=%s
+                        """,
+                        (
+                            naam.strip(), projectleider.strip() or None,
+                            start_val.isoformat() if start_val else None,
+                            einde_val.isoformat() if einde_val else None,
+                            prio, status, opmerking.strip() or None,
+                            int(sel),
+                        ),
+                    )
+                    con.commit()
+                audit("UPDATE", "projecten", int(sel))
+                st.success("Project bijgewerkt")
+                st.rerun()
+
+        if record is not None and submit_del:
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute("DELETE FROM projecten WHERE id=%s", (int(sel),))
+                con.commit()
+            audit("DELETE", "projecten", int(sel))
+            st.success("Project verwijderd")
+            st.rerun()
 
 
 def crud_block(table, fields, dropdowns=None):
@@ -595,7 +699,6 @@ def crud_block(table, fields, dropdowns=None):
     export_excel(df.drop(columns=['_id_num']), table)
     export_pdf(df.drop(columns=['_id_num']), table)
 
-    # Admin/editor mogen bewerken; in no-login modus ben je admin → dus toegestaan
     id_options = [None] + df['_id_num'].dropna().astype(int).tolist()
     sel = st.selectbox("✏️ Selecteer record", id_options, key=f"{table}_select")
     record = df.loc[df['_id_num'] == sel].iloc[0] if sel is not None and not df.loc[df['_id_num'] == sel].empty else None
@@ -617,48 +720,31 @@ def crud_block(table, fields, dropdowns=None):
         submit_edit = col2.form_submit_button("✏️ Wijzigen")
         submit_del = col3.form_submit_button("🗑️ Verwijderen")
 
-        def validate_extras(is_update=False):
-            if table != "uitzonderingen":
-                return True
-            k_raw = values.get("kenteken", "")
-            if not is_valid_kenteken(k_raw):
-                st.error("Kenteken ongeldig. Gebruik letters/cijfers (5–8 tekens).")
-                return False
-            start_iso = parse_iso_date(values.get("start"))
-            einde_iso = parse_iso_date(values.get("einde"))
-            if start_iso is None or einde_iso is None or start_iso > einde_iso:
-                st.error("Start/einde datum onjuist of start > einde.")
-                return False
-            values["kenteken"] = k_raw.upper().strip()
-            return True
-
         if submit_new:
-            if validate_extras(False):
-                placeholders = ",".join(["%s"] * len(fields))
-                with db_conn() as con:
-                    cur = con.cursor()
-                    cur.execute(
-                        f"INSERT INTO {table} ({','.join(fields)}) VALUES ({placeholders}) RETURNING id",
-                        tuple(values[v] if values[v] != '' else None for v in fields),
-                    )
-                    rid = cur.fetchone()["id"]
-                    con.commit()
-                audit("INSERT", table, rid)
-                st.success("Record toegevoegd")
-                st.rerun()
+            placeholders = ",".join(["%s"] * len(fields))
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute(
+                    f"INSERT INTO {table} ({','.join(fields)}) VALUES ({placeholders}) RETURNING id",
+                    tuple(values[v] if values[v] != '' else None for v in fields),
+                )
+                rid = cur.fetchone()["id"]
+                con.commit()
+            audit("INSERT", table, rid)
+            st.success("Record toegevoegd")
+            st.rerun()
 
         if record is not None and submit_edit:
-            if validate_extras(True):
-                with db_conn() as con:
-                    cur = con.cursor()
-                    cur.execute(
-                        f"UPDATE {table} SET {','.join([f + '=%s' for f in fields])} WHERE id=%s",
-                        (*[values[v] if values[v] != '' else None for v in fields], int(sel)),
-                    )
-                    con.commit()
-                audit("UPDATE", table, int(sel))
-                st.success("Record bijgewerkt")
-                st.rerun()
+            with db_conn() as con:
+                cur = con.cursor()
+                cur.execute(
+                    f"UPDATE {table} SET {','.join([f + '=%s' for f in fields])} WHERE id=%s",
+                    (*[values[v] if values[v] != '' else None for v in fields], int(sel)),
+                )
+                con.commit()
+            audit("UPDATE", table, int(sel))
+            st.success("Record bijgewerkt")
+            st.rerun()
 
         if record is not None and submit_del:
             with db_conn() as con:
@@ -1317,6 +1403,7 @@ tab_funcs = {
     "dashboard": render_dashboard,
     "uitzonderingen": render_uitzonderingen,
     "agenda": render_agenda,
+    "projecten": render_projecten,
     "verslagen": render_verslagen,
     "handhaving": render_kaartfouten,
     "gebruikers": render_gebruikers,
