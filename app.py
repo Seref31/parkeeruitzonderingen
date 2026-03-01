@@ -118,6 +118,7 @@ def verify_pw(pw: str, stored: str) -> bool:
 # =====================
 START_USERS = {
     "seref": ("Seref#2026", "admin"),
+    "s.coskun@dordrecht.nl": ("Seref#2026", "admin"),
 }
 
 def init_db():
@@ -1381,3 +1382,4 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
