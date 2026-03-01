@@ -445,6 +445,22 @@ def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
         return lat, lon
     except Exception:
         return None, None
+# =====================
+# SECURITY: password hashing (PBKDF2)
+# =====================
+
+PBKDF2_ITER = 200_000
+
+def hash_pw(pw: str) -> str:
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt, PBKDF2_ITER, dklen=32)
+    return f"pbkdf2_sha256${PBKDF2_ITER}${base64.b64encode(salt).decode()}${base64.b64encode(dk).decode()}"
+
+
+# 🔐 TIJDELIJKE HASH GENERATOR
+if st.query_params.get("makehash") == "1":
+    st.write(hash_pw("MijnNieuwWachtwoord2026!"))
+    st.stop()
 
 # =====================
 # LOGIN / AUTH (CLEAN)
@@ -1474,3 +1490,4 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
