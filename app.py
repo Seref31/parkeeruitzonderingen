@@ -121,6 +121,31 @@ START_USERS = {
     "s.coskun@dordrecht.nl": ("Seref#2026", "admin"),
 }
 
+# --- TEMP ADMIN BOOT (verwijderen na succes!) ---
+try:
+    BOOT_U = os.environ.get("ADMIN_BOOT_USER")
+    BOOT_P = os.environ.get("ADMIN_BOOT_PASS")
+    if BOOT_U and BOOT_P:
+        with db_conn() as con:
+            cur = con.cursor()
+            cur.execute("SELECT 1 FROM users WHERE username=%s", (BOOT_U,))
+            exists = cur.fetchone() is not None
+
+            if exists:
+                cur.execute(
+                    "UPDATE users SET password=%s, role='admin', active=1, force_change=1 WHERE username=%s",
+                    (hash_pw(BOOT_P), BOOT_U)
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,'admin',1,1)",
+                    (BOOT_U, hash_pw(BOOT_P))
+                )
+            con.commit()
+except Exception as e:
+    st.write(f\"BOOT ERROR: {e}\")
+# --- /TEMP ADMIN BOOT ---
+
 def init_db():
     with db_conn() as con:
         cur = con.cursor()
@@ -1405,5 +1430,6 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
