@@ -479,77 +479,56 @@ if "force_change" not in st.session_state:
     st.session_state.force_change = 0
 
 if "user" not in st.session_state:
-    # header
+
+    # header UI
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
         show_logo(LOGO_PATH, where="main", width=180)
         st.markdown("<h2 style='text-align:center;margin-top:6px;'>Parkeren Dordrecht</h2>", unsafe_allow_html=True)
         st.markdown("<p class='small-muted' style='text-align:center'>Log in met je e-mailadres en wachtwoord</p>", unsafe_allow_html=True)
 
-    st.markdown(
-        """
-        <div style="max-width:520px;margin: 12px auto 0 auto; padding: 24px 22px;
-            border: 1px solid #eaeaea; border-radius: 14px; background: #ffffffaa;
-            box-shadow: 0 6px 22px rgba(0,0,0,0.06);">
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown("""<div style="max-width:520px;margin: 12px auto 0 auto; padding: 24px 22px;
+        border: 1px solid #eaeaea; border-radius: 14px; background: #ffffffaa;
+        box-shadow: 0 6px 22px rgba(0,0,0,0.06);">""", unsafe_allow_html=True)
 
     u = st.text_input("Gebruiker (e-mailadres)", placeholder="@dordrecht.nl")
     p = st.text_input("Wachtwoord", type="password")
     login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
 
-    # --- LOGIN DEBUG (tijdelijk): toon DB host ook vóór login ---
-    try:
+    if login_clicked:
+        u = (u or "").strip()
+
+        # NOOD-OVERRIDE
+        BOOT_U = os.environ.get("ADMIN_BOOT_USER")
+        BOOT_P = os.environ.get("ADMIN_BOOT_PASS")
+
+        if BOOT_U and BOOT_P and u == BOOT_U and p == BOOT_P:
+            st.session_state.user = BOOT_U
+            st.session_state.role = "admin"
+            st.session_state.force_change = 1
+            audit("LOGIN_BOOT_OVERRIDE")
+            st.rerun()
+
+        # Normale login
         with db_conn() as con:
             cur = con.cursor()
-            cur.execute("SELECT current_database(), inet_server_addr()::text, inet_server_port()::int")
-            db, host, port = cur.fetchone().values()
-            st.caption(f"🧪 DB: {db} @ {host}:{port}")
-    except Exception as e:
-        st.caption(f"DB check: {e}")
+            cur.execute(
+                "SELECT password, role, active, force_change FROM users WHERE username=%s",
+                (u,)
+            )
+            row = cur.fetchone()
 
-    st.markdown(
-        """
-        <div class='small-muted' style='margin-top:12px;'>Wachtwoord vergeten? Mail naar s.coskun@dordrecht.nl</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        if row and row.get("active") == 1 and verify_pw(p, row.get("password", "")):
+            st.session_state.user = u
+            st.session_state.role = row.get("role")
+            st.session_state.force_change = row.get("force_change", 0)
+            st.session_state["_tab_perms_cache"] = None
+            audit("LOGIN")
+            st.rerun()
+        else:
+            st.error("Onjuiste inloggegevens of account is geblokkeerd.")
 
-if login_clicked:
-    u = (u or "").strip()
-
-    # NOOD-OVERRIDE (tijdelijk)
-    BOOT_U = os.environ.get("ADMIN_BOOT_USER")
-    BOOT_P = os.environ.get("ADMIN_BOOT_PASS")
-
-    if BOOT_U and BOOT_P and u == BOOT_U and p == BOOT_P:
-        st.session_state.user = BOOT_U
-        st.session_state.role = "admin"
-        st.session_state.force_change = 1
-        audit("LOGIN_BOOT_OVERRIDE")
-        st.rerun()
-
-    # Normale login via database
-    with db_conn() as con:
-        cur = con.cursor()
-        cur.execute(
-            "SELECT password, role, active, force_change FROM users WHERE username=%s",
-            (u,)
-        )
-        row = cur.fetchone()
-
-    if row and row.get("active") == 1 and verify_pw(p, row.get("password", "")):
-        st.session_state.user = u
-        st.session_state.role = row.get("role")
-        st.session_state.force_change = row.get("force_change", 0)
-        st.session_state["_tab_perms_cache"] = None
-        audit("LOGIN")
-        st.rerun()
-    else:
-        st.error("Onjuiste inloggegevens of account is geblokkeerd.")
-
+    st.markdown("""</div>""", unsafe_allow_html=True)
     st.stop()
 
 # Force change
@@ -1461,5 +1440,6 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
