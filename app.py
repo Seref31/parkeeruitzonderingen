@@ -99,16 +99,22 @@ PBKDF2_ITER = 200_000
 
 # store as: algorithm$iterations$salt_b64$hash_b64
 
-def hash_pw(pw: str) -> str:
-    salt = os.urandom(16)
-    dk = hashlib.pbkdf2_hmac(
-        "sha256",
-        pw.encode("utf-8"),
-        salt,
-        PBKDF2_ITER,
-        dklen=32
-    )
-    return f"pbkdf2_sha256${PBKDF2_ITER}${base64.b64encode(salt).decode()}${base64.b64encode(dk).decode()}"
+def verify_pw(pw: str, stored: str) -> bool:
+    try:
+        algo, iters_s, salt_b64, hash_b64 = stored.split("$")
+        iters = int(iters_s)
+        salt = base64.b64decode(salt_b64)
+        expected = base64.b64decode(hash_b64)
+
+        test = hashlib.pbkdf2_hmac(
+            "sha256",
+            pw.encode("utf-8"),
+            salt,
+            iters,
+            dklen=32
+        )
+
+        return hmac.compare_digest(test, expected)
 
     except Exception as e:
         print("VERIFY ERROR:", e)
@@ -1490,6 +1496,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
