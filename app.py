@@ -72,11 +72,11 @@ def _first_writable_dir(candidates):
     return tempfile.mkdtemp(prefix="parkeer_")
 
 BASE_DATA_DIR = _first_writable_dir([
-    os.environ.get("DATA_DIR"),  # preferred via env
-    "/data",                     # Railway volume
+    os.environ.get("DATA_DIR"),
+    "/data",
     os.path.join(os.getcwd(), "data"),
-    "/mount/tmp/data",           # Streamlit Cloud
-    "/tmp/data",                 # last resort
+    "/mount/tmp/data",
+    "/tmp/data",
 ])
 
 UPLOAD_DIR_KAARTFOUTEN = os.path.join(BASE_DATA_DIR, "uploads", "kaartfouten")
@@ -682,7 +682,6 @@ def render_dashboard():
             for m in messages:
                 st.markdown(f"- {m}")
 
-    # metrics
     try:
         with db_conn() as con:
             cols = st.columns(6)
@@ -1226,7 +1225,6 @@ def render_kaartfouten():
             fotos = st.file_uploader("Foto’s toevoegen (optioneel)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
             submitted = st.form_submit_button("📩 Kaartfout melden")
             if submitted:
-                # ✅ FIX: overal 'or' (geen 'of'), zodat de syntax klopt
                 if not straat or not huisnummer or not postcode or not omschrijving:
                     st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
                     st.stop()
@@ -1439,21 +1437,48 @@ def render_gebruikers():
                     st.success("Gebruiker verwijderd")
                     st.session_state["_tab_perms_cache"] = None
                     st.rerun()
+        else:
+            st.warning("Deze gebruiker kon niet worden geladen. Kies een andere of ververs de pagina.")
 
     st.markdown("---")
     st.subheader("🔐 Tab-toegang per gebruiker")
     sel_perm_user = st.selectbox("Kies gebruiker voor tabrechten", [None] + df_usernames, key="perm_user_select")
+
     if sel_perm_user:
         with db_conn() as con:
-            df_perm = pd.read_sql("SELECT tab_key, allowed FROM permissions WHERE username=%s", con, params=[sel_perm_user])
+            df_perm = pd.read_sql(
+                "SELECT tab_key, allowed FROM permissions WHERE username=%s",
+                con, params=[sel_perm_user]
+            )
             cur = con.cursor()
             cur.execute("SELECT role FROM users WHERE username=%s", (sel_perm_user,))
-            role_of_user = cur.fetchone()["role"]
+            role_row = cur.fetchone()
+
+        if not role_row:
+            st.warning(f"Gebruiker '{sel_perm_user}' bestaat niet meer. Ververs de pagina of kies een andere gebruiker.")
+            st.stop()
+
+        role_of_user = role_row.get("role")
+
         has_custom = not df_perm.empty
         labels_keys = all_tabs_config()
         tab_keys = [k for _, k in labels_keys]
         labels_map = {k: lbl for (lbl, k) in labels_keys}
-        if st.checkbox("Gebruik rol-standaardrechten (geen maatwerk)", value=not has_custom):
+
+        # Default selectie in de multiselect
+        if has_custom:
+            current_map = {str(r["tab_key"]): bool(int(r["allowed"])) for _, r in df_perm.iterrows()}
+            default_labels = [labels_map[k] for k, v in current_map.items() if v and k in labels_map]
+        else:
+            role_defaults = role_default_permissions().get(role_of_user, {})
+            default_labels = [labels_map[k] for k, v in role_defaults.items() if v and k in labels_map]
+
+        use_role_defaults = st.checkbox(
+            "Gebruik rol-standaardrechten (geen maatwerk)",
+            value=not has_custom
+        )
+
+        if use_role_defaults:
             if st.button("💾 Opslaan (rol-standaard gebruiken)", key="perm_save_role_defaults"):
                 with db_conn() as con:
                     cur = con.cursor()
@@ -1465,13 +1490,13 @@ def render_gebruikers():
                     st.session_state["_tab_perms_cache"] = None
                 st.rerun()
         else:
-            default_for_role = role_default_permissions().get(role_of_user, {})
             selected_labels = st.multiselect(
                 "Toegestane tabbladen",
                 [lbl for (lbl, _) in labels_keys],
-                default=[labels_map[k] for k, v in default_for_role.items() if v],
+                default=default_labels
             )
             selected_keys = {k for (lbl, k) in labels_keys if lbl in selected_labels}
+
             if st.button("💾 Opslaan tabrechten", key="perm_save_custom"):
                 with db_conn() as con:
                     cur = con.cursor()
@@ -1529,3 +1554,4 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+``
