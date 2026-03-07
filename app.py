@@ -513,7 +513,7 @@ if "user" not in st.session_state:
         unsafe_allow_html=True,
     )
 
-    if login_clicked:
+   if login_clicked:
     u = (u or "").strip()
 
     with db_conn() as con:
@@ -537,7 +537,6 @@ if "user" not in st.session_state:
     st.session_state.user = u
     st.session_state.role = row["role"]
     st.rerun()
-    st.stop()
 
 # Force change
 if st.session_state.force_change == 1:
@@ -1498,6 +1497,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
