@@ -521,20 +521,21 @@ if "user" not in st.session_state:
         cur.execute("SELECT role, active FROM users WHERE username=%s", (u,))
         row = cur.fetchone()
 
-    if not row:
+    if row is None:
         st.error("Onbekende gebruiker.")
         st.stop()
 
-    if int(row.get("active", 0)) != 1:
+    if int(row["active"]) != 1:
         st.error("Account niet actief.")
         st.stop()
 
+    # tijdelijk wachtwoord
     if p != "Admin123!":
         st.error("Onjuist wachtwoord.")
         st.stop()
 
     st.session_state.user = u
-    st.session_state.role = row.get("role", "admin")
+    st.session_state.role = row["role"]
     st.rerun()
     st.stop()
 
@@ -1497,6 +1498,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
