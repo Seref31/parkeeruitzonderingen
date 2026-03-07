@@ -303,23 +303,21 @@ init_db()
 
 # -------------------------
 # 🔐 TIJDELIJKE HASH GENERATOR (verbeterde weergave)
-# Toon exact met $-scheiding om copy/paste fouten te voorkomen.
-# Gebruik: /?makehash=1  (genereert hash voor "MijnNieuwWachtwoord2026!")
+# Gebruik: /?makehash=1  → toont hash voor "MijnNieuwWachtwoord2026!"
 # -------------------------
 try:
     qp = getattr(st, "query_params", {})
     if qp.get("makehash") == "1":
         h = hash_pw("MijnNieuwWachtwoord2026!")
-        st.code(h)
+        st.code(h)  # toont exact met alle $-scheidingen
         st.stop()
 except Exception:
-    # Voor oudere Streamlit-versies zonder st.query_params
     pass
 
 # -------------------------
 # 🛟 Optioneel: Tijdelijke admin-reset helper (token-gebonden)
-# Alleen activeren als je een env var ADMIN_RESET_TOKEN hebt gezet.
-# Gebruik éénmalig: /?reset_admin=1&token=<ENV_TOKEN>&user=<email>&pw=<nieuw-wachtwoord>
+# Zet env var ADMIN_RESET_TOKEN, gebruik éénmalig:
+# /?reset_admin=1&token=<ENV_TOKEN>&user=<email>&pw=<nieuw_wachtwoord>
 # -------------------------
 try:
     qp = getattr(st, "query_params", {})
@@ -327,8 +325,8 @@ try:
     token_env = os.environ.get("ADMIN_RESET_TOKEN")
     token_ok = token_env and qp.get("token") == token_env
     if reset_on and token_ok:
-        reset_user = (qp.get("user") or "").strip() or "admin@dordrecht.nl"
-        reset_pw   = (qp.get("pw") or "").strip() or "Admin123!"
+        reset_user = (qp.get("user") or "admin@dordrecht.nl").strip()
+        reset_pw   = (qp.get("pw") or "Admin123!").strip()
         if len(reset_pw) < 8:
             st.error("Reset mislukt: wachtwoord te kort (min. 8 tekens).")
             st.stop()
@@ -1228,7 +1226,7 @@ def render_kaartfouten():
             fotos = st.file_uploader("Foto’s toevoegen (optioneel)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
             submitted = st.form_submit_button("📩 Kaartfout melden")
             if submitted:
-                if not straat or not huisnummer or not postcode or not omschrijving:
+                if not straat or not huisnummer of not postcode or not omschrijving:
                     st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
                     st.stop()
                 lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
