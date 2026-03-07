@@ -474,9 +474,14 @@ if st.query_params.get("makehash") == "1":
 if "force_change" not in st.session_state:
     st.session_state.force_change = 0
 
+# Zorg dat de variabelen altijd bestaan
+u = ""
+p = ""
+login_clicked = False
+
 if "user" not in st.session_state:
     # header
-    c1, c2, c3 = st.columns([1,2,1])
+    c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         show_logo(LOGO_PATH, where="main", width=180)
         st.markdown("<h2 style='text-align:center;margin-top:6px;'>Parkeren Dordrecht</h2>", unsafe_allow_html=True)
@@ -513,14 +518,14 @@ if "user" not in st.session_state:
         unsafe_allow_html=True,
     )
 
-  login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
-
+# Afhandelen van login
 if login_clicked:
     u = (u or "").strip()
 
     with db_conn() as con:
         cur = con.cursor()
-        cur.execute("SELECT role, active FROM users WHERE username=%s", (u,))
+        # Haal ook het wachtwoord (hash) op als je echte verificatie wil (zie verbeterde variant hieronder)
+        cur.execute("SELECT password, role, active, force_change FROM users WHERE username=%s", (u,))
         row = cur.fetchone()
 
     if row is None:
@@ -531,12 +536,14 @@ if login_clicked:
         st.error("Account niet actief.")
         st.stop()
 
+    # Tijdelijk: harde check (zoals je code had)
     if p != "Admin123!":
         st.error("Onjuist wachtwoord.")
         st.stop()
 
     st.session_state.user = u
     st.session_state.role = row["role"]
+    st.session_state.force_change = int(row.get("force_change") or 0)
     st.rerun()
 
 # Force change
@@ -1498,6 +1505,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
