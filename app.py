@@ -310,7 +310,7 @@ try:
     qp = getattr(st, "query_params", {})
     if qp.get("makehash") == "1":
         h = hash_pw("MijnNieuwWachtwoord2026!")
-        st.code(h)
+        st.code(h)  # toont exact met alle $-scheidingen
         st.stop()
 except Exception:
     pass
@@ -646,6 +646,28 @@ def apply_search(df, search):
         return df
     mask = df.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
     return df[mask]
+
+# =====================
+# EXTRA HELPERS VOOR USERS (fix spookwaarde 'username')
+# =====================
+def load_users_df_safe():
+    """Haal users op via cursor en bouw zelf een DataFrame (voorkomt read_sql artefacten)."""
+    with db_conn() as con:
+        cur = con.cursor()
+        cur.execute("SELECT username, role, active, force_change FROM users ORDER BY username")
+        rows = cur.fetchall()
+    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["username","role","active","force_change"])
+    if "active" in df.columns:
+        df["active"] = pd.to_numeric(df["active"], errors="coerce").fillna(0).astype(int)
+    if "force_change" in df.columns:
+        df["force_change"] = pd.to_numeric(df["force_change"], errors="coerce").fillna(0).astype(int)
+    return df
+
+def reset_select_state_if_invalid(state_key: str, valid_options: list):
+    """Reset selectbox-state naar None als huidige waarde niet in optielijst zit."""
+    cur_val = st.session_state.get(state_key)
+    if cur_val not in valid_options:
+        st.session_state[state_key] = None
 
 # =====================
 # TABS RENDERERS
@@ -1353,10 +1375,9 @@ def render_gebruikers():
         st.warning("Alleen admins")
         return
 
-    with db_conn() as con:
-        df_users = pd.read_sql("SELECT username, role, active, force_change FROM users ORDER BY username", con)
-
-    df_usernames = df_users["username"].tolist()
+    # ALT: altijd via cursor ophalen (voorkomt rare read_sql issues)
+    df_users = load_users_df_safe()
+    df_usernames = sorted(df_users["username"].astype(str).tolist())
 
     st.subheader("👥 Gebruikers")
     st.dataframe(df_users, use_container_width=True)
@@ -1408,10 +1429,9 @@ def render_gebruikers():
 
     st.markdown("### ✏️ Gebruiker bewerken/verwijderen")
 
-    # ====== SELECTIE HARDEN: reset ongeldige state ======
+    # SELECTIE HARDEN: reset ongeldige state
     options_users = [None] + df_usernames
-    if st.session_state.get("user_edit_select") not in options_users:
-        st.session_state["user_edit_select"] = None
+    reset_select_state_if_invalid("user_edit_select", options_users)
 
     sel_user = st.selectbox(
         "Selecteer gebruiker",
@@ -1462,7 +1482,6 @@ def render_gebruikers():
                         st.rerun()
 
                 if do_delete:
-                    # Bestaat de gebruiker nog?
                     with db_conn() as con:
                         cur = con.cursor()
                         cur.execute("SELECT 1 FROM users WHERE username=%s", (sel_user,))
@@ -1485,10 +1504,9 @@ def render_gebruikers():
     st.markdown("---")
     st.subheader("🔐 Tab-toegang per gebruiker")
 
-    # ====== SELECTIE HARDEN voor perm-select ======
+    # SELECTIE HARDEN: reset ongeldige state
     perm_options = [None] + df_usernames
-    if st.session_state.get("perm_user_select") not in perm_options:
-        st.session_state["perm_user_select"] = None
+    reset_select_state_if_invalid("perm_user_select", perm_options)
 
     sel_perm_user = st.selectbox(
         "Kies gebruiker voor tabrechten",
@@ -1519,7 +1537,6 @@ def render_gebruikers():
         tab_keys = [k for _, k in labels_keys]
         labels_map = {k: lbl for (lbl, k) in labels_keys}
 
-        # Default selectie in de multiselect
         if has_custom:
             current_map = {str(r["tab_key"]): bool(int(r["allowed"])) for _, r in df_perm.iterrows()}
             default_labels = [labels_map[k] for k, v in current_map.items() if v and k in labels_map]
@@ -1527,10 +1544,7 @@ def render_gebruikers():
             role_defaults = role_default_permissions().get(role_of_user, {})
             default_labels = [labels_map[k] for k, v in role_defaults.items() if v and k in labels_map]
 
-        use_role_defaults = st.checkbox(
-            "Gebruik rol-standaardrechten (geen maatwerk)",
-            value=not has_custom
-        )
+        use_role_defaults = st.checkbox("Gebruik rol-standaardrechten (geen maatwerk)", value=not has_custom)
 
         if use_role_defaults:
             if st.button("💾 Opslaan (rol-standaard gebruiken)", key="perm_save_role_defaults"):
