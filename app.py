@@ -513,7 +513,9 @@ if "user" not in st.session_state:
         unsafe_allow_html=True,
     )
 
-   if login_clicked:
+  login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
+
+if login_clicked:
     u = (u or "").strip()
 
     with db_conn() as con:
@@ -529,7 +531,6 @@ if "user" not in st.session_state:
         st.error("Account niet actief.")
         st.stop()
 
-    # tijdelijk wachtwoord
     if p != "Admin123!":
         st.error("Onjuist wachtwoord.")
         st.stop()
@@ -1497,6 +1498,7 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
+
 
 
 
