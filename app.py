@@ -12,6 +12,7 @@ import pandas as pd
 import streamlit as st
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from psycopg2 import errors as pg_errors
 import tempfile
 
 # =====================
@@ -309,7 +310,7 @@ try:
     qp = getattr(st, "query_params", {})
     if qp.get("makehash") == "1":
         h = hash_pw("MijnNieuwWachtwoord2026!")
-        st.code(h)  # toont exact met alle $-scheidingen
+        st.code(h)
         st.stop()
 except Exception:
     pass
@@ -1351,43 +1352,81 @@ def render_gebruikers():
     if not has_role("admin"):
         st.warning("Alleen admins")
         return
+
     with db_conn() as con:
         df_users = pd.read_sql("SELECT username, role, active, force_change FROM users ORDER BY username", con)
+
+    df_usernames = df_users["username"].tolist()
+
     st.subheader("👥 Gebruikers")
     st.dataframe(df_users, use_container_width=True)
+
+    # ====== GEBRUIKER TOEVOEGEN (strikte validatie) ======
     with st.form("user_add_form"):
-        new_username = st.text_input("Gebruikersnaam (uniek)")
+        new_username = st.text_input(
+            "Gebruikersnaam (e-mailadres)",
+            placeholder="voornaam.achternaam@dordrecht.nl",
+            key="user_add_username"
+        )
         new_password = st.text_input("Initieel wachtwoord", type="password")
         new_role = st.selectbox("Rol", ["admin","editor","viewer"])
         new_active = st.checkbox("Actief", True)
         force_change = st.checkbox("Wachtwoord wijzigen bij eerste login (aanbevolen)", True)
+
         if st.form_submit_button("💾 Toevoegen"):
-            if not new_username or not new_password or len(new_password) < 8:
+            u = (new_username or "").strip()
+
+            if not u or not new_password or len(new_password) < 8:
                 st.error("Geef een unieke gebruikersnaam en een wachtwoord van minimaal 8 tekens.")
-            else:
-                try:
-                    with db_conn() as con:
-                        cur = con.cursor()
-                        cur.execute(
-                            "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,%s,%s,%s)",
-                            (new_username.strip(), hash_pw(new_password), new_role, int(new_active), int(force_change)),
-                        )
-                        con.commit()
-                    audit("USER_CREATE", "users", new_username.strip())
-                    st.success(f"Gebruiker '{new_username.strip()}' toegevoegd")
-                    st.session_state["_tab_perms_cache"] = None
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Kon gebruiker niet toevoegen: {e}")
+                st.stop()
+
+            banned = {"username", "user", "test", "admin"}
+            if u.lower() in banned:
+                st.error(f"'{u}' is geen geldige gebruikersnaam. Vul een echt e-mailadres in.")
+                st.stop()
+
+            if "@" not in u or "." not in u.split("@")[-1]:
+                st.error("Vul een geldig e-mailadres in (bevat '@' en een domein).")
+                st.stop()
+
+            try:
+                with db_conn() as con:
+                    cur = con.cursor()
+                    cur.execute(
+                        "INSERT INTO users (username, password, role, active, force_change) VALUES (%s,%s,%s,%s,%s)",
+                        (u, hash_pw(new_password), new_role, int(new_active), int(force_change)),
+                    )
+                    con.commit()
+                audit("USER_CREATE", "users", u)
+                st.success(f"Gebruiker '{u}' toegevoegd")
+                st.session_state["_tab_perms_cache"] = None
+                st.rerun()
+            except pg_errors.UniqueViolation:
+                st.error(f"De gebruikersnaam '{u}' bestaat al.")
+            except Exception as e:
+                st.error(f"Kon gebruiker niet toevoegen: {e}")
 
     st.markdown("### ✏️ Gebruiker bewerken/verwijderen")
-    df_usernames = df_users["username"].tolist()
-    sel_user = st.selectbox("Selecteer gebruiker", [None] + df_usernames, key="user_edit_select")
+
+    # ====== SELECTIE HARDEN: reset ongeldige state ======
+    options_users = [None] + df_usernames
+    if st.session_state.get("user_edit_select") not in options_users:
+        st.session_state["user_edit_select"] = None
+
+    sel_user = st.selectbox(
+        "Selecteer gebruiker",
+        options=options_users,
+        index=options_users.index(st.session_state.get("user_edit_select", None)),
+        key="user_edit_select",
+        format_func=lambda x: x if x else "— kies gebruiker —"
+    )
+
     if sel_user:
         with db_conn() as con:
             cur = con.cursor()
             cur.execute("SELECT username, role, active, force_change FROM users WHERE username=%s", (sel_user,))
             row = cur.fetchone()
+
         if row:
             with st.form("user_edit_form"):
                 role_new   = st.selectbox("Rol", ["admin","editor","viewer"], index=["admin","editor","viewer"].index(row["role"]))
@@ -1398,6 +1437,7 @@ def render_gebruikers():
                 col1, col2 = st.columns(2)
                 do_save   = col1.form_submit_button("💾 Opslaan wijzigingen")
                 do_delete = col2.form_submit_button("🗑️ Verwijderen")
+
                 if do_save:
                     if pw_reset and len(pw_new) < 8:
                         st.error("Nieuw wachtwoord moet minstens 8 tekens zijn.")
@@ -1420,22 +1460,43 @@ def render_gebruikers():
                         st.success("Gebruiker bijgewerkt")
                         st.session_state["_tab_perms_cache"] = None
                         st.rerun()
+
                 if do_delete:
+                    # Bestaat de gebruiker nog?
                     with db_conn() as con:
                         cur = con.cursor()
-                        cur.execute("DELETE FROM permissions WHERE username=%s", (sel_user,))
-                        cur.execute("DELETE FROM users WHERE username=%s", (sel_user,))
-                        con.commit()
-                    audit("USER_DELETE", "users", sel_user)
-                    st.success("Gebruiker verwijderd")
-                    st.session_state["_tab_perms_cache"] = None
-                    st.rerun()
+                        cur.execute("SELECT 1 FROM users WHERE username=%s", (sel_user,))
+                        exists = cur.fetchone() is not None
+                    if not exists:
+                        st.error("Gebruiker bestaat niet (meer). Ververs de pagina.")
+                    else:
+                        with db_conn() as con:
+                            cur = con.cursor()
+                            cur.execute("DELETE FROM permissions WHERE username=%s", (sel_user,))
+                            cur.execute("DELETE FROM users WHERE username=%s", (sel_user,))
+                            con.commit()
+                        audit("USER_DELETE", "users", sel_user)
+                        st.success("Gebruiker verwijderd")
+                        st.session_state["_tab_perms_cache"] = None
+                        st.rerun()
         else:
             st.warning("Deze gebruiker kon niet worden geladen. Kies een andere of ververs de pagina.")
 
     st.markdown("---")
     st.subheader("🔐 Tab-toegang per gebruiker")
-    sel_perm_user = st.selectbox("Kies gebruiker voor tabrechten", [None] + df_usernames, key="perm_user_select")
+
+    # ====== SELECTIE HARDEN voor perm-select ======
+    perm_options = [None] + df_usernames
+    if st.session_state.get("perm_user_select") not in perm_options:
+        st.session_state["perm_user_select"] = None
+
+    sel_perm_user = st.selectbox(
+        "Kies gebruiker voor tabrechten",
+        options=perm_options,
+        index=perm_options.index(st.session_state.get("perm_user_select", None)),
+        key="perm_user_select",
+        format_func=lambda x: x if x else "— kies gebruiker —"
+    )
 
     if sel_perm_user:
         with db_conn() as con:
