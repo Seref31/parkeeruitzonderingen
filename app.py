@@ -37,7 +37,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Resilient logo rendering (works with URLs, skips invalid/corrupt images)
+# =====================
+# LOGO (robuust)
+# =====================
 def show_logo(path, *, where="main", width=180):
     try:
         if not path:
@@ -52,7 +54,7 @@ def show_logo(path, *, where="main", width=180):
     return False
 
 # =====================
-# STORAGE PATHS (robust fallback)
+# STORAGE PATHS (robuust)
 # =====================
 def _first_writable_dir(candidates):
     for path in candidates:
@@ -94,10 +96,10 @@ def db_conn():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
 # =====================
-# SECURITY: password hashing (PBKDF2)
+# SECURITY: wachtwoord hashing (PBKDF2)
 # =====================
 PBKDF2_ITER = 200_000
-# Wachtwoorden worden opgeslagen als: algorithm$iterations$salt_b64$hash_b64
+# Opslagvorm: algorithm$iterations$salt_b64$hash_b64
 
 def hash_pw(pw: str) -> str:
     salt = os.urandom(16)
@@ -115,15 +117,6 @@ def verify_pw(pw: str, stored: str) -> bool:
     except Exception as e:
         print("VERIFY ERROR:", e)
         return False
-
-# 🔐 TIJDELIJKE HASH GENERATOR (optioneel)
-try:
-    if st.query_params.get("makehash") == "1":
-        st.write(hash_pw("MijnNieuwWachtwoord2026!"))
-        st.stop()
-except Exception:
-    # Oude Streamlit-versies hebben mogelijk geen st.query_params
-    pass
 
 # =====================
 # INIT DB (DDL)
@@ -167,7 +160,7 @@ def init_db():
             )
             """
         )
-        # dashboard shortcuts (optioneel)
+        # dashboard_shortcuts (optioneel)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS dashboard_shortcuts (
@@ -308,6 +301,51 @@ def init_db():
 
 init_db()
 
+# -------------------------
+# 🔐 TIJDELIJKE HASH GENERATOR (verbeterde weergave)
+# Toon exact met $-scheiding om copy/paste fouten te voorkomen.
+# Gebruik: /?makehash=1  (genereert hash voor "MijnNieuwWachtwoord2026!")
+# -------------------------
+try:
+    qp = getattr(st, "query_params", {})
+    if qp.get("makehash") == "1":
+        h = hash_pw("MijnNieuwWachtwoord2026!")
+        st.code(h)
+        st.stop()
+except Exception:
+    # Voor oudere Streamlit-versies zonder st.query_params
+    pass
+
+# -------------------------
+# 🛟 Optioneel: Tijdelijke admin-reset helper (token-gebonden)
+# Alleen activeren als je een env var ADMIN_RESET_TOKEN hebt gezet.
+# Gebruik éénmalig: /?reset_admin=1&token=<ENV_TOKEN>&user=<email>&pw=<nieuw-wachtwoord>
+# -------------------------
+try:
+    qp = getattr(st, "query_params", {})
+    reset_on = qp.get("reset_admin") == "1"
+    token_env = os.environ.get("ADMIN_RESET_TOKEN")
+    token_ok = token_env and qp.get("token") == token_env
+    if reset_on and token_ok:
+        reset_user = (qp.get("user") or "").strip() or "admin@dordrecht.nl"
+        reset_pw   = (qp.get("pw") or "").strip() or "Admin123!"
+        if len(reset_pw) < 8:
+            st.error("Reset mislukt: wachtwoord te kort (min. 8 tekens).")
+            st.stop()
+        with db_conn() as con:
+            cur = con.cursor()
+            cur.execute("""
+                INSERT INTO users (username, password, role, active, force_change)
+                VALUES (%s,%s,'admin',1,0)
+                ON CONFLICT (username) DO UPDATE
+                SET password=EXCLUDED.password, role='admin', active=1, force_change=0
+            """, (reset_user, hash_pw(reset_pw)))
+            con.commit()
+        st.success(f"✅ Admin-reset uitgevoerd voor {reset_user}. Je kunt nu inloggen.")
+        st.stop()
+except Exception as e:
+    st.caption(f"Admin-reset helper: {e}")
+
 # =====================
 # HELPERS & PERMISSIONS
 # =====================
@@ -440,21 +478,20 @@ def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
         docs = data.get("response", {}).get("docs", [])
         if not docs:
             return None, None
-        doc = docs[0]
-        # centroide_ll heeft vorm: "POINT(lon lat)"
-        lon = float(doc["centroide_ll"].split("(")[1].split()[0])
-        lat = float(doc["centroide_ll"].split("(")[1].split()[1].replace(")", ""))
+        # "POINT(lon lat)"
+        lon = float(docs[0]["centroide_ll"].split("(")[1].split()[0])
+        lat = float(docs[0]["centroide_ll"].split("(")[1].split()[1].replace(")", ""))
         return lat, lon
     except Exception:
         return None, None
 
 # =====================
-# LOGIN / AUTH (CLEAN)
+# LOGIN / AUTH
 # =====================
 if "force_change" not in st.session_state:
     st.session_state.force_change = 0
 
-# Zorg dat de variabelen altijd bestaan
+# Voor initial rendering: zorg dat variabelen bestaan
 u = ""
 p = ""
 login_clicked = False
@@ -484,9 +521,9 @@ if "user" not in st.session_state:
     try:
         with db_conn() as con:
             cur = con.cursor()
-            cur.execute("SELECT current_database(), inet_server_addr()::text, inet_server_port()::int")
-            db, host, port = cur.fetchone().values()
-            st.caption(f"🧪 DB: {db} @ {host}:{port}")
+            cur.execute("SELECT current_database() AS db, inet_server_addr()::text AS host, inet_server_port()::int AS port")
+            row = cur.fetchone()
+            st.caption(f"🧪 DB: {row['db']} @ {row['host']}:{row['port']}")
     except Exception as e:
         st.caption(f"DB check: {e}")
 
@@ -498,10 +535,9 @@ if "user" not in st.session_state:
         unsafe_allow_html=True,
     )
 
-# Afhandelen van login
+# Afhandeling login
 if login_clicked:
     u = (u or "").strip()
-
     with db_conn() as con:
         cur = con.cursor()
         cur.execute("SELECT password, role, active, force_change FROM users WHERE username=%s", (u,))
@@ -511,7 +547,7 @@ if login_clicked:
         st.error("Onbekende gebruiker.")
         st.stop()
 
-    if int(row["active"]) != 1:
+    if int(row["active"] or 0) != 1:
         st.error("Account niet actief.")
         st.stop()
 
@@ -526,7 +562,7 @@ if login_clicked:
     st.session_state.force_change = int(row.get("force_change") or 0)
     st.rerun()
 
-# Force change
+# Verplichte wijziging nieuw wachtwoord
 if st.session_state.get("force_change", 0) == 1:
     st.title("🔑 Wachtwoord wijzigen (verplicht)")
     pw1 = st.text_input("Nieuw wachtwoord", type="password")
@@ -547,7 +583,7 @@ if st.session_state.get("force_change", 0) == 1:
             st.rerun()
     st.stop()
 
-# Als nog niet ingelogd en geen force-change, stop hier (voorkomt KeyErrors)
+# Niet ingelogd? stop.
 if "user" not in st.session_state:
     st.stop()
 
@@ -570,9 +606,9 @@ if st.sidebar.button("🚪 Uitloggen"):
 try:
     with db_conn() as con:
         cur = con.cursor()
-        cur.execute("SELECT current_database(), inet_server_addr()::text, inet_server_port()::int")
-        db, host, port = cur.fetchone().values()
-        st.sidebar.caption(f"🧪 DB: {db} @ {host}:{port}")
+        cur.execute("SELECT current_database() AS db, inet_server_addr()::text AS host, inet_server_port()::int AS port")
+        row = cur.fetchone()
+        st.sidebar.caption(f"🧪 DB: {row['db']} @ {row['host']}:{row['port']}")
 except Exception:
     pass
 
@@ -676,7 +712,6 @@ def render_projecten():
     export_excel(df_show.drop(columns=['_id_num']), "projecten")
     export_pdf(df_show.drop(columns=['_id_num']), "Projecten")
 
-    # CRUD (admin/editor)
     if not has_role("admin", "editor"):
         return
 
@@ -963,13 +998,7 @@ def is_folder_allowed(folder_id: int) -> bool:
             (folder_id, st.session_state.user),
         )
         p = cur.fetchone()
-    # RealDictRow -> value is under key 'allowed'
-    allowed_val = None
-    if p:
-        allowed_val = p.get("allowed")
-        if allowed_val is None and len(p.values()) > 0:
-            # fallback, though not expected with RealDictCursor
-            allowed_val = list(p.values())[0]
+    allowed_val = p.get("allowed") if p else None
     return bool(allowed_val and int(allowed_val) == 1)
 
 def ensure_folder_dir(folder_id: int) -> str:
@@ -1290,7 +1319,8 @@ Melder: {r['melder']}<br><br>
                 huidige_status = cur.fetchone()["status"]
             with st.form("kaartfout_status_form"):
                 status_opties = ["Open","In onderzoek","Opgelost"]
-                nieuwe_status = st.selectbox("Status", status_opties, index=status_opties.index(huidige_status) if huidige_status in status_opties else 0)
+                idx = status_opties.index(huidige_status) if huidige_status in status_opties else 0
+                nieuwe_status = st.selectbox("Status", status_opties, index=idx)
                 if st.form_submit_button("💾 Status opslaan"):
                     with db_conn() as con:
                         cur = con.cursor()
