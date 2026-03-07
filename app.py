@@ -675,13 +675,6 @@ def render_dashboard():
     except Exception as e:
         st.warning(f"Kon aandachtspunten niet laden: {e}")
 
-    if not messages:
-        st.caption("Geen actuele aandachtspunten.")
-    else:
-        with st.expander("Toon aandachtspunten", expanded=False):
-            for m in messages:
-                st.markdown(f"- {m}")
-
     try:
         with db_conn() as con:
             cols = st.columns(6)
@@ -1554,4 +1547,3 @@ for i, (_, key) in enumerate(allowed_items):
             fn()
         else:
             st.info("Nog geen inhoud voor dit tabblad.")
-``
