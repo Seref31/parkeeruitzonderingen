@@ -11,3 +11,4 @@ python-docx
 python-pptx
 pypdf2
 xlrd
+folium>=0.15
