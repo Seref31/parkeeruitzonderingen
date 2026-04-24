@@ -611,7 +611,7 @@ if "user" not in st.session_state:
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         try:
-            st.image(LOGO_PATH, width="content", width=180)
+            st.image(LOGO_PATH, width=180)
         except Exception as e:
             st.error(f"GitHub fout: {e}")
         st.markdown(
@@ -1485,7 +1485,7 @@ def render_werkzaamheden():
     try:
         import folium
         from folium.plugins import MarkerCluster
-        from streamlit.components.v1 import html as st_html
+        
 
         # map center
         lat_mean = df_map["latitude"].astype(float).mean()
@@ -1666,7 +1666,7 @@ def render_kaartfouten():
     else:
         try:
             import folium
-            from streamlit.components.v1 import html as st_html
+            
 
             lat_mean = df_map["latitude"].astype(float).mean()
             lon_mean = df_map["longitude"].astype(float).mean()
