@@ -1,4 +1,45 @@
+import base64
+import requests
+import os
 
+DB_FILE = "parkeeruitzonderingen.db"
+
+def download_db():
+    try:
+        url = f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/{DB_FILE}"
+        headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
+
+        r = requests.get(url, headers=headers)
+        if r.status_code == 200:
+            content = r.json()["content"]
+            with open(DB_FILE, "wb") as f:
+                f.write(base64.b64decode(content))
+    except Exception:
+        pass
+
+
+def upload_db():
+    try:
+        url = f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/{DB_FILE}"
+        headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
+
+        with open(DB_FILE, "rb") as f:
+            content = base64.b64encode(f.read()).decode()
+
+        r = requests.get(url, headers=headers)
+        sha = r.json().get("sha") if r.status_code == 200 else None
+
+        data = {
+            "message": "update database",
+            "content": content,
+            "sha": sha
+        }
+
+        requests.put(url, json=data, headers=headers)
+
+    except Exception:
+        pass
+        
 import requests
 
 def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
@@ -132,6 +173,7 @@ def audit(action, table=None, record_id=None):
         record_id
     ))
     c.commit()
+    upload_db()
     c.close()
 
 # --------- KENTEKEN VALIDATIE + CLEANING (B) ---------
@@ -481,8 +523,10 @@ def init_db():
         )
 
     c.commit()
+    upload_db()
     c.close()
 
+download_db()
 init_db()
 
 # ================= LOGIN =================
@@ -605,6 +649,7 @@ if st.session_state.force_change == 1:
                 """, (hash_pw(pw1), st.session_state.user)
             )
             c.commit()
+            upload_db()
             c.close()
 
             audit("PASSWORD_CHANGE")
@@ -742,6 +787,7 @@ def import_projecten_excel(file):
         teller += 1
 
     c.commit()
+    upload_db()
     c.close()
 
     audit("IMPORT_EXCEL", "projecten")
@@ -967,6 +1013,7 @@ def crud_block(table, fields, dropdowns=None):
                 )
                 rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
                 c.commit()
+                upload_db()
                 audit("INSERT", table, rid)
                 st.success("Record toegevoegd")
                 st.rerun()
@@ -978,6 +1025,7 @@ def crud_block(table, fields, dropdowns=None):
                     (*values.values(), sel)
                 )
                 c.commit()
+                upload_db()
                 audit("UPDATE", table, sel)
                 st.success("Record bijgewerkt")
                 st.rerun()
@@ -985,6 +1033,7 @@ def crud_block(table, fields, dropdowns=None):
         if has_role("admin") and record is not None and submit_del:
             c.execute(f"DELETE FROM {table} WHERE id=?", (sel,))
             c.commit()
+            upload_db()
             audit("DELETE", table, sel)
             st.success("Record verwijderd")
             st.rerun()
@@ -1065,6 +1114,7 @@ def agenda_block():
                 ))
             rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
             c.commit()
+            upload_db()
             c.close()
             audit("INSERT", "agenda", rid)
             st.success("Activiteit toegevoegd")
@@ -1088,6 +1138,7 @@ def agenda_block():
                     int(sel)
                 ))
             c.commit()
+            upload_db()
             c.close()
             audit("UPDATE", "agenda", int(sel))
             st.success("Activiteit bijgewerkt")
@@ -1097,6 +1148,7 @@ def agenda_block():
             c = conn()
             c.execute("DELETE FROM agenda WHERE id=?", (int(sel),))
             c.commit()
+            upload_db()
             c.close()
             audit("DELETE", "agenda", int(sel))
             st.success("Activiteit verwijderd")
@@ -1133,6 +1185,7 @@ def users_block():
                         """,
                         (new_username, hash_pw(new_password), new_role, int(new_active), int(force_change)))
                     c.commit()
+                    upload_db()
                     audit("USER_CREATE", "users", new_username)
                     st.success(f"Gebruiker '{new_username}' toegevoegd")
                     st.session_state["_tab_perms_cache"] = None
@@ -1181,6 +1234,7 @@ def users_block():
                                 (role_new, int(active_new), int(force_new), sel_user))
                             audit("USER_UPDATE", "users", sel_user)
                         c.commit()
+                        upload_db()
                         st.success("Gebruiker bijgewerkt")
                         st.session_state["_tab_perms_cache"] = None
                         st.rerun()
@@ -1189,6 +1243,7 @@ def users_block():
                     c.execute("DELETE FROM permissions WHERE username=?", (sel_user,))
                     c.execute("DELETE FROM users WHERE username=?", (sel_user,))
                     c.commit()
+                    upload_db()
                     audit("USER_DELETE", "users", sel_user)
                     st.success("Gebruiker verwijderd")
                     st.session_state["_tab_perms_cache"] = None
@@ -1213,6 +1268,7 @@ def users_block():
             if st.button("💾 Opslaan (rol-standaard gebruiken)", key="perm_save_role_defaults"):
                 c.execute("DELETE FROM permissions WHERE username=?", (sel_perm_user,))
                 c.commit()
+                upload_db()
                 audit("PERMISSIONS_CLEAR", "permissions", sel_perm_user)
                 st.success("Maatwerk tabrechten verwijderd; rol-standaard is nu actief.")
                 if sel_perm_user == st.session_state.user:
@@ -1241,6 +1297,7 @@ def users_block():
                         (sel_perm_user, k, int(k in selected_keys))
                     )
                 c.commit()
+                upload_db()
                 audit("PERMISSIONS_SET", "permissions", sel_perm_user)
                 st.success("Tabrechten opgeslagen")
                 if sel_perm_user == st.session_state.user:
@@ -1273,6 +1330,7 @@ def users_block():
                 """,
                 (title, subtitle, url, ",".join(roles), int(active)))
             c.commit()
+            upload_db()
             audit("SHORTCUT_ADD")
             st.success("Snelkoppeling toegevoegd")
             st.rerun()
@@ -1505,6 +1563,7 @@ def render_kaartfouten():
                             ))
 
                 c.commit()
+                upload_db()
                 c.close()
 
                 audit("KAARTFOUT_MELDING", "kaartfouten", kaartfout_id)
@@ -1637,6 +1696,7 @@ Melder: {r['melder']}<br><br>
                         (nieuwe_status, sel_id)
                     )
                     c.commit()
+                    upload_db()
                     audit("KAARTFOUT_STATUS", "kaartfouten", sel_id)
                     st.success("✅ Status bijgewerkt")
                     st.rerun()
@@ -1674,6 +1734,7 @@ Melder: {r['melder']}<br><br>
                     c.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=?", (sel_id,))
                     c.execute("DELETE FROM kaartfouten WHERE id=?", (sel_id,))
                     c.commit()
+                    upload_db()
 
                     audit("KAARTFOUT_VERWIJDERD", "kaartfouten", sel_id)
                     st.success("🗑️ Melding verwijderd")
@@ -1901,6 +1962,7 @@ def render_verslagen():
                                     """,
                                     (new_name.strip(), new_desc.strip(), int(new_public)))
                                 c.commit()
+                                upload_db()
                                 rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
                                 audit("VERSLAGEN_FOLDER_CREATE", "verslagen_folders", rid)
                                 st.success("Map aangemaakt.")
@@ -1934,6 +1996,7 @@ def render_verslagen():
                                     """,
                                     (e_name.strip(), e_desc.strip(), int(e_public), int(e_active), fid))
                                 c.commit()
+                                upload_db()
                                 c.close()
                                 audit("VERSLAGEN_FOLDER_UPDATE", "verslagen_folders", fid)
                                 st.success("Map bijgewerkt.")
@@ -1953,6 +2016,7 @@ def render_verslagen():
                                 c.execute("DELETE FROM verslagen_folder_permissions WHERE folder_id=?", (fid,))
                                 c.execute("DELETE FROM verslagen_folders WHERE id=?", (fid,))
                                 c.commit()
+                                upload_db()
                                 c.close()
                                 # verwijder mapdir
                                 fdir = os.path.join(UPLOAD_DIR_VERSLAGEN, str(fid))
@@ -1999,6 +2063,7 @@ def render_verslagen():
                                     """,
                                     (fid, uname))
                             c.commit()
+                            upload_db()
                             c.close()
                             audit("VERSLAGEN_FOLDER_PERMS_SET", "verslagen_folder_permissions", fid)
                             st.success("Autorisaties opgeslagen.")
@@ -2066,6 +2131,7 @@ def render_verslagen():
                                 ))
                             rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
                             c.commit()
+                            upload_db()
                             c.close()
                             audit("VERSLAGEN_DOC_UPLOAD", "verslagen_docs", rid)
                             st.success("Bestand geüpload.")
@@ -2128,6 +2194,7 @@ def render_verslagen():
                             try:
                                 c.execute("DELETE FROM verslagen_docs WHERE id=?", (int(sel_doc),))
                                 c.commit()
+                                upload_db()
                             finally:
                                 c.close()
                             if os.path.exists(fpath):
