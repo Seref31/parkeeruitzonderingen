@@ -60,7 +60,6 @@ def download_db():
     except Exception as e:
         st.error(f"GitHub fout: {e}")
 
-
 def upload_db():
     try:
         url = f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/{DB_FILE}"
@@ -69,6 +68,7 @@ def upload_db():
         with open(DB_FILE, "rb") as f:
             content = base64.b64encode(f.read()).decode()
 
+        # check of bestand al bestaat
         r = requests.get(url, headers=headers)
         sha = r.json().get("sha") if r.status_code == 200 else None
 
@@ -78,7 +78,16 @@ def upload_db():
             "sha": sha
         }
 
-        requests.put(url, json=data, headers=headers)
+        r = requests.put(url, json=data, headers=headers)
+
+        # 👇 DIT IS DE KEY
+        st.write("Status code:", r.status_code)
+        st.write("Response:", r.text)
+
+        if r.status_code in [200, 201]:
+            st.success("✅ Database upload gelukt")
+        else:
+            st.error("❌ Database upload mislukt")
 
     except Exception as e:
         st.error(f"GitHub fout: {e}")
