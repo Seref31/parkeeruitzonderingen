@@ -22,13 +22,14 @@ def upload_file_to_github(local_path, github_path):
             "sha": sha
         }
 
-r = requests.put(url, json=data, headers=headers)
+        r = requests.put(url, json=data, headers=headers)
 
-if r.status_code not in [200, 201]:
-    st.error(f"Upload naar GitHub mislukt! Status: {r.status_code}")
-else:
-    st.success("Upload geslaagd")
-except Exception as e:
+        if r.status_code not in [200, 201]:
+            st.error(f"Upload naar GitHub mislukt! Status: {r.status_code}")
+        else:
+            st.success("Upload geslaagd")
+
+    except Exception as e:
         st.error(f"GitHub fout: {e}")
 
 
