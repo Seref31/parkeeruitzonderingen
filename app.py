@@ -399,7 +399,7 @@ def global_search_block():
             any_hit = True
             subset_cols = [c for c in cols if c in df_res.columns]
             st.markdown(f"#### 🗂️ {table.capitalize()}  	<span style='color:#888'>({len(df_res)})</span>", unsafe_allow_html=True)
-            st.dataframe(df_res[subset_cols] if subset_cols else df_res, use_container_width=True)
+            st.dataframe(df_res[subset_cols] if subset_cols else df_res, width="stretch")
 
     c.close()
     if not any_hit:
@@ -611,7 +611,7 @@ if "user" not in st.session_state:
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         try:
-            st.image(LOGO_PATH, use_container_width=False, width=180)
+            st.image(LOGO_PATH, width="content", width=180)
         except Exception as e:
             st.error(f"GitHub fout: {e}")
         st.markdown(
@@ -645,7 +645,7 @@ if "user" not in st.session_state:
 
     colA, colB = st.columns([1,1])
     with colA:
-        login_clicked = st.button("Inloggen", type="primary", use_container_width=True)
+        login_clicked = st.button("Inloggen", type="primary", width="stretch")
     with colB:
         st.write("")
 
@@ -713,7 +713,7 @@ if st.session_state.force_change == 1:
 # ================= SIDEBAR =================
 # optioneel logo in zijbalk
 try:
-    st.sidebar.image(LOGO_PATH, use_container_width=True)
+    st.sidebar.image(LOGO_PATH, width="stretch")
 except Exception as e:
     st.error(f"GitHub fout: {e}")
 
@@ -994,7 +994,7 @@ def crud_block(table, fields, dropdowns=None):
     search = st.text_input("🔍 Zoeken", key=f"{table}_search")
     df = apply_search(df, search)
 
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width="stretch")
 
     export_excel(df, table)
     export_pdf(df, table)
@@ -1050,7 +1050,7 @@ def crud_block(table, fields, dropdowns=None):
             )
             if not dup_df.empty and "fout" not in dup_df.columns:
                 st.error("Er bestaat al een uitzondering voor dit kenteken met overlappende periode.")
-                st.dataframe(dup_df, use_container_width=True)
+                st.dataframe(dup_df, width="stretch")
                 return False
 
             # normaliseer opslagvorm van kenteken (upper, bewaar eventuele '-')
@@ -1101,7 +1101,7 @@ def agenda_block():
     search = st.text_input("🔍 Zoeken", key="agenda_search")
     df = apply_search(df, search)
 
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width="stretch")
     export_excel(df, "agenda")
     export_pdf(df, "Agenda")
 
@@ -1215,7 +1215,7 @@ def users_block():
     c = conn()
     st.subheader("👥 Gebruikers")
     df_users = pd.read_sql("SELECT username, role, active, force_change FROM users ORDER BY username", c)
-    st.dataframe(df_users, use_container_width=True)
+    st.dataframe(df_users, width="stretch")
 
     st.markdown("### ➕ Gebruiker toevoegen")
     with st.form("user_add_form"):
@@ -1360,7 +1360,7 @@ def users_block():
     st.subheader("🚀 Dashboard snelkoppelingen")
     st.dataframe(
         pd.read_sql("SELECT * FROM dashboard_shortcuts", c),
-        use_container_width=True
+        width="stretch"
     )
 
     with st.form("shortcut_form"):
@@ -1516,7 +1516,7 @@ ID: {r.get('id','')}
                 popup=folium.Popup(popup_html, max_width=300)
             ).add_to(cluster)
 
-        st_html(m._repr_html_(), height=520)
+        st.iframe(srcdoc=m._repr_html_(), height=520)
 
     except Exception as e:
         st.warning(f"Kaartweergave vereist het pakket 'folium'. Fout: {e}")
@@ -1638,7 +1638,7 @@ def render_kaartfouten():
         st.info("Nog geen kaartfouten gemeld.")
         return
 
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width="stretch")
 
     # KAARTWEERGAVE
     st.markdown("### 📍 Kaartweergave kaartfouten")
@@ -1706,7 +1706,7 @@ Melder: {r['melder']}<br><br>
                     )
                 ).add_to(m)
 
-            st_html(m._repr_html_(), height=520)
+            st.iframe(srcdoc=m._repr_html_(), height=520)
 
         except Exception as e:
             st.warning(f"Kaart kon niet worden geladen: {e}")
@@ -1766,7 +1766,7 @@ Melder: {r['melder']}<br><br>
                 for _, r in fotos.iterrows():
                     path = os.path.join(UPLOAD_DIR, r["bestandsnaam"])
                     if os.path.exists(path):
-                        st.image(path, use_container_width=True)
+                        st.image(path, width="stretch")
 
             # ---- VERWIJDEREN (ADMIN) ----
             if has_role("admin"):
@@ -1924,7 +1924,7 @@ def render_audit():
         ORDER BY acties DESC
         """,
         c)
-    st.dataframe(df_per_user, use_container_width=True)
+    st.dataframe(df_per_user, width="stretch")
 
     st.markdown("---")
 
@@ -1937,13 +1937,13 @@ def render_audit():
         LIMIT 10
         """,
         c)
-    st.dataframe(df_last, use_container_width=True)
+    st.dataframe(df_last, width="stretch")
 
     st.markdown("---")
 
     st.markdown("### 📚 Volledig audit log")
     df_full = pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c)
-    st.dataframe(df_full, use_container_width=True)
+    st.dataframe(df_full, width="stretch")
 
     c.close()
 
@@ -2216,7 +2216,7 @@ def render_verslagen():
             else:
                 st.dataframe(
                     df_docs[["id","title","meeting_date","tags","uploaded_by","uploaded_on"]],
-                    use_container_width=True
+                    width="stretch"
                 )
 
                 # Acties: download / verwijderen
