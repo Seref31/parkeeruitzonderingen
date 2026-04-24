@@ -1,8 +1,45 @@
 import base64
 import requests
 import os
+import streamlit as st
 
 DB_FILE = "parkeeruitzonderingen.db"
+
+def upload_file_to_github(local_path, github_path):
+    try:
+        url = f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/{github_path}"
+        headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
+
+        with open(local_path, "rb") as f:
+            content = base64.b64encode(f.read()).decode()
+
+        r = requests.get(url, headers=headers)
+        sha = r.json().get("sha") if r.status_code == 200 else None
+
+        data = {
+            "message": f"upload {github_path}",
+            "content": content,
+            "sha": sha
+        }
+
+        requests.put(url, json=data, headers=headers)
+    except Exception as e:
+        st.error(f"GitHub fout: {e}")
+
+
+def download_file_from_github(github_path, local_path):
+    try:
+        url = f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/{github_path}"
+        headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
+
+        r = requests.get(url, headers=headers)
+        if r.status_code == 200:
+            content = base64.b64decode(r.json()["content"])
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            with open(local_path, "wb") as f:
+                f.write(content)
+    except Exception as e:
+        st.error(f"GitHub fout: {e}")
 
 def download_db():
     try:
@@ -14,8 +51,8 @@ def download_db():
             content = r.json()["content"]
             with open(DB_FILE, "wb") as f:
                 f.write(base64.b64decode(content))
-    except Exception:
-        pass
+    except Exception as e:
+        st.error(f"GitHub fout: {e}")
 
 
 def upload_db():
@@ -37,8 +74,8 @@ def upload_db():
 
         requests.put(url, json=data, headers=headers)
 
-    except Exception:
-        pass
+    except Exception as e:
+        st.error(f"GitHub fout: {e}")
         
 import requests
 
@@ -69,7 +106,7 @@ def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
 
         return lat, lon
 
-    except Exception:
+    except Exception as e:
         return None, None
 
 import os
@@ -216,7 +253,7 @@ def parse_iso_date(v, default=None):
         if pd.isna(d):
             return None
         return d.date().isoformat()
-    except Exception:
+    except Exception as e:
         return None
 
 def detect_overlapping_uitzondering(kenteken_raw: str, start_val: str, einde_val: str, exclude_id=None):
@@ -332,8 +369,8 @@ def global_search_block():
                 try:
                     if is_folder_allowed(int(fid)):
                         allowed_folder_ids.append(int(fid))
-                except Exception:
-                    pass
+                except Exception as e:
+                    st.error(f"GitHub fout: {e}")
             if len(allowed_folder_ids) == 0:
                 continue
             df = df[df["folder_id"].isin(allowed_folder_ids)]
@@ -560,8 +597,8 @@ if "user" not in st.session_state:
     with c2:
         try:
             st.image(LOGO_PATH, use_container_width=False, width=180)
-        except Exception:
-            pass
+        except Exception as e:
+            st.error(f"GitHub fout: {e}")
         st.markdown(
             "<h2 style='text-align:center;margin-top:6px;'>Parkeren Dordrecht</h2>",
             unsafe_allow_html=True
@@ -662,8 +699,8 @@ if st.session_state.force_change == 1:
 # optioneel logo in zijbalk
 try:
     st.sidebar.image(LOGO_PATH, use_container_width=True)
-except Exception:
-    pass
+except Exception as e:
+    st.error(f"GitHub fout: {e}")
 
 st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
 
@@ -698,7 +735,7 @@ try:
             try:
                 dag_dt = pd.to_datetime(r["datum"]).date()
                 dag_txt = dag_dt.strftime("%d %b %Y")
-            except Exception:
+            except Exception as e:
                 dag_dt = None
                 dag_txt = str(r.get("datum", "") or "")
 
@@ -706,7 +743,7 @@ try:
             try:
                 if pd.notna(r["starttijd"]) and str(r["starttijd"]).strip():
                     tijd_txt = pd.to_datetime(str(r["starttijd"])).strftime("%H:%M")
-            except Exception:
+            except Exception as e:
                 tijd_txt = str(r.get("starttijd", "") or "")
 
             # Dagen-badge (bijv. 3d)
@@ -716,7 +753,7 @@ try:
                     badge = f"{delta}d" if delta >= 0 else ""
                 else:
                     badge = ""
-            except Exception:
+            except Exception as e:
                 badge = ""
 
             # Waarden voorbereiden
@@ -1065,7 +1102,7 @@ def agenda_block():
         if record is not None and pd.notna(record.get("datum", None)):
             try:
                 d_default = pd.to_datetime(record["datum"]).date()
-            except Exception:
+            except Exception as e:
                 d_default = date.today()
         else:
             d_default = date.today()
@@ -1075,7 +1112,7 @@ def agenda_block():
             try:
                 t = pd.to_datetime(str(v)).time()
                 return time(t.hour, t.minute)
-            except Exception:
+            except Exception as e:
                 return time(default_h, default_m)
 
         starttijd_val = st.time_input(
@@ -1549,6 +1586,7 @@ def render_kaartfouten():
                         path = os.path.join(UPLOAD_DIR, fname)
                         with open(path, "wb") as out:
                             out.write(f.getbuffer())
+                        upload_file_to_github(path, f"uploads/kaartfouten/{fname}")
 
                         c.execute(
                             """
@@ -2010,8 +2048,8 @@ def render_verslagen():
                                     if os.path.exists(fpath):
                                         try:
                                             os.remove(fpath)
-                                        except Exception:
-                                            pass
+                                        except Exception as e:
+                                            st.error(f"GitHub fout: {e}")
                                 c.execute("DELETE FROM verslagen_docs WHERE folder_id=?", (fid,))
                                 c.execute("DELETE FROM verslagen_folder_permissions WHERE folder_id=?", (fid,))
                                 c.execute("DELETE FROM verslagen_folders WHERE id=?", (fid,))
@@ -2024,7 +2062,7 @@ def render_verslagen():
                                     try:
                                         os.rmdir(fdir)
                                     except OSError:
-                                        pass
+                                        st.error(f"GitHub fout: {e}")
                                 audit("VERSLAGEN_FOLDER_DELETE", "verslagen_folders", fid)
                                 st.success("Map verwijderd.")
                                 st.rerun()
@@ -2112,6 +2150,7 @@ def render_verslagen():
                             save_path = os.path.join(folder_dir, server_name)
                             with open(save_path, "wb") as out:
                                 out.write(file.getbuffer())
+                            upload_file_to_github(save_path, f"uploads/verslagen/{sel_folder_id}/{server_name}")
 
                             c = conn()
                             c.execute(
@@ -2200,8 +2239,8 @@ def render_verslagen():
                             if os.path.exists(fpath):
                                 try:
                                     os.remove(fpath)
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    st.error(f"GitHub fout: {e}")
                             audit("VERSLAGEN_DOC_DELETE", "verslagen_docs", int(sel_doc))
                             st.success("Document verwijderd.")
                             st.rerun()
