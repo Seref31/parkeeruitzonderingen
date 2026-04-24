@@ -93,8 +93,20 @@ if not DATABASE_URL:
     st.error("DATABASE_URL ontbreekt als environment variable.")
     st.stop()
 
-def db_conn():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+def db_conn(retries=3, delay=1):
+    for attempt in range(retries):
+        try:
+            return psycopg2.connect(
+                DATABASE_URL,
+                cursor_factory=RealDictCursor,
+                sslmode="require",          # 🔥 VERPLICHT VOOR RAILWAY
+                connect_timeout=10
+            )
+        except Exception as e:
+            if attempt == retries - 1:
+                st.error(f"❌ Database connectie mislukt:\n{e}")
+                raise
+            time.sleep(delay)
 
 # =====================
 # SECURITY: wachtwoord hashing (PBKDF2)
