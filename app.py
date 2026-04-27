@@ -312,47 +312,162 @@ with tabs[2]:
 
 # ================= KAARTFOUTEN =================
 with tabs[3]:
-    st.header("Kaartfouten")
+    st.header("🗺️ Kaartfouten – parkeervakken")
 
+    # ================= OVERZICHT + ZOEK =================
     c = conn()
-    df = pd.read_sql("SELECT * FROM kaartfouten", c)
+    df = pd.read_sql("SELECT * FROM kaartfouten ORDER BY gemeld_op DESC", c)
 
-    # 🔍 Zoekveld
     search = st.text_input("🔍 Zoeken (omschrijving, status, melder)")
     if search:
         df = df[df.astype(str).apply(
             lambda x: x.str.contains(search, case=False, na=False)
         ).any(axis=1)]
 
-    # 📋 Tabel tonen (NA filteren)
     st.dataframe(df, use_container_width=True)
 
-    # ➕ Nieuwe kaartfout melden
-    with st.form("kaartfout_add"):
-        melding = st.text_area("Omschrijving *")
-        submit = st.form_submit_button("Melden")
+    # ================= NIEUWE MELDING =================
+    st.markdown("## ➕ Nieuwe kaartfout melden")
+
+    with st.form("kaartfout_form"):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            straat = st.text_input("Straat *")
+            huisnummer = st.text_input("Huisnummer *")
+            postcode = st.text_input("Postcode *", placeholder="3311 AB")
+            vak_id = st.text_input("Parkeervak‑ID (optioneel)")
+
+        with col2:
+            melding_type = st.selectbox(
+                "Soort kaartfout",
+                [
+                    "Geometrie onjuist",
+                    "Type onjuist",
+                    "Parkeervak bestaat niet",
+                    "Parkeervak ontbreekt",
+                    "Overig"
+                ]
+            )
+
+        omschrijving = st.text_area("Toelichting *")
+
+        fotos = st.file_uploader(
+            "📷 Foto’s toevoegen (optioneel)",
+            type=["jpg", "jpeg", "png"],
+            accept_multiple_files=True
+        )
+
+        submit = st.form_submit_button("✅ Melden")
 
         if submit:
-            if not melding.strip():
-                st.error("Omschrijving is verplicht.")
+            if not straat or not huisnummer or not postcode or not omschrijving:
+                st.error("Straat, huisnummer, postcode en toelichting zijn verplicht.")
             else:
-                c.execute("""
+                # 📍 Locatie bepalen
+                lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
+
+                c.execute(
+                    """
                     INSERT INTO kaartfouten
-                    (melding_type, omschrijving, status, melder, gemeld_op)
-                    VALUES (?,?,?,?,?)
-                """, (
-                    "Overig",
-                    melding.strip(),
-                    "Open",
-                    st.session_state.user,
-                    datetime.now().isoformat(timespec="seconds")
-                ))
+                    (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
+                    VALUES (?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        vak_id.strip() if vak_id else None,
+                        melding_type,
+                        f"{straat} {huisnummer} – {omschrijving}",
+                        "Open",
+                        st.session_state.user,
+                        datetime.now().isoformat(timespec="seconds"),
+                        lat,
+                        lon
+                    )
+                )
+
+                kaartfout_id = c.execute(
+                    "SELECT last_insert_rowid()"
+                ).fetchone()[0]
+
+                # 📷 Foto’s opslaan
+                if fotos:
+                    for f in fotos:
+                        fname = f"{kaartfout_id}_{int(datetime.now().timestamp())}_{f.name}"
+                        path = os.path.join(UPLOAD_DIR, fname)
+                        with open(path, "wb") as out:
+                            out.write(f.getbuffer())
+
+                        upload_file_to_github(
+                            path,
+                            f"uploads/kaartfouten/{fname}"
+                        )
+
                 c.commit()
                 upload_db()
                 st.success("✅ Kaartfout gemeld")
                 st.rerun()
 
+    # ================= KAARTWEERGAVE =================
+    st.markdown("## 📍 Kaartweergave")
+
+    df_map = pd.read_sql(
+        """
+        SELECT id, melding_type, omschrijving, status, melder, latitude, longitude
+        FROM kaartfouten
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+        """,
+        c
+    )
     c.close()
+
+    if df_map.empty:
+        st.info("Nog geen kaartfouten met locatie.")
+    else:
+        try:
+            import folium
+
+            lat_mean = df_map["latitude"].astype(float).mean()
+            lon_mean = df_map["longitude"].astype(float).mean()
+
+            m = folium.Map(
+                location=[lat_mean, lon_mean],
+                zoom_start=13,
+                control_scale=True
+            )
+
+            kleuren = {
+                "Open": "red",
+                "In onderzoek": "orange",
+                "Opgelost": "green"
+            }
+
+            for _, r in df_map.iterrows():
+                popup_html = f"""
+                <b>Kaartfout #{r['id']}</b><br>
+                Type: {r['melding_type']}<br>
+                Status: {r['status']}<br>
+                Melder: {r['melder']}<br><br>
+                {r['omschrijving']}
+                """
+
+                folium.Marker(
+                    location=[float(r["latitude"]), float(r["longitude"])],
+                    popup=popup_html,
+                    icon=folium.Icon(
+                        color=kleuren.get(r["status"], "blue"),
+                        icon="map-marker",
+                        prefix="fa"
+                    )
+                ).add_to(m)
+
+            st.iframe(srcdoc=m._repr_html_(), height=520)
+
+        except Exception as e:
+            st.warning(f"Kaart kon niet geladen worden: {e}")
+            st.map(df_map.rename(
+                columns={"latitude": "lat", "longitude": "lon"}
+            )[["lat", "lon"]])
+``
 
 # ================= AUDIT =================
 with tabs[4]:
