@@ -276,35 +276,43 @@ with tabs[2]:
 # ================= KAARTFOUTEN =================
 with tabs[3]:
     st.header("🗺️ Kaartfouten – parkeervakken")
-    
-st.write("DEBUG – ingelogde gebruiker:", st.session_state.user)
-st.write("DEBUG – rol:", st.session_state.role)
+
+    # DEBUG (tijdelijk)
+    st.write("DEBUG – gebruiker:", st.session_state.user)
+    st.write("DEBUG – rol:", st.session_state.role)
 
     c = conn()
+
     df = pd.read_sql(
         "SELECT * FROM kaartfouten ORDER BY gemeld_op DESC",
         c
     )
     st.dataframe(df, use_container_width=True)
 
+    # ---- NIEUWE MELDING ----
     st.subheader("➕ Nieuwe kaartfout")
+
     with st.form("kaartfout_form"):
         straat = st.text_input("Straat *")
         huisnummer = st.text_input("Huisnummer *")
         postcode = st.text_input("Postcode *")
         vak_id = st.text_input("Parkeervak ID")
-        melding_type = st.selectbox("Soort kaartfout", [
-            "Geometrie onjuist",
-            "Type onjuist",
-            "Parkeervak bestaat niet",
-            "Parkeervak ontbreekt",
-            "Overig"
-        ])
+        melding_type = st.selectbox(
+            "Soort kaartfout",
+            [
+                "Geometrie onjuist",
+                "Type onjuist",
+                "Parkeervak bestaat niet",
+                "Parkeervak ontbreekt",
+                "Overig"
+            ]
+        )
         omschrijving = st.text_area("Toelichting *")
         fotos = st.file_uploader("Foto’s", accept_multiple_files=True)
 
         if st.form_submit_button("Melden"):
             lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
+
             c.execute("""
                 INSERT INTO kaartfouten
                 (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
@@ -319,6 +327,7 @@ st.write("DEBUG – rol:", st.session_state.role)
                 lat,
                 lon
             ))
+
             kaartfout_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
 
             if fotos:
@@ -327,19 +336,29 @@ st.write("DEBUG – rol:", st.session_state.role)
                     path = os.path.join(UPLOAD_DIR, fname)
                     with open(path, "wb") as out:
                         out.write(f.getbuffer())
+
                     upload_file_to_github(path, f"uploads/kaartfouten/{fname}")
+
                     c.execute("""
                         INSERT INTO kaartfout_fotos
                         (kaartfout_id, bestandsnaam, geupload_op)
                         VALUES (?,?,?)
-                    """, (kaartfout_id, fname, datetime.now().isoformat(timespec="seconds")))
+                    """, (
+                        kaartfout_id,
+                        fname,
+                        datetime.now().isoformat(timespec="seconds")
+                    ))
 
             c.commit()
             upload_db()
             st.success("✅ Kaartfout gemeld")
             st.rerun()
-# ---- KAART ----
-    df_map = df[df["latitude"].notna() & df["longitude"].notna()]
+
+    # ---- KAART ----
+    df_map = df[
+        df["latitude"].notna() & df["longitude"].notna()
+    ]
+
     if not df_map.empty:
         m = folium.Map(
             location=[df_map.latitude.mean(), df_map.longitude.mean()],
@@ -354,54 +373,56 @@ st.write("DEBUG – rol:", st.session_state.role)
 
         components.html(m._repr_html_(), height=520)
 
-    # ---- FOTO'S BEKIJKEN ----
+    # ---- FOTO’S BEKIJKEN ----
     st.subheader("📷 Foto’s bekijken")
     if not df.empty:
-        sel = st.selectbox("Kies kaartfout", df["id"].tolist())
+        sel = st.selectbox(
+            "Kies kaartfout",
+            df["id"].tolist()
+        )
+
         fotos_df = pd.read_sql(
             "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
-            c, params=[sel]
+            c,
+            params=[sel]
         )
-        for _, f in fotos_df.iterrows():
-            path = os.path.join(UPLOAD_DIR, f["bestandsnaam"])
+
+        for _, r in fotos_df.iterrows():
+            path = os.path.join(UPLOAD_DIR, r["bestandsnaam"])
             if os.path.exists(path):
-                st.image(path, width="stretch")
-# ---- VERWIJDEREN ----
-st.subheader("🗑️ Kaartfout verwijderen")
+                st.image(path, use_container_width=True)
 
-# debug: mag tijdelijk blijven
-st.write("ROL:", st.session_state.role)
+    # ---- VERWIJDEREN ----
+    st.subheader("🗑️ Kaartfout verwijderen")
 
-if st.session_state.role == "admin" and not df.empty:
-    sel_del = st.selectbox(
-        "Selecteer kaartfout om te verwijderen",
-        df["id"].tolist(),
-        key="kaartfout_verwijderen"
-    )
+    if st.session_state.role == "admin" and not df.empty:
+        sel_del = st.selectbox(
+            "Selecteer kaartfout om te verwijderen",
+            df["id"].tolist(),
+            key="kaartfout_verwijderen"
+        )
 
-    st.warning("⚠️ Deze actie verwijdert de kaartfout én alle bijbehorende foto’s permanent.")
+        st.warning("⚠️ Deze actie verwijdert de kaartfout EN alle bijbehorende foto’s.")
 
-    if st.button("❌ Definitief verwijderen"):
-        c = conn()
+        if st.button("❌ Definitief verwijderen"):
+            fotos = c.execute(
+                "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
+                (sel_del,)
+            ).fetchall()
 
-        fotos = c.execute(
-            "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
-            (sel_del,)
-        ).fetchall()
+            for (fname,) in fotos:
+                path = os.path.join(UPLOAD_DIR, fname)
+                if os.path.exists(path):
+                    os.remove(path)
 
-        for (fname,) in fotos:
-            path = os.path.join(UPLOAD_DIR, fname)
-            if os.path.exists(path):
-                os.remove(path)
+            c.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=?", (sel_del,))
+            c.execute("DELETE FROM kaartfouten WHERE id=?", (sel_del,))
+            c.commit()
+            upload_db()
 
-        c.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=?", (sel_del,))
-        c.execute("DELETE FROM kaartfouten WHERE id=?", (sel_del,))
-        c.commit()
-        upload_db()
-        c.close()
+            st.success("✅ Kaartfout en foto’s zijn verwijderd")
+            st.rerun()
+    else:
+        st.info("Alleen admins kunnen kaartfouten verwijderen.")
 
-        st.success("✅ Kaartfout en foto’s zijn verwijderd")
-        st.rerun()
-
-elif not df.empty:
-    st.info("Alleen admins kunnen kaartfouten verwijderen.")
+    c.close()
