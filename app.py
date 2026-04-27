@@ -115,6 +115,19 @@ def init_db():
     """)
 
     cur.execute("""
+CREATE TABLE IF NOT EXISTS projecten (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    naam TEXT,
+    adviseur TEXT,
+    prioriteit TEXT,
+    start DATE,
+    einde DATE,
+    status TEXT,
+    toelichting TEXT
+)
+""")
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS kaartfout_fotos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         kaartfout_id INTEGER,
