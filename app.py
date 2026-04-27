@@ -277,10 +277,6 @@ with tabs[2]:
 with tabs[3]:
     st.header("🗺️ Kaartfouten – parkeervakken")
 
-    # DEBUG (tijdelijk)
-    st.write("DEBUG – gebruiker:", st.session_state.user)
-    st.write("DEBUG – rol:", st.session_state.role)
-
     c = conn()
 
     df = pd.read_sql(
