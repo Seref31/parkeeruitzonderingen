@@ -232,41 +232,70 @@ with tabs[3]:
     st.header("🧩 Projectenoverzicht")
 
     c = conn()
-    df = pd.read_sql(
-        'SELECT * FROM projecten ORDER BY prioriteit, "start"',
-        c
+
+    # ✅ GARANTIE: tabel bestaat (ook bij oude DB)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS projecten (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT,
+        adviseur TEXT,
+        prioriteit TEXT,
+        start DATE,
+        einde DATE,
+        status TEXT,
+        toelichting TEXT
     )
+    """)
+    c.commit()
+
+    try:
+        df = pd.read_sql(
+            'SELECT * FROM projecten ORDER BY prioriteit, "start"',
+            c
+        )
+    except Exception as e:
+        st.error("Projectentabel kon niet worden geladen.")
+        st.code(str(e))
+        df = pd.DataFrame(
+            columns=["id","naam","adviseur","prioriteit","start","einde","status","toelichting"]
+        )
 
     st.dataframe(df, use_container_width=True)
 
+    st.divider()
+
+    # ➕ Project toevoegen (admin/editor)
     if st.session_state.role in ["admin", "editor"]:
         st.subheader("➕ Project toevoegen")
         with st.form("project_add"):
             naam = st.text_input("Projectnaam *")
-            adviseur = st.text_input("Adviseur")
-            prioriteit = st.selectbox("Prioriteit", ["Hoog", "Gemiddeld", "Laag"])
-            status = st.selectbox("Status", ["Niet gestart", "Actief", "Afgerond"])
+            adviseur = st.text_input("Adviseur / Projectleider")
+            prioriteit = st.selectbox("Prioriteit", ["Hoog","Gemiddeld","Laag"])
+            status = st.selectbox("Status", ["Niet gestart","Actief","Afgerond"])
             start = st.date_input("Startdatum", value=date.today())
             einde = st.date_input("Einddatum", value=date.today())
             toelichting = st.text_area("Toelichting")
 
             if st.form_submit_button("Opslaan"):
-                c.execute(
-                    """
+                c.execute("""
                     INSERT INTO projecten
                     (naam, adviseur, prioriteit, start, einde, status, toelichting)
                     VALUES (?,?,?,?,?,?,?)
-                    """,
-                    (
-                        naam, adviseur, prioriteit,
-                        start.isoformat(), einde.isoformat(),
-                        status, toelichting
-                    )
-                )
+                """, (
+                    naam,
+                    adviseur,
+                    prioriteit,
+                    start.isoformat(),
+                    einde.isoformat(),
+                    status,
+                    toelichting
+                ))
                 c.commit()
                 upload_db()
                 st.success("✅ Project toegevoegd")
                 st.rerun()
+    else:
+        st.info("👀 Alleen bekijken (geen rechten om te wijzigen).")
 
     c.close()
 
