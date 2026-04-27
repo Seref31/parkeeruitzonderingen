@@ -307,7 +307,64 @@ with tabs[3]:
 
     st.dataframe(df, use_container_width=True)
     st.divider()
+    st.divider()
+st.subheader("✏️ Project aanpassen of verwijderen")
 
+if not df.empty and st.session_state.role in ["admin", "editor"]:
+    project_keuze = st.selectbox(
+        "Selecteer project",
+        df["id"].tolist(),
+        format_func=lambda x: df.loc[df.id == x, "naam"].iloc[0]
+    )
+
+    project = df[df.id == project_keuze].iloc[0]
+
+    with st.form("project_edit"):
+        naam = st.text_input("Naam", project["naam"])
+        adviseur = st.text_input("Adviseur", project["adviseur"])
+        prioriteit = st.selectbox(
+            "Prioriteit",
+            ["Hoog", "Gemiddeld", "Laag"],
+            index=["Hoog", "Gemiddeld", "Laag"].index(project["prioriteit"])
+        )
+        status = st.selectbox(
+            "Status",
+            ["Niet gestart", "Actief", "Afgerond"],
+            index=["Niet gestart", "Actief", "Afgerond"].index(project["status"])
+        )
+        startdatum = st.date_input(
+            "Startdatum",
+            pd.to_datetime(project["startdatum"]) if project["startdatum"] else date.today()
+        )
+        einddatum = st.date_input(
+            "Einddatum",
+            pd.to_datetime(project["einddatum"]) if project["einddatum"] else date.today()
+        )
+        toelichting = st.text_area("Toelichting", project["toelichting"])
+
+        opslaan = st.form_submit_button("💾 Opslaan")
+
+        if opslaan:
+            c.execute("""
+                UPDATE programma_projecten
+                SET naam=?, adviseur=?, prioriteit=?, status=?,
+                    startdatum=?, einddatum=?, toelichting=?
+                WHERE id=?
+            """, (
+                naam,
+                adviseur,
+                prioriteit,
+                status,
+                startdatum.isoformat(),
+                einddatum.isoformat(),
+                toelichting,
+                project_keuze
+            ))
+            c.commit()
+            upload_db()
+            st.success("✅ Project bijgewerkt")
+            st.rerun()
+            
     # ➕ Toevoegen (admin / editor)
     if st.session_state.role in ["admin", "editor"]:
         st.subheader("➕ Nieuw programma of project")
