@@ -203,7 +203,7 @@ tabs = st.tabs([
     "📊 Dashboard",
     "🅿️ Uitzonderingen",
     "📅 Agenda",
-    "🗺️ Kaartfouten"
+    "🗺️ Kaartfouten",
     "👥 Gebruikers"
 ])
 
