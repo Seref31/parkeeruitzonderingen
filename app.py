@@ -11,7 +11,7 @@ import pandas as pd
 import streamlit as st
 
 # ================= CONFIG =================
-DB_FILE = "parkeerbeheer.db"
+DB_FILE = "parkeeruitzonderingen.db"
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
