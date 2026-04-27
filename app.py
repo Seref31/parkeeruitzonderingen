@@ -355,33 +355,39 @@ excel = st.file_uploader(
     type=["xlsx"]
 )
 
-if excel:
-    df_excel = pd.read_excel(excel)
+st.subheader("📥 Projecten importeren vanuit Excel")
 
-    st.write("Voorbeeld van geïmporteerde gegevens:")
-    st.dataframe(df_excel.head(), use_container_width=True)
+    excel = st.file_uploader(
+        "Upload Excel (Projectenoverzicht)",
+        type=["xlsx"]
+    )
 
-    if st.button("✅ Importeer naar projecten"):
-        for _, r in df_excel.iterrows():
-            c.execute("""
-                INSERT INTO programma_projecten
-                (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
-                VALUES (?,?,?,?,?,?,?)
-            """, (
-                r.get("naam"),
-                r.get("Adviseur"),
-                r.get("prio"),
-                r.get("status"),
-                str(r.get("(geplande) Startdatum")) if r.get("(geplande) Startdatum") else None,
-                str(r.get("(geplande) Einddatum")) if r.get("(geplande) Einddatum") else None,
-                str(r.get("status"))  # of aparte kolom voor toelichting
-            ))
-        c.commit()
-        upload_db()
-        st.success("✅ Excel succesvol geïmporteerd")
-        st.rerun()
-        
-    c.close()
+    if excel:
+        df_excel = pd.read_excel(excel)
+
+        st.write("Voorbeeld van geïmporteerde gegevens:")
+        st.dataframe(df_excel.head(), use_container_width=True)
+
+        if st.button("✅ Importeer naar projecten"):
+            for _, r in df_excel.iterrows():
+                c.execute("""
+                    INSERT INTO programma_projecten
+                    (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
+                    VALUES (?,?,?,?,?,?,?)
+                """, (
+                    r.get("naam"),
+                    r.get("Adviseur"),
+                    r.get("prio"),
+                    r.get("status"),
+                    str(r.get("(geplande) Startdatum")) if r.get("(geplande) Startdatum") else None,
+                    str(r.get("(geplande) Einddatum")) if r.get("(geplande) Einddatum") else None,
+                    str(r.get("status"))
+                ))
+
+            c.commit()
+            upload_db()
+            st.success("✅ Excel succesvol geïmporteerd")
+            st.rerun()
 
 # ================= KAARTFOUTEN =================
 with tabs[4]:
