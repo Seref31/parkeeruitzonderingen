@@ -1,61 +1,16 @@
-# =========================================================
-# PARKEERBEHEER DORDRECHT – STABIELE WERKENDE APP
-# =========================================================
-
-# ================= IMPORTS =================
-import os
-import base64
 import sqlite3
 import hashlib
-from datetime import datetime, date
-
-import requests
-import pandas as pd
+from datetime import date, datetime
 import streamlit as st
+import pandas as pd
 
 # ================= CONFIG =================
-DB_FILE = "parkeeruitzonderingen.db"
-UPLOAD_DIR = "uploads/kaartfouten"
-LOGO_PATH = "gemeente-dordrecht-transparant-png.png"
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+DB_FILE = "app.db"
 
 st.set_page_config(
     page_title="Parkeerbeheer Dordrecht",
-    page_icon=LOGO_PATH,
     layout="wide"
 )
-
-# ================= GITHUB HELPERS =================
-def github_headers():
-    return {
-        "Authorization": f"token {st.secrets['GITHUB_TOKEN']}",
-        "Accept": "application/vnd.github+json"
-    }
-
-def upload_file_to_github(local_path, github_path):
-    url = f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/{github_path}"
-    with open(local_path, "rb") as f:
-        content = base64.b64encode(f.read()).decode()
-
-    r = requests.get(url, headers=github_headers())
-    sha = r.json().get("sha") if r.status_code == 200 else None
-
-    payload = {"message": f"update {github_path}", "content": content}
-    if sha:
-        payload["sha"] = sha
-
-    requests.put(url, headers=github_headers(), json=payload).raise_for_status()
-
-def download_db():
-    url = f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/{DB_FILE}"
-    r = requests.get(url, headers=github_headers())
-    if r.status_code == 200:
-        with open(DB_FILE, "wb") as f:
-            f.write(base64.b64decode(r.json()["content"]))
-
-def upload_db():
-    upload_file_to_github(DB_FILE, DB_FILE)
 
 # ================= DATABASE =================
 def conn():
@@ -73,71 +28,42 @@ def init_db():
     CREATE TABLE IF NOT EXISTS users (
         username TEXT PRIMARY KEY,
         password TEXT,
-        role TEXT,
-        active INTEGER
+        role TEXT
     )
     """)
 
-    # UITZONDERINGEN (basis)
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS uitzonderingen (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        naam TEXT,
-        kenteken TEXT,
-        locatie TEXT,
-        startdatum DATE,
-        einddatum DATE
-    )
-    """)
-
-    # AGENDA (basis)
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS agenda (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        titel TEXT,
-        datum DATE,
-        aangemaakt_door TEXT,
-        aangemaakt_op TEXT
-    )
-    """)
-
-    # PROJECTEN (LET OP: GEEN gereserveerde woorden)
+    # PROJECTEN (bewust simpele, stabiele schema)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS projecten (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         naam TEXT,
         adviseur TEXT,
         prioriteit TEXT,
-        startdatum DATE,
-        einddatum DATE,
         status TEXT,
+        startdatum TEXT,
+        einddatum TEXT,
         toelichting TEXT
     )
     """)
 
-    # ADMIN USER
+    # ADMIN
     cur.execute("""
-    INSERT OR IGNORE INTO users (username, password, role, active)
-    VALUES (?,?,?,?)
+    INSERT OR IGNORE INTO users (username, password, role)
+    VALUES (?,?,?)
     """, (
         "seref@dordrecht.nl",
         hash_pw("Seref#2026"),
-        "admin",
-        1
+        "admin"
     ))
 
     c.commit()
     c.close()
-    upload_db()
 
-# ================= STARTUP =================
-download_db()
 init_db()
 
 # ================= LOGIN =================
 if "user" not in st.session_state:
-    st.image(LOGO_PATH, width=150)
-    st.title("Parkeerbeheer Dordrecht")
+    st.title("Inloggen")
 
     u = st.text_input("Gebruiker")
     p = st.text_input("Wachtwoord", type="password")
@@ -145,7 +71,7 @@ if "user" not in st.session_state:
     if st.button("Inloggen"):
         c = conn()
         r = c.execute(
-            "SELECT password, role FROM users WHERE username=? AND active=1",
+            "SELECT password, role FROM users WHERE username=?",
             (u,)
         ).fetchone()
         c.close()
@@ -153,19 +79,18 @@ if "user" not in st.session_state:
         if r and r[0] == hash_pw(p):
             st.session_state.user = u
             st.session_state.role = r[1]
-            st.rerun()
+            st.experimental_rerun()
         else:
-            st.error("Onjuist account of wachtwoord")
+            st.error("Onjuist account")
 
     st.stop()
 
 # ================= SIDEBAR =================
-st.sidebar.image(LOGO_PATH, use_container_width=True)
-st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
+st.sidebar.success(f"Ingelogd als {st.session_state.user} ({st.session_state.role})")
 
 if st.sidebar.button("Uitloggen"):
     st.session_state.clear()
-    st.rerun()
+    st.experimental_rerun()
 
 # ================= TABS =================
 tabs = st.tabs([
@@ -177,74 +102,79 @@ tabs = st.tabs([
 # ================= DASHBOARD =================
 with tabs[0]:
     c = conn()
-    col1, col2 = st.columns(2)
-    col1.metric("Projecten", c.execute("SELECT COUNT(*) FROM projecten").fetchone()[0])
-    col2.metric("Gebruikers", c.execute("SELECT COUNT(*) FROM users").fetchone()[0])
+    st.metric("Projecten", c.execute("SELECT COUNT(*) FROM projecten").fetchone()[0])
+    st.metric("Gebruikers", c.execute("SELECT COUNT(*) FROM users").fetchone()[0])
     c.close()
 
 # ================= PROJECTEN =================
-with tabs[3]:
+with tabs[1]:
     st.header("🧩 Projectenoverzicht")
 
     c = conn()
-
-    # ✅ Schema uitlezen
-    cols = [r[1] for r in c.execute("PRAGMA table_info(projecten)").fetchall()]
-    st.caption(f"Actieve kolommen: {cols}")
-
-    # ✅ Dynamisch ORDER BY bepalen
-    order_col = None
-    for candidate in ["startdatum", "start", "einde", "id"]:
-        if candidate in cols:
-            order_col = candidate
-            break
-
-    query = "SELECT * FROM projecten"
-    if order_col:
-        query += f" ORDER BY {order_col}"
-
-    try:
-        df = pd.read_sql(query, c)
-    except Exception as e:
-        st.error("Projectentabel kon niet worden geladen.")
-        st.code(str(e))
-        df = pd.DataFrame(columns=cols)
+    df = pd.read_sql("SELECT * FROM projecten", c)
 
     st.dataframe(df, use_container_width=True)
+
     st.divider()
+    st.subheader("➕ Project toevoegen")
 
-    # ➕ Project toevoegen (werkt altijd, ook bij oud schema)
-    if st.session_state.role in ["admin", "editor"]:
-        st.subheader("➕ Project toevoegen")
+    with st.form("project_add"):
+        naam = st.text_input("Projectnaam *")
+        adviseur = st.text_input("Adviseur")
+        prioriteit = st.selectbox("Prioriteit", ["Hoog", "Gemiddeld", "Laag"])
+        status = st.selectbox("Status", ["Niet gestart", "Actief", "Afgerond"])
+        start = st.date_input("Startdatum", value=date.today())
+        einde = st.date_input("Einddatum", value=date.today())
+        toelichting = st.text_area("Toelichting")
 
-        with st.form("project_add"):
-            naam = st.text_input("Projectnaam *")
-            adviseur = st.text_input("Adviseur")
-            prioriteit = st.text_input("Prioriteit")
-            status = st.text_input("Status")
-            toelichting = st.text_area("Toelichting")
-
-            if st.form_submit_button("Opslaan"):
+        if st.form_submit_button("Opslaan"):
+            if not naam:
+                st.error("Projectnaam is verplicht")
+            else:
                 c.execute("""
-                    INSERT INTO projecten (naam, adviseur)
-                    VALUES (?, ?)
-                """, (naam, adviseur))
+                    INSERT INTO projecten
+                    (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
+                    VALUES (?,?,?,?,?,?,?)
+                """, (
+                    naam,
+                    adviseur,
+                    prioriteit,
+                    status,
+                    start.isoformat(),
+                    einde.isoformat(),
+                    toelichting
+                ))
                 c.commit()
-                upload_db()
-                st.success("✅ Project toegevoegd")
-                st.rerun()
-    else:
-        st.info("👀 Alleen bekijken.")
+                st.success("Project toegevoegd")
+                st.experimental_rerun()
 
     c.close()
+
 # ================= GEBRUIKERS =================
 with tabs[2]:
-    st.header("👥 Gebruikers")
+    st.header("👥 Gebruikersbeheer")
 
-    if st.session_state.role != "admin":
-        st.info("Alleen admins kunnen gebruikers beheren.")
-    else:
-        c = conn()
-        dfu = pd.read_sql("SELECT username, role, active FROM users", c)
-        st.dataframe(dfu, use_container_width=True)
-        c.close()
+    c = conn()
+    dfu = pd.read_sql("SELECT username, role FROM users", c)
+    st.dataframe(dfu, use_container_width=True)
+
+    if st.session_state.role == "admin":
+        st.divider()
+        st.subheader("➕ Gebruiker toevoegen")
+
+        with st.form("user_add"):
+            u = st.text_input("Gebruikersnaam")
+            p = st.text_input("Wachtwoord", type="password")
+            role = st.selectbox("Rol", ["admin", "editor", "viewer"])
+
+            if st.form_submit_button("Aanmaken"):
+                c.execute(
+                    "INSERT OR IGNORE INTO users VALUES (?,?,?)",
+                    (u, hash_pw(p), role)
+                )
+                c.commit()
+                st.success("Gebruiker toegevoegd")
+                st.experimental_rerun()
+
+    c.close()
+``
