@@ -177,4 +177,3 @@ with tabs[2]:
                 st.experimental_rerun()
 
     c.close()
-``
