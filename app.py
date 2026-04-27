@@ -88,6 +88,35 @@ def download_db():
 def upload_db():
     upload_file_to_github(DB_FILE, DB_FILE)
 
+def geocode_postcode_huisnummer(postcode: str, huisnummer: str):
+    """
+    Zet NL postcode + huisnummer om naar (lat, lon) via PDOK BAG.
+    """
+    try:
+        q = f"{postcode.strip()} {huisnummer.strip()}"
+        url = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free"
+        params = {
+            "q": q,
+            "rows": 1
+        }
+
+        r = requests.get(url, params=params, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+
+        docs = data.get("response", {}).get("docs", [])
+        if not docs:
+            return None, None
+
+        doc = docs[0]
+        lon = float(doc["centroide_ll"].split("(")[1].split()[0])
+        lat = float(doc["centroide_ll"].split("(")[1].split()[1].replace(")", ""))
+
+        return lat, lon
+
+    except Exception:
+        return None, None
+
 # ================= DATABASE =================
 def conn():
     return sqlite3.connect(DB_FILE, check_same_thread=False)
