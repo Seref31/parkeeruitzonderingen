@@ -370,35 +370,35 @@ st.write("DEBUG – rol:", st.session_state.role)
     # ---- VERWIJDEREN ----
     st.subheader("🗑️ Kaartfout verwijderen")
 
-    if st.session_state.role == "admin" and not df.empty:
-        sel_del = st.selectbox(
-            "Selecteer kaartfout om te verwijderen",
-            df["id"].tolist(),
-            key="kaartfout_verwijderen"
-        )
+if st.session_state.role == "admin" and not df.empty:
+    sel_del = st.selectbox(
+        "Selecteer kaartfout om te verwijderen",
+        df["id"].tolist(),
+        key="kaartfout_verwijderen"
+    )
 
-        st.warning("⚠️ Deze actie verwijdert de kaartfout én alle bijbehorende foto’s permanent.")
+    st.warning("⚠️ Deze actie verwijdert de kaartfout én alle bijbehorende foto’s permanent.")
 
-        if st.button("❌ Definitief verwijderen"):
-            fotos = c.execute(
-                "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
-                (sel_del,)
-            ).fetchall()
+    if st.button("❌ Definitief verwijderen"):
+        # ✅ HIER MAG JE INSAGING HEBBEN
+        c = conn()
 
-            for (fname,) in fotos:
-                path = os.path.join(UPLOAD_DIR, fname)
-                if os.path.exists(path):
-                    os.remove(path)
+        fotos = c.execute(
+            "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
+            (sel_del,)
+        ).fetchall()
 
-            c.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=?", (sel_del,))
-            c.execute("DELETE FROM kaartfouten WHERE id=?", (sel_del,))
-            c.commit()
-            upload_db()
+        for (fname,) in fotos:
+            path = os.path.join(UPLOAD_DIR, fname)
+            if os.path.exists(path):
+                os.remove(path)
 
-            st.success("✅ Kaartfout en foto’s zijn verwijderd")
-            st.rerun()
+        c.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=?", (sel_del,))
+        c.execute("DELETE FROM kaartfouten WHERE id=?", (sel_del,))
+        c.commit()
+        upload_db()
+        c.close()
 
-    elif not df.empty:
-        st.info("Alleen admins kunnen kaartfouten verwijderen.")
+        st.success("✅ Kaartfout en foto’s zijn verwijderd")
+        st.rerun()
 
-    c.close()
