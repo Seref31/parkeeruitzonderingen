@@ -173,6 +173,23 @@ download_db()
 init_db()
 backup_db_daily()
 
+def list_backups():
+    url = f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/backup"
+    r = requests.get(url, headers=github_headers())
+    if r.status_code != 200:
+        return []
+    return [f["name"] for f in r.json() if f["name"].endswith(".db")]
+
+def restore_backup(filename):
+    path = f"backup/{filename}"
+    url = f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/{path}"
+    r = requests.get(url, headers=github_headers())
+    data = base64.b64decode(r.json()["content"])
+
+    with open(DB_FILE, "wb") as f:
+        f.write(data)
+
+    upload_db()
 # ================= AUTH =================
 if "user" not in st.session_state:
     st.image(LOGO_PATH, width=180)
@@ -303,3 +320,18 @@ with tabs[4]:
     df = pd.read_sql("SELECT * FROM audit_log ORDER BY id DESC", c)
     st.dataframe(df, use_container_width=True)
     c.close()
+if st.session_state.role == "admin":
+        st.divider()
+        st.subheader("🛠️ Database herstellen")
+
+        backups = sorted(list_backups(), reverse=True)
+
+        if not backups:
+            st.info("Nog geen back-ups beschikbaar.")
+        else:
+            keuze = st.selectbox("Kies een back-up", backups)
+
+            if st.button("🔄 Herstel deze back-up"):
+                restore_backup(keuze)
+                st.success("Database hersteld")
+                st.rerun()
