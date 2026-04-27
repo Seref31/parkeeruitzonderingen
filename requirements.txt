@@ -4,3 +4,4 @@ requests
 folium>=0.15
 reportlab
 pdfplumber
+openpyxl
