@@ -265,10 +265,14 @@ with tabs[2]:
     c.close()
 
 # ================= KAARTFOUTEN =================
-with tabsst.header("🗺️ Kaartfouten")
+with tabs[3]:
+    st.header("🗺️ Kaartfouten – parkeervakken")
 
     c = conn()
-    df = pd.read_sql("SELECT * FROM kaartfouten ORDER BY gemeld_op DESC", c)
+    df = pd.read_sql(
+        "SELECT * FROM kaartfouten ORDER BY gemeld_op DESC",
+        c
+    )
     st.dataframe(df, use_container_width=True)
 
     st.subheader("➕ Nieuwe kaartfout")
