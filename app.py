@@ -313,33 +313,45 @@ with tabs[2]:
 # ================= KAARTFOUTEN =================
 with tabs[3]:
     st.header("Kaartfouten")
+
     c = conn()
     df = pd.read_sql("SELECT * FROM kaartfouten", c)
 
-     # 🔍 Zoekveld
-    search = st.text_input("🔍 Zoeken (naam, kenteken, locatie)")
+    # 🔍 Zoekveld
+    search = st.text_input("🔍 Zoeken (omschrijving, status, melder)")
     if search:
         df = df[df.astype(str).apply(
             lambda x: x.str.contains(search, case=False, na=False)
         ).any(axis=1)]
 
     # 📋 Tabel tonen (NA filteren)
-    
     st.dataframe(df, use_container_width=True)
 
+    # ➕ Nieuwe kaartfout melden
     with st.form("kaartfout_add"):
-        melding = st.text_area("Omschrijving")
+        melding = st.text_area("Omschrijving *")
         submit = st.form_submit_button("Melden")
+
         if submit:
-            c.execute("""
-            INSERT INTO kaartfouten
-            (melding_type, omschrijving, status, melder, gemeld_op)
-            VALUES (?,?,?,?,?)
-            """, ("Overig", melding, "Open", st.session_state.user,
-                  datetime.now().isoformat(timespec="seconds")))
-            c.commit()
-            upload_db()
-            st.rerun()
+            if not melding.strip():
+                st.error("Omschrijving is verplicht.")
+            else:
+                c.execute("""
+                    INSERT INTO kaartfouten
+                    (melding_type, omschrijving, status, melder, gemeld_op)
+                    VALUES (?,?,?,?,?)
+                """, (
+                    "Overig",
+                    melding.strip(),
+                    "Open",
+                    st.session_state.user,
+                    datetime.now().isoformat(timespec="seconds")
+                ))
+                c.commit()
+                upload_db()
+                st.success("✅ Kaartfout gemeld")
+                st.rerun()
+
     c.close()
 
 # ================= AUDIT =================
