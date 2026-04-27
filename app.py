@@ -312,11 +312,20 @@ with tabs[3]:
     st.subheader("✏️ Project aanpassen of verwijderen")
 
     if not df.empty and st.session_state.role in ["admin", "editor"]:
-        project_keuze = st.selectbox(
-            "Selecteer project",
-            df["id"].tolist(),
-            format_func=lambda x: df.loc[df.id == x, "naam"].iloc[0]
-        )
+       # Maak veilige opties: "Naam (ID)"
+project_opties = {
+    f"{row['naam']} (#{row['id']})": row["id"]
+    for _, row in df.iterrows()
+    if pd.notna(row["id"])
+}
+
+project_keuze_label = st.selectbox(
+    "Selecteer project",
+    list(project_opties.keys())
+)
+
+project_keuze = project_opties[project_keuze_label]
+project = df[df.id == project_keuze].iloc[0]
 
         project = df[df.id == project_keuze].iloc[0]
 
