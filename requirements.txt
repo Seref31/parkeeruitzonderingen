@@ -1,6 +1,6 @@
-streamlit>=1.31
-pandas>=2.1
-openpyxl>=3.1
-reportlab>=4.0
-pdfplumber>=0.11
+streamlit>=1.25
+pandas
+requests
 folium>=0.15
+reportlab
+pdfplumber
