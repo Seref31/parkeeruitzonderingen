@@ -242,16 +242,17 @@ with tabs[0]:
     c.close()
 
 # ================= UITZONDERINGEN =================
-if search:
-    df = df[df.astype(str).apply(
-        lambda x: x.str.contains(search, case=False, na=False)
-    ).any(axis=1)]
 with tabs[1]:
     st.header("Uitzonderingen")
     c = conn()
     df = pd.read_sql("SELECT * FROM uitzonderingen", c)
     search = st.text_input("🔍 Zoeken (naam, kenteken, locatie)")
     st.dataframe(df, use_container_width=True)
+
+    if search:
+    df = df[df.astype(str).apply(
+        lambda x: x.str.contains(search, case=False, na=False)
+    ).any(axis=1)]
 
     with st.form("uitz_add"):
         naam = st.text_input("Naam")
