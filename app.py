@@ -326,8 +326,7 @@ with tabs[3]:
             upload_db()
             st.success("✅ Kaartfout gemeld")
             st.rerun()
-
-    # ---- KAART ----
+# ---- KAART ----
     df_map = df[df["latitude"].notna() & df["longitude"].notna()]
     if not df_map.empty:
         m = folium.Map(
@@ -355,5 +354,39 @@ with tabs[3]:
             path = os.path.join(UPLOAD_DIR, f["bestandsnaam"])
             if os.path.exists(path):
                 st.image(path, width="stretch")
+
+    # ---- VERWIJDEREN ----
+    st.subheader("🗑️ Kaartfout verwijderen")
+
+    if st.session_state.role == "admin" and not df.empty:
+        sel_del = st.selectbox(
+            "Selecteer kaartfout om te verwijderen",
+            df["id"].tolist(),
+            key="kaartfout_verwijderen"
+        )
+
+        st.warning("⚠️ Deze actie verwijdert de kaartfout én alle bijbehorende foto’s permanent.")
+
+        if st.button("❌ Definitief verwijderen"):
+            fotos = c.execute(
+                "SELECT bestandsnaam FROM kaartfout_fotos WHERE kaartfout_id=?",
+                (sel_del,)
+            ).fetchall()
+
+            for (fname,) in fotos:
+                path = os.path.join(UPLOAD_DIR, fname)
+                if os.path.exists(path):
+                    os.remove(path)
+
+            c.execute("DELETE FROM kaartfout_fotos WHERE kaartfout_id=?", (sel_del,))
+            c.execute("DELETE FROM kaartfouten WHERE id=?", (sel_del,))
+            c.commit()
+            upload_db()
+
+            st.success("✅ Kaartfout en foto’s zijn verwijderd")
+            st.rerun()
+
+    elif not df.empty:
+        st.info("Alleen admins kunnen kaartfouten verwijderen.")
 
     c.close()
