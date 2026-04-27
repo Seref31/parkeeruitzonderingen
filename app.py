@@ -67,44 +67,22 @@ def hash_pw(pw: str) -> str:
     return hashlib.sha256(pw.encode()).hexdigest()
 
 def init_db():
-    # === MIGRATIE PROJECTEN-KOLOMMEN (1x) ===
-c = conn()
-
-# startdatum
-try:
-    c.execute("ALTER TABLE projecten ADD COLUMN start DATE")
-except sqlite3.OperationalError:
-    pass  # kolom bestaat al
-
-# einddatum
-try:
-    c.execute("ALTER TABLE projecten ADD COLUMN einde DATE")
-except sqlite3.OperationalError:
-    pass
-
-# prioriteit
-try:
-    c.execute("ALTER TABLE projecten ADD COLUMN prioriteit TEXT")
-except sqlite3.OperationalError:
-    pass
-
-# status
-try:
-    c.execute("ALTER TABLE projecten ADD COLUMN status TEXT")
-except sqlite3.OperationalError:
-    pass
-
-# toelichting
-try:
-    c.execute("ALTER TABLE projecten ADD COLUMN toelichting TEXT")
-except sqlite3.OperationalError:
-    pass
-
-c.commit()
-c.close()
-upload_db()
     c = conn()
     cur = c.cursor()
+
+    # PROJECTEN
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS projecten (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT,
+        adviseur TEXT,
+        prioriteit TEXT,
+        start DATE,
+        einde DATE,
+        status TEXT,
+        toelichting TEXT
+    )
+    """)
 
     # USERS
     cur.execute("""
@@ -164,20 +142,6 @@ upload_db()
     )
     """)
 
-    # PROJECTEN
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS projecten (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        naam TEXT,
-        adviseur TEXT,
-        prioriteit TEXT,
-        start DATE,
-        einde DATE,
-        status TEXT,
-        toelichting TEXT
-    )
-    """)
-
     # ADMIN USER
     cur.execute("""
     INSERT OR IGNORE INTO users (username, password, role, active)
@@ -192,7 +156,6 @@ upload_db()
     c.commit()
     c.close()
     upload_db()
-
 # ================= GEO =================
 def geocode_postcode_huisnummer(postcode, huisnummer):
     try:
