@@ -63,8 +63,8 @@ def upload_db():
 def conn():
     return sqlite3.connect(DB_FILE, check_same_thread=False)
 
-def hash_pw(pw: str) -> str:
-    return hashlib.sha256(pw.encode()).hexdigest()
+def hash_pw(pw: str) -&gt; str:
+return hashlib.sha256(pw.encode()).hexdigest()
 
 def init_db():
     c = conn()
