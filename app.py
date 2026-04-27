@@ -9,6 +9,7 @@ import base64
 import hashlib
 import unicodedata
 import sqlite3
+import shutil
 from datetime import datetime, date, time
 from io import BytesIO
 
@@ -21,6 +22,17 @@ from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
+
+def backup_db_daily():
+    today = datetime.now().strftime("%Y-%m-%d")
+    backup_name = f"backup/parkeeruitzonderingen_{today}.db"
+    local_backup = f"/tmp/parkeeruitzonderingen_{today}.db"
+
+    if os.path.exists(local_backup):
+        return  # vandaag al gemaakt
+
+    shutil.copy(DB_FILE, local_backup)
+    upload_file_to_github(local_backup, backup_name)
 
 # ================= GLOBALS =================
 DB_FILE = "parkeeruitzonderingen.db"
@@ -159,6 +171,7 @@ def init_db():
 # ================= START =================
 download_db()
 init_db()
+backup_db_daily()
 
 # ================= AUTH =================
 if "user" not in st.session_state:
