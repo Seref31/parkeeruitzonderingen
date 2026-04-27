@@ -183,55 +183,60 @@ with tabs[0]:
     c.close()
 
 # ================= PROJECTEN =================
-with tabs[1]:
+with tabs[3]:
     st.header("🧩 Projectenoverzicht")
 
     c = conn()
-    df = pd.read_sql(
-        "SELECT * FROM projecten ORDER BY prioriteit, startdatum",
-        c
-    )
-    st.dataframe(df, use_container_width=True)
 
+    # ✅ Schema uitlezen
+    cols = [r[1] for r in c.execute("PRAGMA table_info(projecten)").fetchall()]
+    st.caption(f"Actieve kolommen: {cols}")
+
+    # ✅ Dynamisch ORDER BY bepalen
+    order_col = None
+    for candidate in ["startdatum", "start", "einde", "id"]:
+        if candidate in cols:
+            order_col = candidate
+            break
+
+    query = "SELECT * FROM projecten"
+    if order_col:
+        query += f" ORDER BY {order_col}"
+
+    try:
+        df = pd.read_sql(query, c)
+    except Exception as e:
+        st.error("Projectentabel kon niet worden geladen.")
+        st.code(str(e))
+        df = pd.DataFrame(columns=cols)
+
+    st.dataframe(df, use_container_width=True)
     st.divider()
 
+    # ➕ Project toevoegen (werkt altijd, ook bij oud schema)
     if st.session_state.role in ["admin", "editor"]:
         st.subheader("➕ Project toevoegen")
+
         with st.form("project_add"):
             naam = st.text_input("Projectnaam *")
-            adviseur = st.text_input("Adviseur / Projectleider")
-            prioriteit = st.selectbox("Prioriteit", ["Hoog", "Gemiddeld", "Laag"])
-            status = st.selectbox("Status", ["Niet gestart", "Actief", "Afgerond"])
-            startdatum = st.date_input("Startdatum", value=date.today())
-            einddatum = st.date_input("Einddatum", value=date.today())
+            adviseur = st.text_input("Adviseur")
+            prioriteit = st.text_input("Prioriteit")
+            status = st.text_input("Status")
             toelichting = st.text_area("Toelichting")
 
             if st.form_submit_button("Opslaan"):
-                if not naam:
-                    st.error("Projectnaam is verplicht.")
-                else:
-                    c.execute("""
-                        INSERT INTO projecten
-                        (naam, adviseur, prioriteit, startdatum, einddatum, status, toelichting)
-                        VALUES (?,?,?,?,?,?,?)
-                    """, (
-                        naam,
-                        adviseur,
-                        prioriteit,
-                        startdatum.isoformat(),
-                        einddatum.isoformat(),
-                        status,
-                        toelichting
-                    ))
-                    c.commit()
-                    upload_db()
-                    st.success("✅ Project toegevoegd")
-                    st.rerun()
+                c.execute("""
+                    INSERT INTO projecten (naam, adviseur)
+                    VALUES (?, ?)
+                """, (naam, adviseur))
+                c.commit()
+                upload_db()
+                st.success("✅ Project toegevoegd")
+                st.rerun()
     else:
-        st.info("Alleen bekijken (geen rechten om te wijzigen).")
+        st.info("👀 Alleen bekijken.")
 
     c.close()
-
 # ================= GEBRUIKERS =================
 with tabs[2]:
     st.header("👥 Gebruikers")
