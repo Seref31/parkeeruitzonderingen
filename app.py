@@ -1,7 +1,7 @@
-# =========================================================# =========================================================INDVERSIE
+# =========================================================
+# PARKEERBEHEER DORDRECHT – COMPLETE STABIELE APP
 # =========================================================
 
-# ================= IMPORTS =================
 import os
 import sqlite3
 import hashlib
@@ -9,14 +9,10 @@ from datetime import datetime, date
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
-import folium
-import requests
 
 # ================= CONFIG =================
 DB_FILE = "parkeerbeheer.db"
-UPLOAD_DIR = "uploads/kaartfouten"
-
+UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 st.set_page_config(
@@ -24,7 +20,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ================= DATABASE =================
+# ================= DATABASE HELPERS =================
 def conn():
     return sqlite3.connect(DB_FILE, check_same_thread=False)
 
@@ -37,68 +33,67 @@ def init_db():
 
     # USERS
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            password TEXT,
-            role TEXT,
-            active INTEGER
-        )
+    CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY,
+        password TEXT,
+        role TEXT,
+        active INTEGER
+    )
+    """)
+
+    # UITZONDERINGEN
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS uitzonderingen (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT,
+        kenteken TEXT,
+        locatie TEXT,
+        startdatum TEXT,
+        einddatum TEXT
+    )
     """)
 
     # AGENDA
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS agenda (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            titel TEXT,
-            datum TEXT,
-            aangemaakt_door TEXT,
-            aangemaakt_op TEXT
-        )
+    CREATE TABLE IF NOT EXISTS agenda (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titel TEXT,
+        datum TEXT,
+        aangemaakt_door TEXT,
+        aangemaakt_op TEXT
+    )
     """)
 
-    # PROGRAMMA'S & PROJECTEN
+    # PROGRAMMA’S & PROJECTEN
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS programma_projecten (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            naam TEXT,
-            adviseur TEXT,
-            prioriteit TEXT,
-            status TEXT,
-            startdatum TEXT,
-            einddatum TEXT,
-            toelichting TEXT
-        )
+    CREATE TABLE IF NOT EXISTS programma_projecten (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT,
+        adviseur TEXT,
+        prioriteit TEXT,
+        status TEXT,
+        startdatum TEXT,
+        einddatum TEXT,
+        toelichting TEXT
+    )
     """)
 
     # KAARTFOUTEN
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS kaartfouten (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            vak_id TEXT,
-            melding_type TEXT,
-            omschrijving TEXT,
-            status TEXT,
-            melder TEXT,
-            gemeld_op TEXT,
-            latitude REAL,
-            longitude REAL
-        )
+    CREATE TABLE IF NOT EXISTS kaartfouten (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vak_id TEXT,
+        omschrijving TEXT,
+        status TEXT,
+        melder TEXT,
+        gemeld_op TEXT
+    )
     """)
 
-    # FOTO'S
+    # STANDAARD ADMIN
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS kaartfout_fotos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            kaartfout_id INTEGER,
-            bestandsnaam TEXT,
-            geupload_op TEXT
-        )
-    """)
-
-    # DEFAULT ADMIN
-    cur.execute("""
-        INSERT OR IGNORE INTO users
-        VALUES (?,?,?,?)
+    INSERT OR IGNORE INTO users (username, password, role, active)
+    VALUES (?,?,?,?)
     """, (
         "seref@dordrecht.nl",
         hash_pw("Seref#2026"),
@@ -146,6 +141,7 @@ if st.sidebar.button("Uitloggen"):
 # ================= TABS =================
 tabs = st.tabs([
     "📊 Dashboard",
+    "🅿️ Uitzonderingen",
     "📅 Agenda",
     "🧩 Programma’s & Projecten",
     "🗺️ Kaartfouten",
@@ -155,13 +151,45 @@ tabs = st.tabs([
 # ================= DASHBOARD =================
 with tabs[0]:
     c = conn()
+    st.metric("Uitzonderingen", c.execute("SELECT COUNT(*) FROM uitzonderingen").fetchone()[0])
+    st.metric("Agenda-items", c.execute("SELECT COUNT(*) FROM agenda").fetchone()[0])
     st.metric("Projecten", c.execute("SELECT COUNT(*) FROM programma_projecten").fetchone()[0])
-    st.metric("Agenda", c.execute("SELECT COUNT(*) FROM agenda").fetchone()[0])
     st.metric("Kaartfouten", c.execute("SELECT COUNT(*) FROM kaartfouten").fetchone()[0])
     c.close()
 
-# ================= AGENDA =================
+# ================= UITZONDERINGEN =================
 with tabs[1]:
+    c = conn()
+    df = pd.read_sql("SELECT * FROM uitzonderingen", c)
+
+    zoek = st.text_input("🔍 Zoeken")
+    if zoek:
+        df = df[df.astype(str).apply(
+            lambda x: x.str.contains(zoek, case=False, na=False)
+        ).any(axis=1)]
+
+    st.dataframe(df, use_container_width=True)
+
+    if st.session_state.role in ["admin", "editor"]:
+        with st.form("uitz_add"):
+            naam = st.text_input("Naam")
+            kenteken = st.text_input("Kenteken")
+            locatie = st.text_input("Locatie")
+            start = st.date_input("Startdatum")
+            einde = st.date_input("Einddatum")
+
+            if st.form_submit_button("Toevoegen"):
+                c.execute("""
+                    INSERT INTO uitzonderingen
+                    (naam, kenteken, locatie, startdatum, einddatum)
+                    VALUES (?,?,?,?,?)
+                """, (naam, kenteken, locatie, start.isoformat(), einde.isoformat()))
+                c.commit()
+                st.rerun()
+    c.close()
+
+# ================= AGENDA =================
+with tabs[2]:
     c = conn()
     df = pd.read_sql("SELECT * FROM agenda ORDER BY datum DESC", c)
     st.dataframe(df, use_container_width=True)
@@ -169,11 +197,11 @@ with tabs[1]:
     with st.form("agenda_add"):
         titel = st.text_input("Titel")
         datum = st.date_input("Datum")
-
         if st.form_submit_button("Toevoegen"):
             c.execute("""
                 INSERT INTO agenda
-                VALUES (NULL,?,?,?,?)
+                (titel, datum, aangemaakt_door, aangemaakt_op)
+                VALUES (?,?,?,?)
             """, (
                 titel,
                 datum.isoformat(),
@@ -185,24 +213,43 @@ with tabs[1]:
     c.close()
 
 # ================= PROGRAMMA’S & PROJECTEN =================
-with tabs[2]:
+with tabs[3]:
     c = conn()
     df = pd.read_sql("SELECT * FROM programma_projecten", c)
+
+    zoek = st.text_input("🔍 Zoeken (naam, adviseur, status)", key="pp_zoek")
+    if zoek:
+        df = df[df.astype(str).apply(
+            lambda x: x.str.contains(zoek, case=False, na=False)
+        ).any(axis=1)]
+
     st.dataframe(df, use_container_width=True)
     st.divider()
 
-    if not df.empty:
+    if not df.empty and st.session_state.role in ["admin", "editor"]:
         opties = {f"{r['naam']} (#{r['id']})": r["id"] for _, r in df.iterrows()}
         keuze = st.selectbox("Selecteer project", list(opties.keys()))
         pid = opties[keuze]
         project = df[df.id == pid].iloc[0]
 
-        with st.form("edit_project"):
+        with st.form("pp_edit"):
             naam = st.text_input("Naam", project["naam"])
-            status = st.selectbox("Status", ["Niet gestart","Actief","Afgerond"])
+            adviseur = st.text_input("Adviseur", project["adviseur"])
+            prioriteit = st.selectbox("Prioriteit", ["Hoog", "Gemiddeld", "Laag"],
+                                      index=["Hoog", "Gemiddeld", "Laag"].index(project["prioriteit"]))
+            status = st.selectbox("Status", ["Niet gestart", "Actief", "Afgerond"],
+                                  index=["Niet gestart", "Actief", "Afgerond"].index(project["status"]))
+            start = st.text_input("Startdatum", project["startdatum"])
+            einde = st.text_input("Einddatum", project["einddatum"])
+            toelichting = st.text_area("Toelichting", project["toelichting"])
+
             if st.form_submit_button("Opslaan"):
-                c.execute("UPDATE programma_projecten SET naam=?, status=? WHERE id=?",
-                          (naam, status, pid))
+                c.execute("""
+                    UPDATE programma_projecten
+                    SET naam=?, adviseur=?, prioriteit=?, status=?,
+                        startdatum=?, einddatum=?, toelichting=?
+                    WHERE id=?
+                """, (naam, adviseur, prioriteit, status, start, einde, toelichting, pid))
                 c.commit()
                 st.rerun()
 
@@ -211,80 +258,90 @@ with tabs[2]:
             c.commit()
             st.rerun()
 
-    with st.form("add_project"):
-        naam = st.text_input("Nieuwe projectnaam")
-        if st.form_submit_button("Toevoegen"):
-            c.execute("""
-                INSERT INTO programma_projecten
-                VALUES (NULL,?,?,?,?,?,?)
-            """, (
-                naam, "", "Gemiddeld", "Niet gestart", "", "", ""
-            ))
-            c.commit()
-            st.rerun()
-
-    st.subheader("📥 Excel import")
-    excel = st.file_uploader("Upload Excel", type=["xlsx"])
-    if excel:
-        df_excel = pd.read_excel(excel)
-        st.dataframe(df_excel.head())
-        if st.button("Importeer"):
-            for _, r in df_excel.iterrows():
+    if st.session_state.role in ["admin", "editor"]:
+        st.subheader("➕ Nieuw project")
+        with st.form("pp_add"):
+            naam = st.text_input("Naam *")
+            adviseur = st.text_input("Adviseur")
+            prioriteit = st.selectbox("Prioriteit", ["Hoog", "Gemiddeld", "Laag"])
+            status = st.selectbox("Status", ["Niet gestart", "Actief", "Afgerond"])
+            if st.form_submit_button("Toevoegen"):
                 c.execute("""
                     INSERT INTO programma_projecten
-                    VALUES (NULL,?,?,?,?,?,?)
-                """, (
-                    r.get("naam"),
-                    r.get("Adviseur"),
-                    r.get("prio"),
-                    r.get("status"),
-                    r.get("(geplande) Startdatum"),
-                    r.get("(geplande) Einddatum"),
-                    r.get("status")
-                ))
-            c.commit()
-            st.rerun()
+                    (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
+                    VALUES (?,?,?,?,?,?,?)
+                """, (naam, adviseur, prioriteit, status, "", "", ""))
+                c.commit()
+                st.rerun()
+
+        st.subheader("📥 Excel import")
+        excel = st.file_uploader("Upload Excel", type=["xlsx"])
+        if excel:
+            df_excel = pd.read_excel(excel)
+            st.dataframe(df_excel.head(), use_container_width=True)
+            if st.button("Importeer Excel"):
+                for _, r in df_excel.iterrows():
+                    c.execute("""
+                        INSERT INTO programma_projecten
+                        (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
+                        VALUES (?,?,?,?,?,?,?)
+                    """, (
+                        r.get("naam"),
+                        r.get("Adviseur"),
+                        r.get("prio"),
+                        r.get("status"),
+                        str(r.get("(geplande) Startdatum")),
+                        str(r.get("(geplande) Einddatum")),
+                        str(r.get("status"))
+                    ))
+                c.commit()
+                st.rerun()
     c.close()
 
 # ================= KAARTFOUTEN =================
-with tabs[3]:
-    st.subheader("Kaartfouten (overzicht)")
+with tabs[4]:
     c = conn()
-    df = pd.read_sql("SELECT * FROM kaartfouten", c)
+    df = pd.read_sql("SELECT * FROM kaartfouten ORDER BY gemeld_op DESC", c)
     st.dataframe(df, use_container_width=True)
 
-    with st.form("kaartfout"):
+    with st.form("kaartfout_add"):
         vak = st.text_input("Vak ID")
         oms = st.text_area("Omschrijving")
-        if st.form_submit_button("Toevoegen"):
+        if st.form_submit_button("Melden"):
             c.execute("""
                 INSERT INTO kaartfouten
-                VALUES (NULL,?,?,?, ?, ?, NULL, NULL)
+                (vak_id, omschrijving, status, melder, gemeld_op)
+                VALUES (?,?,?,?,?)
             """, (
-                vak "Overig", oms, "Open",
+                vak,
+                oms,
+                "Open",
                 st.session_state.user,
-                datetime.now().isoformat()
+                datetime.now().isoformat(timespec="seconds")
             ))
             c.commit()
             st.rerun()
     c.close()
 
 # ================= GEBRUIKERS =================
-with tabs[4]:
+with tabs[5]:
     if st.session_state.role != "admin":
-        st.info("Alleen admin")
+        st.info("Alleen admins hebben toegang tot gebruikersbeheer.")
     else:
         c = conn()
         dfu = pd.read_sql("SELECT username, role, active FROM users", c)
         st.dataframe(dfu, use_container_width=True)
 
-        with st.form("new_user"):
-            u = st.text_input("Gebruiker")
+        with st.form("user_add"):
+            u = st.text_input("Gebruikersnaam")
             p = st.text_input("Wachtwoord", type="password")
-            r = st.selectbox("Rol", ["admin","editor","viewer"])
+            r = st.selectbox("Rol", ["admin", "editor", "viewer"])
             if st.form_submit_button("Toevoegen"):
-                c.execute("INSERT OR IGNORE INTO users VALUES (?,?,?,1)",
-                          (u, hash_pw(p), r))
+                c.execute("""
+                    INSERT OR IGNORE INTO users
+                    (username, password, role, active)
+                    VALUES (?,?,?,1)
+                """, (u, hash_pw(p), r))
                 c.commit()
                 st.rerun()
         c.close()
