@@ -134,6 +134,19 @@ def init_db():
         1
     ))
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS programma_projecten (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT,
+        adviseur TEXT,
+        prioriteit TEXT,
+        status TEXT,
+        startdatum TEXT,
+        einddatum TEXT,
+        toelichting TEXT
+    )
+    """)
+
     c.commit()
     upload_db()
     c.close()
@@ -203,6 +216,7 @@ tabs = st.tabs([
     "📊 Dashboard",
     "🅿️ Uitzonderingen",
     "📅 Agenda",
+    "🧩 Programma’s & Projecten",
     "🗺️ Kaartfouten",
     "👥 Gebruikers"
 ])
@@ -271,6 +285,69 @@ with tabs[2]:
             c.commit()
             upload_db()
             st.rerun()
+
+    c.close()
+
+# ================= PROGRAMMA’S & PROJECTEN =================
+with tabs[3]:
+    st.header("🧩 Programma’s & Projecten")
+
+    c = conn()
+    df = pd.read_sql(
+        "SELECT * FROM programma_projecten ORDER BY prioriteit, startdatum",
+        c
+    )
+
+    # 🔍 Zoeken
+    zoek = st.text_input("🔍 Zoeken (naam, adviseur, status)")
+    if zoek:
+        df = df[df.astype(str).apply(
+            lambda x: x.str.contains(zoek, case=False, na=False)
+        ).any(axis=1)]
+
+    st.dataframe(df, use_container_width=True)
+    st.divider()
+
+    # ➕ Toevoegen (admin / editor)
+    if st.session_state.role in ["admin", "editor"]:
+        st.subheader("➕ Nieuw programma of project")
+
+        with st.form("pp_add"):
+            naam = st.text_input("Naam *")
+            adviseur = st.text_input("Adviseur / projectleider")
+            prioriteit = st.selectbox(
+                "Prioriteit", ["Hoog", "Gemiddeld", "Laag"]
+            )
+            status = st.selectbox(
+                "Status", ["Niet gestart", "Actief", "Afgerond"]
+            )
+            startdatum = st.date_input("Startdatum")
+            einddatum = st.date_input("Einddatum")
+            toelichting = st.text_area("Toelichting")
+
+            if st.form_submit_button("Opslaan"):
+                if not naam:
+                    st.error("Naam is verplicht.")
+                else:
+                    c.execute("""
+                        INSERT INTO programma_projecten
+                        (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
+                        VALUES (?,?,?,?,?,?,?)
+                    """, (
+                        naam,
+                        adviseur,
+                        prioriteit,
+                        status,
+                        startdatum.isoformat(),
+                        einddatum.isoformat(),
+                        toelichting
+                    ))
+                    c.commit()
+                    upload_db()
+                    st.success("✅ Programma / project toegevoegd")
+                    st.rerun()
+    else:
+        st.info("👀 Alleen bekijken (geen rechten om te wijzigen).")
 
     c.close()
 
