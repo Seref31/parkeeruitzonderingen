@@ -198,14 +198,16 @@ tabs = st.tabs([
 ])
 
 # ================= DASHBOARD =================
-with tabsc = conn()
+with tabs[0]:
+    c = conn()
     st.metric("Uitzonderingen", c.execute("SELECT COUNT(*) FROM uitzonderingen").fetchone()[0])
     st.metric("Agenda", c.execute("SELECT COUNT(*) FROM agenda").fetchone()[0])
     st.metric("Kaartfouten", c.execute("SELECT COUNT(*) FROM kaartfouten").fetchone()[0])
     c.close()
 
 # ================= UITZONDERINGEN =================
-with tabsc = conn()
+with tabs[1]:
+    c = conn()
     df = pd.read_sql("SELECT * FROM uitzonderingen", c)
 
     search = st.text_input("🔍 Zoeken")
@@ -222,6 +224,7 @@ with tabsc = conn()
         locatie = st.text_input("Locatie")
         start = st.date_input("Start")
         einde = st.date_input("Einde")
+
         if st.form_submit_button("Toevoegen"):
             c.execute("""
                 INSERT INTO uitzonderingen
@@ -231,26 +234,34 @@ with tabsc = conn()
             c.commit()
             upload_db()
             st.rerun()
+
     c.close()
 
 # ================= AGENDA =================
-with tabsc = conn()
+with tabs[2]:
+    c = conn()
     df = pd.read_sql("SELECT * FROM agenda", c)
     st.dataframe(df, use_container_width=True)
 
     with st.form("agenda_add"):
         titel = st.text_input("Titel")
         datum = st.date_input("Datum")
+
         if st.form_submit_button("Toevoegen"):
             c.execute("""
-            INSERT INTO agenda
-            (titel, datum, aangemaakt_door, aangemaakt_op)
-            VALUES (?,?,?,?)
-            """, (titel, datum.isoformat(), st.session_state.user,
-                  datetime.now().isoformat(timespec="seconds")))
+                INSERT INTO agenda
+                (titel, datum, aangemaakt_door, aangemaakt_op)
+                VALUES (?,?,?,?)
+            """, (
+                titel,
+                datum.isoformat(),
+                st.session_state.user,
+                datetime.now().isoformat(timespec="seconds")
+            ))
             c.commit()
             upload_db()
             st.rerun()
+
     c.close()
 
 # ================= KAARTFOUTEN =================
