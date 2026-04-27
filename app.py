@@ -67,6 +67,23 @@ def hash_pw(pw: str) -> str:
     return hashlib.sha256(pw.encode()).hexdigest()
 
 def init_db():
+# === MIGRATIE PROJECTEN (1x uitvoeren) ===
+c = conn()
+c.execute("""
+CREATE TABLE IF NOT EXISTS projecten (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    naam TEXT,
+    adviseur TEXT,
+    prioriteit TEXT,
+    start DATE,
+    einde DATE,
+    status TEXT,
+    toelichting TEXT
+)
+""")
+c.commit()
+c.close()
+upload_db()
     c = conn()
     cur = c.cursor()
 
@@ -441,8 +458,10 @@ with tabs[3]:
     st.header("🧩 Projectenoverzicht")
 
     c = conn()
-    df = pd.read_sql("SELECT * FROM projecten ORDER BY prioriteit, start", c)
-
+df = pd.read_sql(
+    'SELECT * FROM projecten ORDER BY prioriteit, "start"',
+    c
+)
     # 🔍 Filters bovenin (zoals Excel)
     col1, col2, col3 = st.columns(3)
     with col1:
