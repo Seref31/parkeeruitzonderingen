@@ -242,6 +242,10 @@ with tabs[0]:
     c.close()
 
 # ================= UITZONDERINGEN =================
+if search:
+    df = df[df.astype(str).apply(
+        lambda x: x.str.contains(search, case=False, na=False)
+    ).any(axis=1)]
 with tabs[1]:
     st.header("Uitzonderingen")
     c = conn()
