@@ -1,5 +1,5 @@
 # =========================================================
-# PARKEERBEHEER DORDRECHT – COMPLETE WERKENDE APP
+# PARKEERBEHEER DORDRECHT – STABIELE WERKENDE APP
 # =========================================================
 
 # ================= IMPORTS =================
@@ -12,8 +12,6 @@ from datetime import datetime, date
 import requests
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
-import folium
 
 # ================= CONFIG =================
 DB_FILE = "parkeeruitzonderingen.db"
@@ -41,9 +39,9 @@ def upload_file_to_github(local_path, github_path):
         content = base64.b64encode(f.read()).decode()
 
     r = requests.get(url, headers=github_headers())
-    sha = r.json()["sha"] if r.status_code == 200 else None
+    sha = r.json().get("sha") if r.status_code == 200 else None
 
-    payload = {"content": content, "message": f"update {github_path}"}
+    payload = {"message": f"update {github_path}", "content": content}
     if sha:
         payload["sha"] = sha
 
@@ -70,20 +68,6 @@ def init_db():
     c = conn()
     cur = c.cursor()
 
-    # PROJECTEN
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS projecten (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        naam TEXT,
-        adviseur TEXT,
-        prioriteit TEXT,
-        start DATE,
-        einde DATE,
-        status TEXT,
-        toelichting TEXT
-    )
-    """)
-
     # USERS
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
@@ -94,19 +78,19 @@ def init_db():
     )
     """)
 
-    # UITZONDERINGEN
+    # UITZONDERINGEN (basis)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS uitzonderingen (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         naam TEXT,
         kenteken TEXT,
         locatie TEXT,
-        start DATE,
-        einde DATE
+        startdatum DATE,
+        einddatum DATE
     )
     """)
 
-    # AGENDA
+    # AGENDA (basis)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS agenda (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,28 +101,17 @@ def init_db():
     )
     """)
 
-    # KAARTFOUTEN
+    # PROJECTEN (LET OP: GEEN gereserveerde woorden)
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS kaartfouten (
+    CREATE TABLE IF NOT EXISTS projecten (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        vak_id TEXT,
-        melding_type TEXT,
-        omschrijving TEXT,
+        naam TEXT,
+        adviseur TEXT,
+        prioriteit TEXT,
+        startdatum DATE,
+        einddatum DATE,
         status TEXT,
-        melder TEXT,
-        gemeld_op TEXT,
-        latitude REAL,
-        longitude REAL
-    )
-    """)
-
-    # KAARTFOUT FOTO'S
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS kaartfout_fotos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        kaartfout_id INTEGER,
-        bestandsnaam TEXT,
-        geupload_op TEXT
+        toelichting TEXT
     )
     """)
 
@@ -156,21 +129,8 @@ def init_db():
     c.commit()
     c.close()
     upload_db()
-# ================= GEO =================
-def geocode_postcode_huisnummer(postcode, huisnummer):
-    try:
-        r = requests.get(
-            "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free",
-            params={"q": f"{postcode} {huisnummer}", "rows": 1},
-            timeout=5
-        )
-        doc = r.json()["response"]["docs"][0]
-        lon, lat = doc["centroide_ll"].strip("POINT()").split()
-        return float(lat), float(lon)
-    except Exception:
-        return None, None
 
-# ================= START =================
+# ================= STARTUP =================
 download_db()
 init_db()
 
@@ -210,102 +170,76 @@ if st.sidebar.button("Uitloggen"):
 # ================= TABS =================
 tabs = st.tabs([
     "📊 Dashboard",
-    "🅿️ Uitzonderingen",
-    "📅 Agenda",
     "🧩 Projecten",
-    "🗺️ Kaartfouten",
     "👥 Gebruikers"
 ])
 
 # ================= DASHBOARD =================
 with tabs[0]:
     c = conn()
-    st.metric("Uitzonderingen", c.execute("SELECT COUNT(*) FROM uitzonderingen").fetchone()[0])
-    st.metric("Agenda", c.execute("SELECT COUNT(*) FROM agenda").fetchone()[0])
-    st.metric("Projecten", c.execute("SELECT COUNT(*) FROM projecten").fetchone()[0])
-    st.metric("Kaartfouten", c.execute("SELECT COUNT(*) FROM kaartfouten").fetchone()[0])
+    col1, col2 = st.columns(2)
+    col1.metric("Projecten", c.execute("SELECT COUNT(*) FROM projecten").fetchone()[0])
+    col2.metric("Gebruikers", c.execute("SELECT COUNT(*) FROM users").fetchone()[0])
     c.close()
 
 # ================= PROJECTEN =================
-with tabs[3]:
+with tabs[1]:
     st.header("🧩 Projectenoverzicht")
 
     c = conn()
-
-    # ✅ GARANTIE: tabel bestaat (ook bij oude DB)
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS projecten (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        naam TEXT,
-        adviseur TEXT,
-        prioriteit TEXT,
-        start DATE,
-        einde DATE,
-        status TEXT,
-        toelichting TEXT
+    df = pd.read_sql(
+        "SELECT * FROM projecten ORDER BY prioriteit, startdatum",
+        c
     )
-    """)
-    c.commit()
-
-    try:
-        df = pd.read_sql(
-            'SELECT * FROM projecten ORDER BY prioriteit, "start"',
-            c
-        )
-    except Exception as e:
-        st.error("Projectentabel kon niet worden geladen.")
-        st.code(str(e))
-        df = pd.DataFrame(
-            columns=["id","naam","adviseur","prioriteit","start","einde","status","toelichting"]
-        )
-
     st.dataframe(df, use_container_width=True)
 
     st.divider()
 
-    # ➕ Project toevoegen (admin/editor)
     if st.session_state.role in ["admin", "editor"]:
         st.subheader("➕ Project toevoegen")
         with st.form("project_add"):
             naam = st.text_input("Projectnaam *")
             adviseur = st.text_input("Adviseur / Projectleider")
-            prioriteit = st.selectbox("Prioriteit", ["Hoog","Gemiddeld","Laag"])
-            status = st.selectbox("Status", ["Niet gestart","Actief","Afgerond"])
-            start = st.date_input("Startdatum", value=date.today())
-            einde = st.date_input("Einddatum", value=date.today())
+            prioriteit = st.selectbox("Prioriteit", ["Hoog", "Gemiddeld", "Laag"])
+            status = st.selectbox("Status", ["Niet gestart", "Actief", "Afgerond"])
+            startdatum = st.date_input("Startdatum", value=date.today())
+            einddatum = st.date_input("Einddatum", value=date.today())
             toelichting = st.text_area("Toelichting")
 
             if st.form_submit_button("Opslaan"):
-                c.execute("""
-                    INSERT INTO projecten
-                    (naam, adviseur, prioriteit, start, einde, status, toelichting)
-                    VALUES (?,?,?,?,?,?,?)
-                """, (
-                    naam,
-                    adviseur,
-                    prioriteit,
-                    start.isoformat(),
-                    einde.isoformat(),
-                    status,
-                    toelichting
-                ))
-                c.commit()
-                upload_db()
-                st.success("✅ Project toegevoegd")
-                st.rerun()
+                if not naam:
+                    st.error("Projectnaam is verplicht.")
+                else:
+                    c.execute("""
+                        INSERT INTO projecten
+                        (naam, adviseur, prioriteit, startdatum, einddatum, status, toelichting)
+                        VALUES (?,?,?,?,?,?,?)
+                    """, (
+                        naam,
+                        adviseur,
+                        prioriteit,
+                        startdatum.isoformat(),
+                        einddatum.isoformat(),
+                        status,
+                        toelichting
+                    ))
+                    c.commit()
+                    upload_db()
+                    st.success("✅ Project toegevoegd")
+                    st.rerun()
     else:
-        st.info("👀 Alleen bekijken (geen rechten om te wijzigen).")
+        st.info("Alleen bekijken (geen rechten om te wijzigen).")
 
     c.close()
 
-# ================= GEBRUIKERSBEHEER =================
-with tabs[5]:
-    st.header("👥 Gebruikersbeheer")
+# ================= GEBRUIKERS =================
+with tabs[2]:
+    st.header("👥 Gebruikers")
 
     if st.session_state.role != "admin":
-        st.warning("Alleen admins mogen gebruikers beheren.")
+        st.info("Alleen admins kunnen gebruikers beheren.")
     else:
         c = conn()
-        df_users = pd.read_sql("SELECT username, role, active FROM users", c)
-        st.dataframe(df_users, use_container_width=True)
+        dfu = pd.read_sql("SELECT username, role, active FROM users", c)
+        st.dataframe(dfu, use_container_width=True)
         c.close()
