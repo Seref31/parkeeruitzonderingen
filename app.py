@@ -244,34 +244,47 @@ with tabs[0]:
 # ================= UITZONDERINGEN =================
 with tabs[1]:
     st.header("Uitzonderingen")
+
     c = conn()
     df = pd.read_sql("SELECT * FROM uitzonderingen", c)
+
+    # 🔍 Zoekveld
     search = st.text_input("🔍 Zoeken (naam, kenteken, locatie)")
+    if search:
+        df = df[df.astype(str).apply(
+            lambda x: x.str.contains(search, case=False, na=False)
+        ).any(axis=1)]
+
+    # 📋 Tabel tonen (NA filteren)
     st.dataframe(df, use_container_width=True)
 
-    if search:
-    df = df[df.astype(str).apply(
-        lambda x: x.str.contains(search, case=False, na=False)
-    ).any(axis=1)]
-
+    # ➕ Nieuw record toevoegen
     with st.form("uitz_add"):
         naam = st.text_input("Naam")
         kenteken = st.text_input("Kenteken")
         locatie = st.text_input("Locatie")
         start = st.date_input("Start")
         einde = st.date_input("Einde")
+
         submit = st.form_submit_button("Toevoegen")
 
         if submit:
             c.execute("""
-            INSERT INTO uitzonderingen
-            (naam,kenteken,locatie,start,einde)
-            VALUES (?,?,?,?,?)
-            """, (naam, kenteken.upper(), locatie, start.isoformat(), einde.isoformat()))
+                INSERT INTO uitzonderingen
+                (naam, kenteken, locatie, start, einde)
+                VALUES (?,?,?,?,?)
+            """, (
+                naam,
+                kenteken.upper(),
+                locatie,
+                start.isoformat(),
+                einde.isoformat()
+            ))
             c.commit()
             upload_db()
-            st.success("Toegevoegd")
+            st.success("✅ Toegevoegd")
             st.rerun()
+
     c.close()
 
 # ================= AGENDA =================
