@@ -157,6 +157,15 @@ def geocode_postcode_huisnummer(postcode, huisnummer):
 download_db()
 init_db()
 
+# === TEMP: maak seref@dordrecht.nl admin (1x uitvoeren) ===
+c = conn()
+c.execute(
+    "UPDATE users SET role='admin', active=1 WHERE username=?",
+    ("seref@dordrecht.nl",)
+)
+c.commit()
+c.close()
+upload_db()
 # ================= LOGIN =================
 if "user" not in st.session_state:
     st.image(LOGO_PATH, width=160)
