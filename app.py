@@ -179,7 +179,7 @@ if "user" not in st.session_state:
         if r and r[0] == hash_pw(p) and r[2] == 1:
             st.session_state.user = u
             st.session_state.role = r[1]
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Onjuist account of wachtwoord")
 
@@ -191,7 +191,7 @@ st.sidebar.success(f"{st.session_state.user} ({st.session_state.role})")
 
 if st.sidebar.button("Uitloggen"):
     st.session_state.clear()
-    st.experimental_rerun()
+    st.rerun()
 
 # ================= TABS =================
 tabs = st.tabs([
@@ -235,7 +235,7 @@ with tabs[1]:
             c.commit()
             upload_db()
             st.success("Toegevoegd")
-            st.experimental_rerun()
+            st.rerun()
     c.close()
 
 # ================= AGENDA =================
@@ -258,7 +258,7 @@ with tabs[2]:
                   datetime.now().isoformat(timespec="seconds")))
             c.commit()
             upload_db()
-            st.experimental_rerun()
+            st.rerun()
     c.close()
 
 # ================= KAARTFOUTEN =================
@@ -280,7 +280,7 @@ with tabs[3]:
                   datetime.now().isoformat(timespec="seconds")))
             c.commit()
             upload_db()
-            st.experimental_rerun()
+            st.rerun()
     c.close()
 
 # ================= AUDIT =================
