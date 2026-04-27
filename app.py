@@ -366,9 +366,11 @@ st.write("DEBUG – rol:", st.session_state.role)
             path = os.path.join(UPLOAD_DIR, f["bestandsnaam"])
             if os.path.exists(path):
                 st.image(path, width="stretch")
+# ---- VERWIJDEREN ----
+st.subheader("🗑️ Kaartfout verwijderen")
 
-    # ---- VERWIJDEREN ----
-    st.subheader("🗑️ Kaartfout verwijderen")
+# debug: mag tijdelijk blijven
+st.write("ROL:", st.session_state.role)
 
 if st.session_state.role == "admin" and not df.empty:
     sel_del = st.selectbox(
@@ -380,7 +382,6 @@ if st.session_state.role == "admin" and not df.empty:
     st.warning("⚠️ Deze actie verwijdert de kaartfout én alle bijbehorende foto’s permanent.")
 
     if st.button("❌ Definitief verwijderen"):
-        # ✅ HIER MAG JE INSAGING HEBBEN
         c = conn()
 
         fotos = c.execute(
@@ -402,3 +403,5 @@ if st.session_state.role == "admin" and not df.empty:
         st.success("✅ Kaartfout en foto’s zijn verwijderd")
         st.rerun()
 
+elif not df.empty:
+    st.info("Alleen admins kunnen kaartfouten verwijderen.")
