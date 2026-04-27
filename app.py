@@ -1,69 +1,28 @@
-# =========================================================
-# PARKEERBEHEER DORDRECHT – STABIELE COMPLETE APP
+# =========================================================# =========================================================INDVERSIE
 # =========================================================
 
 # ================= IMPORTS =================
 import os
-import base64
 import sqlite3
 import hashlib
 from datetime import datetime, date
 
-import requests
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 import folium
+import requests
 
 # ================= CONFIG =================
-DB_FILE = "parkeeruitzonderingen.db"
+DB_FILE = "parkeerbeheer.db"
 UPLOAD_DIR = "uploads/kaartfouten"
-LOGO_PATH = "gemeente-dordrecht-transparant-png.png"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 st.set_page_config(
     page_title="Parkeerbeheer Dordrecht",
-    page_icon=LOGO_PATH,
     layout="wide"
 )
-
-# ================= GITHUB HELPERS =================
-def github_headers():
-    return {
-        "Authorization": f"token {st.secrets['GITHUB_TOKEN']}",
-        "Accept": "application/vnd.github+json"
-    }
-
-def upload_file_to_github(local_path, github_path):
-    try:
-        url = f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/{github_path}"
-        with open(local_path, "rb") as f:
-            content = base64.b64encode(f.read()).decode()
-
-        r = requests.get(url, headers=github_headers())
-        sha = r.json().get("sha") if r.status_code == 200 else None
-
-        data = {"message": f"update {github_path}", "content": content}
-        if sha:
-            data["sha"] = sha
-
-        requests.put(url, json=data, headers=github_headers()).raise_for_status()
-    except Exception:
-        st.warning("⚠️ Database kon niet gesynchroniseerd worden met GitHub.")
-
-def download_db():
-    try:
-        url = f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/{DB_FILE}"
-        r = requests.get(url, headers=github_headers())
-        if r.status_code == 200:
-            with open(DB_FILE, "wb") as f:
-                f.write(base64.b64decode(r.json()["content"]))
-    except Exception:
-        pass  # lokaal doorgaan is prima
-
-def upload_db():
-    upload_file_to_github(DB_FILE, DB_FILE)
 
 # ================= DATABASE =================
 def conn():
@@ -76,6 +35,7 @@ def init_db():
     c = conn()
     cur = c.cursor()
 
+    # USERS
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -85,6 +45,7 @@ def init_db():
         )
     """)
 
+    # AGENDA
     cur.execute("""
         CREATE TABLE IF NOT EXISTS agenda (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,6 +56,7 @@ def init_db():
         )
     """)
 
+    # PROGRAMMA'S & PROJECTEN
     cur.execute("""
         CREATE TABLE IF NOT EXISTS programma_projecten (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,6 +70,7 @@ def init_db():
         )
     """)
 
+    # KAARTFOUTEN
     cur.execute("""
         CREATE TABLE IF NOT EXISTS kaartfouten (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,8 +85,19 @@ def init_db():
         )
     """)
 
+    # FOTO'S
     cur.execute("""
-        INSERT OR IGNORE INTO users (username, password, role, active)
+        CREATE TABLE IF NOT EXISTS kaartfout_fotos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kaartfout_id INTEGER,
+            bestandsnaam TEXT,
+            geupload_op TEXT
+        )
+    """)
+
+    # DEFAULT ADMIN
+    cur.execute("""
+        INSERT OR IGNORE INTO users
         VALUES (?,?,?,?)
     """, (
         "seref@dordrecht.nl",
@@ -136,7 +110,6 @@ def init_db():
     c.close()
 
 # ================= START =================
-download_db()
 init_db()
 
 # ================= LOGIN =================
@@ -164,16 +137,19 @@ if "user" not in st.session_state:
     st.stop()
 
 # ================= SIDEBAR =================
-st.sidebar.success(f"Ingelogd als {st.session_state.user}")
+st.sidebar.success(f"Ingelogd als {st.session_state.user} ({st.session_state.role})")
 
 if st.sidebar.button("Uitloggen"):
     st.session_state.clear()
     st.rerun()
 
+# ================= TABS =================
 tabs = st.tabs([
     "📊 Dashboard",
     "📅 Agenda",
-    "🧩 Programma’s & Projecten"
+    "🧩 Programma’s & Projecten",
+    "🗺️ Kaartfouten",
+    "👥 Gebruikers"
 ])
 
 # ================= DASHBOARD =================
@@ -181,12 +157,13 @@ with tabs[0]:
     c = conn()
     st.metric("Projecten", c.execute("SELECT COUNT(*) FROM programma_projecten").fetchone()[0])
     st.metric("Agenda", c.execute("SELECT COUNT(*) FROM agenda").fetchone()[0])
+    st.metric("Kaartfouten", c.execute("SELECT COUNT(*) FROM kaartfouten").fetchone()[0])
     c.close()
 
 # ================= AGENDA =================
 with tabs[1]:
     c = conn()
-    df = pd.read_sql("SELECT * FROM agenda", c)
+    df = pd.read_sql("SELECT * FROM agenda ORDER BY datum DESC", c)
     st.dataframe(df, use_container_width=True)
 
     with st.form("agenda_add"):
@@ -196,8 +173,7 @@ with tabs[1]:
         if st.form_submit_button("Toevoegen"):
             c.execute("""
                 INSERT INTO agenda
-                (titel, datum, aangemaakt_door, aangemaakt_op)
-                VALUES (?,?,?,?)
+                VALUES (NULL,?,?,?,?)
             """, (
                 titel,
                 datum.isoformat(),
@@ -205,7 +181,6 @@ with tabs[1]:
                 datetime.now().isoformat(timespec="seconds")
             ))
             c.commit()
-            upload_db()
             st.rerun()
     c.close()
 
@@ -216,36 +191,100 @@ with tabs[2]:
     st.dataframe(df, use_container_width=True)
     st.divider()
 
-    if not df.empty and st.session_state.role in ["admin", "editor"]:
+    if not df.empty:
         opties = {f"{r['naam']} (#{r['id']})": r["id"] for _, r in df.iterrows()}
         keuze = st.selectbox("Selecteer project", list(opties.keys()))
-        project_id = opties[keuze]
-        project = df[df.id == project_id].iloc[0]
+        pid = opties[keuze]
+        project = df[df.id == pid].iloc[0]
 
-        with st.form("edit"):
+        with st.form("edit_project"):
             naam = st.text_input("Naam", project["naam"])
-            status = st.selectbox("Status", ["Niet gestart", "Actief", "Afgerond"])
+            status = st.selectbox("Status", ["Niet gestart","Actief","Afgerond"])
             if st.form_submit_button("Opslaan"):
                 c.execute("UPDATE programma_projecten SET naam=?, status=? WHERE id=?",
-                          (naam, status, project_id))
+                          (naam, status, pid))
                 c.commit()
-                upload_db()
                 st.rerun()
 
-        if st.button("🗑️ Verwijderen"):
-            c.execute("DELETE FROM programma_projecten WHERE id=?", (project_id,))
+        if st.button("🗑️ Verwijder project"):
+            c.execute("DELETE FROM programma_projecten WHERE id=?", (pid,))
             c.commit()
-            upload_db()
             st.rerun()
 
-    with st.form("add"):
+    with st.form("add_project"):
         naam = st.text_input("Nieuwe projectnaam")
         if st.form_submit_button("Toevoegen"):
-            c.execute("INSERT INTO programma_projecten (naam, status) VALUES (?,?)",
-                      (naam, "Niet gestart"))
+            c.execute("""
+                INSERT INTO programma_projecten
+                VALUES (NULL,?,?,?,?,?,?)
+            """, (
+                naam, "", "Gemiddeld", "Niet gestart", "", "", ""
+            ))
             c.commit()
-            upload_db()
             st.rerun()
 
+    st.subheader("📥 Excel import")
+    excel = st.file_uploader("Upload Excel", type=["xlsx"])
+    if excel:
+        df_excel = pd.read_excel(excel)
+        st.dataframe(df_excel.head())
+        if st.button("Importeer"):
+            for _, r in df_excel.iterrows():
+                c.execute("""
+                    INSERT INTO programma_projecten
+                    VALUES (NULL,?,?,?,?,?,?)
+                """, (
+                    r.get("naam"),
+                    r.get("Adviseur"),
+                    r.get("prio"),
+                    r.get("status"),
+                    r.get("(geplande) Startdatum"),
+                    r.get("(geplande) Einddatum"),
+                    r.get("status")
+                ))
+            c.commit()
+            st.rerun()
     c.close()
-``
+
+# ================= KAARTFOUTEN =================
+with tabs[3]:
+    st.subheader("Kaartfouten (overzicht)")
+    c = conn()
+    df = pd.read_sql("SELECT * FROM kaartfouten", c)
+    st.dataframe(df, use_container_width=True)
+
+    with st.form("kaartfout"):
+        vak = st.text_input("Vak ID")
+        oms = st.text_area("Omschrijving")
+        if st.form_submit_button("Toevoegen"):
+            c.execute("""
+                INSERT INTO kaartfouten
+                VALUES (NULL,?,?,?, ?, ?, NULL, NULL)
+            """, (
+                vak "Overig", oms, "Open",
+                st.session_state.user,
+                datetime.now().isoformat()
+            ))
+            c.commit()
+            st.rerun()
+    c.close()
+
+# ================= GEBRUIKERS =================
+with tabs[4]:
+    if st.session_state.role != "admin":
+        st.info("Alleen admin")
+    else:
+        c = conn()
+        dfu = pd.read_sql("SELECT username, role, active FROM users", c)
+        st.dataframe(dfu, use_container_width=True)
+
+        with st.form("new_user"):
+            u = st.text_input("Gebruiker")
+            p = st.text_input("Wachtwoord", type="password")
+            r = st.selectbox("Rol", ["admin","editor","viewer"])
+            if st.form_submit_button("Toevoegen"):
+                c.execute("INSERT OR IGNORE INTO users VALUES (?,?,?,1)",
+                          (u, hash_pw(p), r))
+                c.commit()
+                st.rerun()
+        c.close()
