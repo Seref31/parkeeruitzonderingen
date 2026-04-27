@@ -319,10 +319,23 @@ project_opties = {
     if pd.notna(row["id"])
 }
 
-project_keuze_label = st.selectbox(
-    "Selecteer project",
-    list(project_opties.keys())
-)
+# Veilige mapping: label → id
+project_opties = {
+    f"{row['naam']} (#{row['id']})": row["id"]
+    for _, row in df.iterrows()
+    if pd.notna(row["id"])
+}
+
+if not project_opties:
+    st.info("Geen projecten beschikbaar.")
+else:
+    project_keuze_label = st.selectbox(
+        "Selecteer project",
+        list(project_opties.keys())
+    )
+
+    project_keuze = project_opties[project_keuze_label]
+    project = df[df.id == project_keuze].iloc[0]
 
 project_keuze = project_opties[project_keuze_label]
 project = df[df.id == project_keuze].iloc[0]
