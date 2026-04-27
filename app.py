@@ -276,6 +276,9 @@ with tabs[2]:
 # ================= KAARTFOUTEN =================
 with tabs[3]:
     st.header("🗺️ Kaartfouten – parkeervakken")
+    
+st.write("DEBUG – ingelogde gebruiker:", st.session_state.user)
+st.write("DEBUG – rol:", st.session_state.role)
 
     c = conn()
     df = pd.read_sql(
