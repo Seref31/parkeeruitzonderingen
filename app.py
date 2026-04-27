@@ -467,8 +467,6 @@ with tabs[3]:
             st.map(df_map.rename(
                 columns={"latitude": "lat", "longitude": "lon"}
             )[["lat", "lon"]])
-``
-
 # ================= AUDIT =================
 with tabs[4]:
     st.header("Audit log")
