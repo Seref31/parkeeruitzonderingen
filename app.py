@@ -204,6 +204,7 @@ tabs = st.tabs([
     "🅿️ Uitzonderingen",
     "📅 Agenda",
     "🗺️ Kaartfouten"
+    "👥 Gebruikers"
 ])
 
 # ================= DASHBOARD =================
@@ -420,5 +421,119 @@ with tabs[3]:
             st.rerun()
     else:
         st.info("Alleen admins kunnen kaartfouten verwijderen.")
+
+    c.close()
+
+# ================= GEBRUIKERSBEHEER =================
+with tabs[4]:
+    st.header("👥 Gebruikersbeheer")
+
+    # Alleen admin
+    if st.session_state.role != "admin":
+        st.error("❌ Alleen admins hebben toegang tot gebruikersbeheer.")
+        st.stop()
+
+    c = conn()
+
+    # ---- OVERZICHT ----
+    st.subheader("📋 Bestaande gebruikers")
+    df_users = pd.read_sql(
+        "SELECT username, role, active FROM users ORDER BY username",
+        c
+    )
+    st.dataframe(df_users, use_container_width=True)
+
+    st.divider()
+
+    # ---- GEBRUIKER TOEVOEGEN ----
+    st.subheader("➕ Gebruiker toevoegen")
+    with st.form("user_add"):
+        new_user = st.text_input("E-mailadres")
+        new_pw = st.text_input("Wachtwoord", type="password")
+        new_role = st.selectbox("Rol", ["admin", "editor", "viewer"])
+        active = st.checkbox("Actief", True)
+
+        if st.form_submit_button("Gebruiker aanmaken"):
+            if not new_user or not new_pw:
+                st.error("Gebruiker en wachtwoord zijn verplicht.")
+            else:
+                try:
+                    c.execute(
+                        """
+                        INSERT INTO users (username, password, role, active)
+                        VALUES (?,?,?,?)
+                        """,
+                        (new_user, hash_pw(new_pw), new_role, int(active))
+                    )
+                    c.commit()
+                    upload_db()
+                    st.success("✅ Gebruiker aangemaakt")
+                    st.rerun()
+                except sqlite3.IntegrityError:
+                    st.error("❌ Deze gebruiker bestaat al.")
+
+    st.divider()
+
+    # ---- GEBRUIKER BEWERKEN / VERWIJDEREN ----
+    st.subheader("✏️ Gebruiker aanpassen of verwijderen")
+
+    sel_user = st.selectbox(
+        "Selecteer gebruiker",
+        df_users["username"].tolist()
+    )
+
+    sel_info = df_users[df_users.username == sel_user].iloc[0]
+
+    with st.form("user_edit"):
+        role = st.selectbox(
+            "Rol",
+            ["admin", "editor", "viewer"],
+            index=["admin", "editor", "viewer"].index(sel_info.role)
+        )
+        active = st.checkbox("Actief", bool(sel_info.active))
+        reset_pw = st.checkbox("Wachtwoord resetten?")
+        new_pw = st.text_input("Nieuw wachtwoord", type="password", disabled=not reset_pw)
+
+        col1, col2 = st.columns(2)
+        save = col1.form_submit_button("💾 Opslaan")
+        delete = col2.form_submit_button("🗑️ Verwijderen")
+
+        if save:
+            if reset_pw and not new_pw:
+                st.error("Nieuw wachtwoord ontbreekt.")
+            else:
+                if reset_pw:
+                    c.execute(
+                        """
+                        UPDATE users
+                        SET role=?, active=?, password=?
+                        WHERE username=?
+                        """,
+                        (role, int(active), hash_pw(new_pw), sel_user)
+                    )
+                else:
+                    c.execute(
+                        """
+                        UPDATE users
+                        SET role=?, active=?
+                        WHERE username=?
+                        """,
+                        (role, int(active), sel_user)
+                    )
+
+                c.commit()
+                upload_db()
+                st.success("✅ Gebruiker bijgewerkt")
+                st.rerun()
+
+        if delete:
+            if sel_user == st.session_state.user:
+                st.error("❌ Je kunt jezelf niet verwijderen.")
+            else:
+                c.execute("DELETE FROM users WHERE username=?", (sel_user,))
+                c.commit()
+                upload_db()
+                st.success("✅ Gebruiker verwijderd")
+                st.rerun()
 
     c.close()
