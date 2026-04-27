@@ -10,6 +10,7 @@ import hashlib
 import unicodedata
 import sqlite3
 import shutil
+import streamlit.components.v1 as components
 from datetime import datetime, date, time
 from io import BytesIO
 
@@ -489,7 +490,11 @@ with tabs[3]:
                     )
                 ).add_to(m)
 
-            st.iframe(srcdoc=m._repr_html_(), height=520)
+            components.html(
+    m._repr_html_(),
+    height=520,
+    scrolling=False
+)
 
         except Exception as e:
             st.warning(f"Kaart kon niet geladen worden: {e}")
