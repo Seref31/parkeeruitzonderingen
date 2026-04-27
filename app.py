@@ -348,14 +348,9 @@ with tabs[3]:
                     st.rerun()
     else:
         st.info("👀 Alleen bekijken (geen rechten om te wijzigen).")
- st.subheader("📥 Projecten importeren vanuit Excel")
 
-excel = st.file_uploader(
-    "Upload Excel (Projectenoverzicht)",
-    type=["xlsx"]
-)
-
-st.subheader("📥 Projecten importeren vanuit Excel")
+    # 📥 EXCEL IMPORT
+    st.subheader("📥 Projecten importeren vanuit Excel")
 
     excel = st.file_uploader(
         "Upload Excel (Projectenoverzicht)",
@@ -388,6 +383,8 @@ st.subheader("📥 Projecten importeren vanuit Excel")
             upload_db()
             st.success("✅ Excel succesvol geïmporteerd")
             st.rerun()
+
+    c.close()
 
 # ================= KAARTFOUTEN =================
 with tabs[4]:
