@@ -344,7 +344,7 @@ with tabs[3]:
     c.close()
     
 # ================= KAARTFOUTEN =================
-with tabs[3]:
+with tabs[4]:
     st.header("🗺️ Kaartfouten – parkeervakken")
 
     c = conn()
@@ -494,7 +494,7 @@ with tabs[3]:
     c.close()
 
 # ================= GEBRUIKERSBEHEER =================
-with tabs[4]:
+with tabs[5]:
     st.header("👥 Gebruikersbeheer")
 
     # Alleen admin
