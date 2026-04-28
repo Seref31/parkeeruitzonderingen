@@ -82,8 +82,8 @@ def init_db():
     """)
 
     # KAARTFOUTEN
-cur.execute("""
-CREATE TABLE IF NOT EXISTS kaartfouten (
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS kaartfouten (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     vak_id TEXT,
     omschrijving TEXT,
