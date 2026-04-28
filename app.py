@@ -304,7 +304,7 @@ with tabs[3]:
     st.dataframe(df, use_container_width=True)
     st.divider()
 
-    # ➕ Project toevoegen (admin/editor)
+    # ================= TOEVOEGEN =================
     if st.session_state.role in ["admin", "editor"]:
         st.subheader("➕ Nieuw project")
 
@@ -338,81 +338,81 @@ with tabs[3]:
                     upload_db()
                     st.success("✅ Project toegevoegd")
                     st.rerun()
+    else:
+        st.info("👀 Alleen bekijken (geen rechten om te wijzigen).")
 
+    st.divider()
+
+    # ================= VERWIJDEREN =================
     st.subheader("🗑️ Project verwijderen")
 
-if not df.empty and st.session_state.role in ["admin", "editor"]:
+    if not df.empty and st.session_state.role in ["admin", "editor"]:
 
-    # Veilige selectie (GEEN format_func!)
-    project_opties = {
-        f"{row['naam']} (#{row['id']})": row["id"]
-        for _, row in df.iterrows()
-    }
+        project_opties = {
+            f"{row['naam']} (#{row['id']})": row["id"]
+            for _, row in df.iterrows()
+        }
 
-    project_label = st.selectbox(
-        "Selecteer project om te verwijderen",
-        list(project_opties.keys()),
-        key="project_verwijderen_select"
+        project_label = st.selectbox(
+            "Selecteer project om te verwijderen",
+            list(project_opties.keys()),
+            key="project_delete_select"
+        )
+
+        project_id = project_opties[project_label]
+
+        st.warning("⚠️ Deze actie is definitief.")
+
+        if st.button("❌ Verwijder dit project"):
+            c.execute(
+                "DELETE FROM projecten_overzicht WHERE id=?",
+                (project_id,)
+            )
+            c.commit()
+            upload_db()
+            st.success("✅ Project verwijderd")
+            st.rerun()
+    else:
+        st.info("👀 Geen projecten of onvoldoende rechten.")
+
+    st.divider()
+
+    # ================= EXCEL IMPORT =================
+    st.subheader("📥 Projecten importeren vanuit Excel")
+
+    excel_file = st.file_uploader(
+        "Upload Excelbestand (Projectenoverzicht)",
+        type=["xlsx"]
     )
 
-    project_id = project_opties[project_label]
+    if excel_file:
+        df_excel = pd.read_excel(excel_file)
 
-    st.warning("⚠️ Deze actie is definitief.")
+        st.info("🧾 Voorvertoning van het Excelbestand")
+        st.dataframe(df_excel.head(), use_container_width=True)
 
-    if st.button("❌ Verwijder dit project"):
-        c.execute(
-            "DELETE FROM projecten_overzicht WHERE id=?",
-            (project_id,)
-        )
-        c.commit()
-        upload_db()
-        st.success("✅ Project verwijderd")
-        st.rerun()
-
-else:
-    st.info("👀 Geen projecten of onvoldoende rechten.")
-else:
-        st.info("👀 Alleen bekijken (geen rechten om te wijzigen).")
-st.subheader("📥 Projecten importeren vanuit Excel")
-
-excel_file = st.file_uploader(
-    "Upload Excelbestand (Projectenoverzicht)",
-    type=["xlsx"]
-)
-
-if excel_file:
-    df_excel = pd.read_excel(excel_file)
-
-    st.info("🧾 Voorvertoning van het Excelbestand")
-    st.dataframe(df_excel.head(), use_container_width=True)
-
-    if st.button("✅ Importeer projecten uit Excel"):
-        toegevoegd = 0
-
-        for _, r in df_excel.iterrows():
-            c.execute("""
-                INSERT INTO projecten_overzicht
-                (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
-                VALUES (?,?,?,?,?,?,?)
-            """, (
-                str(r.get("naam", "")).strip(),
-                str(r.get("Adviseur", "")).strip(),
-                str(r.get("prio", "")).strip(),
-                str(r.get("status", "")).strip(),
-                str(r.get("(geplande) Startdatum", "")),
-                str(r.get("(geplande) Einddatum", "")),
-                str(r.get("status", ""))
-            ))
-            toegevoegd += 1
-
-        c.commit()
-        upload_db()
-
-        st.success(f"✅ {toegevoegd} projecten geïmporteerd")
-        st.rerun()
+        if st.button("✅ Importeer projecten uit Excel"):
+            for _, r in df_excel.iterrows():
+                c.execute("""
+                    INSERT INTO projecten_overzicht
+                    (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
+                    VALUES (?,?,?,?,?,?,?)
+                """, (
+                    str(r.get("naam", "")).strip(),
+                    str(r.get("Adviseur", "")).strip(),
+                    str(r.get("prio", "")).strip(),
+                    str(r.get("status", "")).strip(),
+                    str(r.get("(geplande) Startdatum", "")),
+                    str(r.get("(geplande) Einddatum", "")),
+                    str(r.get("status", ""))
+                ))
+            c.commit()
+            upload_db()
+            st.success("✅ Excel geïmporteerd")
+            st.rerun()
 
     c.close()
-    
+``
 # ================= KAARTFOUTEN =================
 with tabs[4]:
     st.header("🗺️ Kaartfouten – parkeervakken")
