@@ -338,6 +338,39 @@ with tabs[3]:
                     upload_db()
                     st.success("✅ Project toegevoegd")
                     st.rerun()
+
+    st.subheader("🗑️ Project verwijderen")
+
+if not df.empty and st.session_state.role in ["admin", "editor"]:
+
+    # Veilige selectie (GEEN format_func!)
+    project_opties = {
+        f"{row['naam']} (#{row['id']})": row["id"]
+        for _, row in df.iterrows()
+    }
+
+    project_label = st.selectbox(
+        "Selecteer project om te verwijderen",
+        list(project_opties.keys()),
+        key="project_verwijderen_select"
+    )
+
+    project_id = project_opties[project_label]
+
+    st.warning("⚠️ Deze actie is definitief.")
+
+    if st.button("❌ Verwijder dit project"):
+        c.execute(
+            "DELETE FROM projecten_overzicht WHERE id=?",
+            (project_id,)
+        )
+        c.commit()
+        upload_db()
+        st.success("✅ Project verwijderd")
+        st.rerun()
+
+else:
+    st.info("👀 Geen projecten of onvoldoende rechten.")
     else:
         st.info("👀 Alleen bekijken (geen rechten om te wijzigen).")
 st.subheader("📥 Projecten importeren vanuit Excel")
