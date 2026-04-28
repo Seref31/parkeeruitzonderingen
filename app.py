@@ -376,6 +376,78 @@ with tabs[3]:
 
     st.divider()
 
+    st.subheader("✏️ Project aanpassen")
+
+if not df.empty and st.session_state.role in ["admin", "editor"]:
+
+    # Veilige selectie (geen format_func!)
+    project_opties = {
+        f"{row['naam']} (#{row['id']})": row["id"]
+        for _, row in df.iterrows()
+    }
+
+    project_label = st.selectbox(
+        "Selecteer project om te wijzigen",
+        list(project_opties.keys()),
+        key="project_edit_select"
+    )
+
+    project_id = project_opties[project_label]
+    project = df[df["id"] == project_id].iloc[0]
+
+    prioriteiten = ["Hoog", "Gemiddeld", "Laag"]
+    statussen = ["Niet gestart", "Actief", "Afgerond"]
+
+    huidige_prio = project["prioriteit"] if project["prioriteit"] in prioriteiten else "Gemiddeld"
+    huidige_status = project["status"] if project["status"] in statussen else "Niet gestart"
+
+    with st.form("project_edit_form"):
+        naam = st.text_input("Projectnaam", project["naam"])
+        adviseur = st.text_input("Adviseur", project["adviseur"])
+        prioriteit = st.selectbox(
+            "Prioriteit",
+            prioriteiten,
+            index=prioriteiten.index(huidige_prio)
+        )
+        status = st.selectbox(
+            "Status",
+            statussen,
+            index=statussen.index(huidige_status)
+        )
+        start = st.date_input(
+            "Startdatum",
+            date.fromisoformat(project["startdatum"]) if project["startdatum"] else date.today()
+        )
+        einde = st.date_input(
+            "Einddatum",
+            date.fromisoformat(project["einddatum"]) if project["einddatum"] else date.today()
+        )
+        toelichting = st.text_area("Toelichting", project["toelichting"])
+
+        if st.form_submit_button("💾 Wijzigingen opslaan"):
+            c.execute("""
+                UPDATE projecten_overzicht
+                SET naam=?, adviseur=?, prioriteit=?, status=?,
+                    startdatum=?, einddatum=?, toelichting=?
+                WHERE id=?
+            """, (
+                naam,
+                adviseur,
+                prioriteit,
+                status,
+                start.isoformat(),
+                einde.isoformat(),
+                toelichting,
+                project_id
+            ))
+            c.commit()
+            upload_db()
+            st.success("✅ Project aangepast")
+            st.rerun()
+
+else:
+    st.info("👀 Geen projecten of onvoldoende rechten.")
+    
     # ================= EXCEL IMPORT =================
     st.subheader("📥 Projecten importeren vanuit Excel")
 
