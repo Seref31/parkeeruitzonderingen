@@ -302,7 +302,84 @@ with tabs[3]:
         ).any(axis=1)]
 
     st.dataframe(df, use_container_width=True)
+st.divider()
+st.subheader("✏️ Project wijzigen of verwijderen")
+
+if not df.empty and st.session_state.role in ["admin", "editor"]:
+
+    # Project selecteren
+    project_keuze = st.selectbox(
+        "Selecteer project",
+        df["id"].tolist(),
+        format_func=lambda x: df.loc[df.id == x, "naam"].iloc[0]
+    )
+
+    project = df[df.id == project_keuze].iloc[0]
+
+    # ===== WIJZIGEN =====
+    with st.form("project_edit"):
+        naam = st.text_input("Projectnaam", project["naam"])
+        adviseur = st.text_input("Adviseur", project["adviseur"])
+        prioriteit = st.selectbox(
+            "Prioriteit",
+            ["Hoog", "Gemiddeld", "Laag"],
+            index=["Hoog", "Gemiddeld", "Laag"].index(project["prioriteit"])
+        )
+        status = st.selectbox(
+            "Status",
+            ["Niet gestart", "Actief", "Afgerond"],
+            index=["Niet gestart", "Actief", "Afgerond"].index(project["status"])
+        )
+        startdatum = st.date_input(
+            "Startdatum",
+            date.fromisoformat(project["startdatum"]) if project["startdatum"] else date.today()
+        )
+        einddatum = st.date_input(
+            "Einddatum",
+            date.fromisoformat(project["einddatum"]) if project["einddatum"] else date.today()
+        )
+        toelichting = st.text_area("Toelichting", project["toelichting"])
+
+        if st.form_submit_button("💾 Wijzigingen opslaan"):
+            c.execute("""
+                UPDATE projecten_overzicht
+                SET naam=?, adviseur=?, prioriteit=?, status=?,
+                    startdatum=?, einddatum=?, toelichting=?
+                WHERE id=?
+            """, (
+                naam,
+                adviseur,
+                prioriteit,
+                status,
+                startdatum.isoformat(),
+                einddatum.isoformat(),
+                toelichting,
+                project_keuze
+            ))
+            c.commit()
+            upload_db()
+            st.success("✅ Project bijgewerkt")
+            st.rerun()
+
     st.divider()
+
+    # ===== VERWIJDEREN =====
+    st.warning("⚠️ Project verwijderen is definitief")
+
+    if st.button("🗑️ Verwijder dit project"):
+        c.execute(
+            "DELETE FROM projecten_overzicht WHERE id=?",
+            (project_keuze,)
+        )
+        c.commit()
+        upload_db()
+        st.success("✅ Project verwijderd")
+        st.rerun()
+
+else:
+    st.info("👀 Alleen bekijken. Je hebt geen rechten om projecten te wijzigen.")
+
+c.close()
 
     # ➕ Project toevoegen (admin/editor)
     if st.session_state.role in ["admin", "editor"]:
