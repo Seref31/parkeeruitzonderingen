@@ -144,7 +144,6 @@ CREATE TABLE IF NOT EXISTS projecten_overzicht (
     ))
 
     c.commit()
-    upload_db()
     c.close()
 
 # ================= GEO =================
