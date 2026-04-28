@@ -371,7 +371,7 @@ if not df.empty and st.session_state.role in ["admin", "editor"]:
 
 else:
     st.info("👀 Geen projecten of onvoldoende rechten.")
-    else:
+else:
         st.info("👀 Alleen bekijken (geen rechten om te wijzigen).")
 st.subheader("📥 Projecten importeren vanuit Excel")
 
