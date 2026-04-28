@@ -304,92 +304,7 @@ with tabs[3]:
     st.dataframe(df, use_container_width=True)
     st.divider()
 
-    # ================= WIJZIGEN / VERWIJDEREN =================
-    st.subheader("✏️ Project wijzigen of verwijderen")
-
-    if not df.empty and st.session_state.role in ["admin", "editor"]:
-
-        # ✅ VEILIGE SELECTIE (geen format_func)
-        project_opties = {
-            f"{row['naam']} (#{row['id']})": row["id"]
-            for _, row in df.iterrows()
-        }
-
-        project_label = st.selectbox(
-            "Selecteer project",
-            list(project_opties.keys())
-        )
-
-        project_id = project_opties[project_label]
-        project = df[df.id == project_id].iloc[0]
-
-        prioriteiten = ["Hoog", "Gemiddeld", "Laag"]
-        statussen = ["Niet gestart", "Actief", "Afgerond"]
-
-        huidige_prio = project["prioriteit"] if project["prioriteit"] in prioriteiten else "Gemiddeld"
-        huidige_status = project["status"] if project["status"] in statussen else "Niet gestart"
-
-        with st.form("project_edit"):
-            naam = st.text_input("Projectnaam", project["naam"])
-            adviseur = st.text_input("Adviseur", project["adviseur"])
-            prioriteit = st.selectbox(
-                "Prioriteit",
-                prioriteiten,
-                index=prioriteiten.index(huidige_prio)
-            )
-            status = st.selectbox(
-                "Status",
-                statussen,
-                index=statussen.index(huidige_status)
-            )
-            startdatum = st.date_input(
-                "Startdatum",
-                date.fromisoformat(project["startdatum"]) if project["startdatum"] else date.today()
-            )
-            einddatum = st.date_input(
-                "Einddatum",
-                date.fromisoformat(project["einddatum"]) if project["einddatum"] else date.today()
-            )
-            toelichting = st.text_area("Toelichting", project["toelichting"])
-
-            if st.form_submit_button("💾 Wijzigingen opslaan"):
-                c.execute("""
-                    UPDATE projecten_overzicht
-                    SET naam=?, adviseur=?, prioriteit=?, status=?,
-                        startdatum=?, einddatum=?, toelichting=?
-                    WHERE id=?
-                """, (
-                    naam,
-                    adviseur,
-                    prioriteit,
-                    status,
-                    startdatum.isoformat(),
-                    einddatum.isoformat(),
-                    toelichting,
-                    project_id
-                ))
-                c.commit()
-                upload_db()
-                st.success("✅ Project bijgewerkt")
-                st.rerun()
-
-        st.warning("⚠️ Project verwijderen is definitief")
-
-        if st.button("🗑️ Verwijder dit project"):
-            c.execute(
-                "DELETE FROM projecten_overzicht WHERE id=?",
-                (project_id,)
-            )
-            c.commit()
-            upload_db()
-            st.success("✅ Project verwijderd")
-            st.rerun()
-    else:
-        st.info("👀 Alleen bekijken. Geen rechten om te wijzigen.")
-
-    st.divider()
-
-    # ================= TOEVOEGEN =================
+    # ➕ Project toevoegen (admin/editor)
     if st.session_state.role in ["admin", "editor"]:
         st.subheader("➕ Nieuw project")
 
@@ -423,40 +338,45 @@ with tabs[3]:
                     upload_db()
                     st.success("✅ Project toegevoegd")
                     st.rerun()
+    else:
+        st.info("👀 Alleen bekijken (geen rechten om te wijzigen).")
+st.subheader("📥 Projecten importeren vanuit Excel")
 
-    st.divider()
+excel_file = st.file_uploader(
+    "Upload Excelbestand (Projectenoverzicht)",
+    type=["xlsx"]
+)
 
-    # ================= EXCEL IMPORT =================
-    st.subheader("📥 Projecten importeren vanuit Excel")
+if excel_file:
+    df_excel = pd.read_excel(excel_file)
 
-    excel_file = st.file_uploader(
-        "Upload Excelbestand (Projectenoverzicht)",
-        type=["xlsx"]
-    )
+    st.info("🧾 Voorvertoning van het Excelbestand")
+    st.dataframe(df_excel.head(), use_container_width=True)
 
-    if excel_file:
-        df_excel = pd.read_excel(excel_file)
-        st.dataframe(df_excel.head(), use_container_width=True)
+    if st.button("✅ Importeer projecten uit Excel"):
+        toegevoegd = 0
 
-        if st.button("✅ Importeer projecten uit Excel"):
-            for _, r in df_excel.iterrows():
-                c.execute("""
-                    INSERT INTO projecten_overzicht
-                    (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
-                    VALUES (?,?,?,?,?,?,?)
-                """, (
-                    str(r.get("naam", "")).strip(),
-                    str(r.get("Adviseur", "")).strip(),
-                    str(r.get("prio", "")).strip(),
-                    str(r.get("status", "")).strip(),
-                    str(r.get("(geplande) Startdatum", "")),
-                    str(r.get("(geplande) Einddatum", "")),
-                    str(r.get("status", ""))
-                ))
-            c.commit()
-            upload_db()
-            st.success("✅ Excel geïmporteerd")
-            st.rerun()
+        for _, r in df_excel.iterrows():
+            c.execute("""
+                INSERT INTO projecten_overzicht
+                (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
+                VALUES (?,?,?,?,?,?,?)
+            """, (
+                str(r.get("naam", "")).strip(),
+                str(r.get("Adviseur", "")).strip(),
+                str(r.get("prio", "")).strip(),
+                str(r.get("status", "")).strip(),
+                str(r.get("(geplande) Startdatum", "")),
+                str(r.get("(geplande) Einddatum", "")),
+                str(r.get("status", ""))
+            ))
+            toegevoegd += 1
+
+        c.commit()
+        upload_db()
+
+        st.success(f"✅ {toegevoegd} projecten geïmporteerd")
+        st.rerun()
 
     c.close()
     
