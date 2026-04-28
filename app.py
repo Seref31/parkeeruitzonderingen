@@ -303,43 +303,6 @@ with tabs[3]:
 
     st.dataframe(df, use_container_width=True)
     st.divider()
-st.subheader("📥 Projecten importeren vanuit Excel")
-
-excel_file = st.file_uploader(
-    "Upload Excelbestand (Projectenoverzicht)",
-    type=["xlsx"]
-)
-
-if excel_file:
-    df_excel = pd.read_excel(excel_file)
-
-    st.info("🧾 Voorvertoning van het Excelbestand")
-    st.dataframe(df_excel.head(), use_container_width=True)
-
-    if st.button("✅ Importeer projecten uit Excel"):
-        toegevoegd = 0
-
-        for _, r in df_excel.iterrows():
-            c.execute("""
-                INSERT INTO projecten_overzicht
-                (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
-                VALUES (?,?,?,?,?,?,?)
-            """, (
-                str(r.get("naam", "")).strip(),
-                str(r.get("Adviseur", "")).strip(),
-                str(r.get("prio", "")).strip(),
-                str(r.get("status", "")).strip(),
-                str(r.get("(geplande) Startdatum", "")),
-                str(r.get("(geplande) Einddatum", "")),
-                str(r.get("status", ""))
-            ))
-            toegevoegd += 1
-
-        c.commit()
-        upload_db()
-
-        st.success(f"✅ {toegevoegd} projecten geïmporteerd")
-        st.rerun()
 
     # ➕ Project toevoegen (admin/editor)
     if st.session_state.role in ["admin", "editor"]:
@@ -377,6 +340,43 @@ if excel_file:
                     st.rerun()
     else:
         st.info("👀 Alleen bekijken (geen rechten om te wijzigen).")
+st.subheader("📥 Projecten importeren vanuit Excel")
+
+excel_file = st.file_uploader(
+    "Upload Excelbestand (Projectenoverzicht)",
+    type=["xlsx"]
+)
+
+if excel_file:
+    df_excel = pd.read_excel(excel_file)
+
+    st.info("🧾 Voorvertoning van het Excelbestand")
+    st.dataframe(df_excel.head(), use_container_width=True)
+
+    if st.button("✅ Importeer projecten uit Excel"):
+        toegevoegd = 0
+
+        for _, r in df_excel.iterrows():
+            c.execute("""
+                INSERT INTO projecten_overzicht
+                (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
+                VALUES (?,?,?,?,?,?,?)
+            """, (
+                str(r.get("naam", "")).strip(),
+                str(r.get("Adviseur", "")).strip(),
+                str(r.get("prio", "")).strip(),
+                str(r.get("status", "")).strip(),
+                str(r.get("(geplande) Startdatum", "")),
+                str(r.get("(geplande) Einddatum", "")),
+                str(r.get("status", ""))
+            ))
+            toegevoegd += 1
+
+        c.commit()
+        upload_db()
+
+        st.success(f"✅ {toegevoegd} projecten geïmporteerd")
+        st.rerun()
 
     c.close()
     
