@@ -94,22 +94,6 @@ CREATE TABLE IF NOT EXISTS kaartfouten (
     longitude REAL
 )
 """)
-
-    # STANDAARD ADMIN
-
-    cur.execute("""
-    INSERT OR IGNORE INTO users (username, password, role, active)
-    VALUES (?,?,?,?)
-    """, (
-        "seref@dordrecht.nl",
-        hash_pw("Seref#2026"),
-        "admin",
-        1
-    ))
-
-    c.commit()
-    c.close()
-
 # ================= START =================
 init_db()
 
