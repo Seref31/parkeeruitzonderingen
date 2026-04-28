@@ -514,6 +514,20 @@ with tabs[4]:
         if st.form_submit_button("Melden"):
             lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
 
+        def safe_date(value):
+    """
+    Zet een database- of Excelwaarde veilig om naar date.
+    Geeft vandaag terug als de waarde ongeldig is.
+    """
+    try:
+        if not value:
+            return date.today()
+
+        # alleen datumdeel pakken
+        return datetime.fromisoformat(str(value)).date()
+    except Exception:
+        return date.today()
+
             c.execute("""
                 INSERT INTO kaartfouten
                 (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
