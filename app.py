@@ -396,7 +396,6 @@ with tabs[3]:
             start = st.date_input(
     "Startdatum",
     safe_date(project["startdatum"])
-)
             )
             einde = st.date_input(
     "Einddatum",
