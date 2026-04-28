@@ -119,6 +119,19 @@ def init_db():
     )
     """)
 
+    cur.execute("""
+CREATE TABLE IF NOT EXISTS projecten_overzicht (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    naam TEXT,
+    adviseur TEXT,
+    prioriteit TEXT,
+    status TEXT,
+    startdatum DATE,
+    einddatum DATE,
+    toelichting TEXT
+)
+""")
+
     # Admin user (kolommen expliciet!)
     cur.execute("""
     INSERT OR IGNORE INTO users (username, password, role, active)
@@ -199,6 +212,7 @@ tabs = st.tabs([
     "📊 Dashboard",
     "🅿️ Uitzonderingen",
     "📅 Agenda",
+    "🧩 Projectenoverzicht",
     "🗺️ Kaartfouten",
     "👥 Gebruikers"
 ])
@@ -270,6 +284,65 @@ with tabs[2]:
 
     c.close()
 
+# ================= PROJECTENOVERZICHT =================
+with tabs[3]:
+    st.header("🧩 Projectenoverzicht")
+
+    c = conn()
+    df = pd.read_sql(
+        "SELECT * FROM projecten_overzicht ORDER BY prioriteit, startdatum",
+        c
+    )
+
+    # 🔍 Zoeken
+    zoek = st.text_input("🔍 Zoeken (naam / adviseur / status)")
+    if zoek:
+        df = df[df.astype(str).apply(
+            lambda x: x.str.contains(zoek, case=False, na=False)
+        ).any(axis=1)]
+
+    st.dataframe(df, use_container_width=True)
+    st.divider()
+
+    # ➕ Project toevoegen (admin/editor)
+    if st.session_state.role in ["admin", "editor"]:
+        st.subheader("➕ Nieuw project")
+
+        with st.form("project_add"):
+            naam = st.text_input("Projectnaam *")
+            adviseur = st.text_input("Adviseur / projectleider")
+            prioriteit = st.selectbox("Prioriteit", ["Hoog", "Gemiddeld", "Laag"])
+            status = st.selectbox("Status", ["Niet gestart", "Actief", "Afgerond"])
+            start = st.date_input("Startdatum")
+            einde = st.date_input("Einddatum")
+            toelichting = st.text_area("Toelichting")
+
+            if st.form_submit_button("Opslaan"):
+                if not naam:
+                    st.error("Projectnaam is verplicht.")
+                else:
+                    c.execute("""
+                        INSERT INTO projecten_overzicht
+                        (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
+                        VALUES (?,?,?,?,?,?,?)
+                    """, (
+                        naam,
+                        adviseur,
+                        prioriteit,
+                        status,
+                        start.isoformat(),
+                        einde.isoformat(),
+                        toelichting
+                    ))
+                    c.commit()
+                    upload_db()
+                    st.success("✅ Project toegevoegd")
+                    st.rerun()
+    else:
+        st.info("👀 Alleen bekijken (geen rechten om te wijzigen).")
+
+    c.close()
+    
 # ================= KAARTFOUTEN =================
 with tabs[3]:
     st.header("🗺️ Kaartfouten – parkeervakken")
