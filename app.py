@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS kaartfouten (
 """)
 
     # STANDAARD ADMIN
+
     cur.execute("""
     INSERT OR IGNORE INTO users (username, password, role, active)
     VALUES (?,?,?,?)
