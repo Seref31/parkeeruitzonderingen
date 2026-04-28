@@ -439,9 +439,9 @@ with st.form("project_edit_form"):
         upload_db()
         st.success("✅ Project aangepast")
         st.rerun()
-
-else:
-    st.info("👀 Geen projecten of onvoldoende rechten.")
+        
+        else:
+        st.info("👀 Geen projecten of onvoldoende rechten.")
     
     # ================= EXCEL IMPORT =================
     st.subheader("📥 Projecten importeren vanuit Excel")
