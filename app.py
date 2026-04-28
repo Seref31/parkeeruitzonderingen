@@ -395,7 +395,7 @@ with tabs[3]:
             )
             start = st.date_input(
                 "Startdatum",
-                date.fromisoformat(project["startdatum"]) if project["startdatum"] else date.today()
+                safe_date(project["startdatum"]) `` if project["startdatum"] else date.today()
             )
             einde = st.date_input(
                 "Einddatum",
