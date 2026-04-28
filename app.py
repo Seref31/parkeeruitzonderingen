@@ -394,12 +394,14 @@ with tabs[3]:
                 index=statussen.index(huidige_status)
             )
             start = st.date_input(
-                "Startdatum",
-                safe_date(project["startdatum"]) `` if project["startdatum"] else date.today()
+    "Startdatum",
+    safe_date(project["startdatum"])
+)
             )
             einde = st.date_input(
-                "Einddatum",
-                date.fromisoformat(project["einddatum"]) if project["einddatum"] else date.today()
+    "Einddatum",
+    safe_date(project["einddatum"])
+)
             )
             toelichting = st.text_area("Toelichting", project["toelichting"])
 
