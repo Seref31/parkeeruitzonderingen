@@ -401,49 +401,44 @@ if not df.empty and st.session_state.role in ["admin", "editor"]:
     huidige_prio = project["prioriteit"] if project["prioriteit"] in prioriteiten else "Gemiddeld"
     huidige_status = project["status"] if project["status"] in statussen else "Niet gestart"
 
-    with st.form("project_edit_form"):
-        naam = st.text_input("Projectnaam", project["naam"])
-        adviseur = st.text_input("Adviseur", project["adviseur"])
-        prioriteit = st.selectbox(
-            "Prioriteit",
-            prioriteiten,
-            index=prioriteiten.index(huidige_prio)
-        )
-        status = st.selectbox(
-            "Status",
-            statussen,
-            index=statussen.index(huidige_status)
-        )
-        start = st.date_input(
-            "Startdatum",
-            date.fromisoformat(project["startdatum"]) if project["startdatum"] else date.today()
-        )
-        einde = st.date_input(
-            "Einddatum",
-            date.fromisoformat(project["einddatum"]) if project["einddatum"] else date.today()
-        )
-        toelichting = st.text_area("Toelichting", project["toelichting"])
+with st.form("project_edit_form"):
+    naam = st.text_input("Projectnaam", project["naam"])
+    adviseur = st.text_input("Adviseur", project["adviseur"])
+    prioriteit = st.selectbox(
+        "Prioriteit",
+        ["Hoog", "Gemiddeld", "Laag"],
+        index=prioriteiten.index(huidige_prio)
+    )
+    status = st.selectbox(
+        "Status",
+        ["Niet gestart", "Actief", "Afgerond"],
+        index=statussen.index(huidige_status)
+    )
+    start = st.date_input("Startdatum", startdatum)
+    einde = st.date_input("Einddatum", einddatum)
+    toelichting = st.text_area("Toelichting", project["toelichting"])
 
-        if st.form_submit_button("💾 Wijzigingen opslaan"):
-            c.execute("""
-                UPDATE projecten_overzicht
-                SET naam=?, adviseur=?, prioriteit=?, status=?,
-                    startdatum=?, einddatum=?, toelichting=?
-                WHERE id=?
-            """, (
-                naam,
-                adviseur,
-                prioriteit,
-                status,
-                start.isoformat(),
-                einde.isoformat(),
-                toelichting,
-                project_id
-            ))
-            c.commit()
-            upload_db()
-            st.success("✅ Project aangepast")
-            st.rerun()
+    # ✅ SUBMIT BUTTON MOET HIER STAAN
+    if st.form_submit_button("💾 Wijzigingen opslaan"):
+        c.execute("""
+            UPDATE projecten_overzicht
+            SET naam=?, adviseur=?, prioriteit=?, status=?,
+                startdatum=?, einddatum=?, toelichting=?
+            WHERE id=?
+        """, (
+            naam,
+            adviseur,
+            prioriteit,
+            status,
+            start.isoformat(),
+            einde.isoformat(),
+            toelichting,
+            project_id
+        ))
+        c.commit()
+        upload_db()
+        st.success("✅ Project aangepast")
+        st.rerun()
 
 else:
     st.info("👀 Geen projecten of onvoldoende rechten.")
