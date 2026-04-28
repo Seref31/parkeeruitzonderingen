@@ -55,20 +55,6 @@ def download_db():
 def upload_db():
     upload_file_to_github(DB_FILE, DB_FILE)
 
-       def safe_date(value):
-    """
-    Zet een database- of Excelwaarde veilig om naar date.
-    Geeft vandaag terug als de waarde ongeldig is.
-    """
-    try:
-        if not value:
-            return date.today()
-
-        # alleen datumdeel pakken
-        return datetime.fromisoformat(str(value)).date()
-    except Exception:
-        return date.today()
-
 # ================= DATABASE =================
 def conn():
     return sqlite3.connect(DB_FILE, check_same_thread=False)
@@ -174,6 +160,19 @@ def geocode_postcode_huisnummer(postcode, huisnummer):
         return float(lat), float(lon)
     except Exception:
         return None, None
+
+# ================= DATE HELPER =================
+def safe_date(value):
+    """
+    Zet een database- of Excelwaarde veilig om naar date.
+    Geeft vandaag terug als de waarde ongeldig is.
+    """
+    try:
+        if not value:
+            return date.today()
+        return datetime.fromisoformat(str(value)).date()
+    except Exception:
+        return date.today()
 
 # ================= START =================
 download_db()
