@@ -393,16 +393,20 @@ with tabs[3]:
                 statussen,
                 index=statussen.index(huidige_status)
             )
-            start = st.date_input(
+start = st.date_input(
     "Startdatum",
     safe_date(project["startdatum"])
-            )
-            einde = st.date_input(
+)
+
+einde = st.date_input(
     "Einddatum",
     safe_date(project["einddatum"])
 )
-            )
-            toelichting = st.text_area("Toelichting", project["toelichting"])
+
+toelichting = st.text_area(
+    "Toelichting",
+    project["toelichting"]
+)
 
             if st.form_submit_button("💾 Wijzigingen opslaan"):
                 c.execute("""
