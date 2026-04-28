@@ -303,8 +303,6 @@ with tabs[3]:
 
     st.dataframe(df, use_container_width=True)
     st.divider()
-
-    st.divider()
 st.subheader("📥 Projecten importeren vanuit Excel")
 
 excel_file = st.file_uploader(
@@ -342,7 +340,7 @@ if excel_file:
 
         st.success(f"✅ {toegevoegd} projecten geïmporteerd")
         st.rerun()
-        
+
     # ➕ Project toevoegen (admin/editor)
     if st.session_state.role in ["admin", "editor"]:
         st.subheader("➕ Nieuw project")
