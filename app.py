@@ -486,6 +486,24 @@ with tabs[4]:
 
     c = conn()
 
+    # ===== DATABASE MIGRATIE =====
+cols = [r[1] for r in c.execute(
+    "PRAGMA table_info(werkzaamheden)"
+).fetchall()]
+
+if "startdatum" not in cols:
+    c.execute("ALTER TABLE werkzaamheden ADD COLUMN startdatum TEXT")
+
+if "einddatum" not in cols:
+    c.execute("ALTER TABLE werkzaamheden ADD COLUMN einddatum TEXT")
+
+if "latitude" not in cols:
+    c.execute("ALTER TABLE werkzaamheden ADD COLUMN latitude REAL")
+
+if "longitude" not in cols:
+    c.execute("ALTER TABLE werkzaamheden ADD COLUMN longitude REAL")
+
+c.commit()
     try:
         c.execute("""
         CREATE TABLE IF NOT EXISTS werkzaamheden (
