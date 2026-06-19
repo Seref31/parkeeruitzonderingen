@@ -189,7 +189,15 @@ def safe_date(value):
 
 # ================= START =================
 download_db()
+
+# Oude tabel verwijderen zodat de juiste structuur opnieuw wordt aangemaakt
+c = conn()
+c.execute("DROP TABLE IF EXISTS werkzaamheden")
+c.commit()
+c.close()
+
 init_db()
+upload_db()
 
 # === TEMP: maak seref@dordrecht.nl admin (1x uitvoeren) ===
 c = conn()
@@ -486,28 +494,12 @@ with tabs[4]:
 
     c = conn()
 
-    # tabel opnieuw opbouwen indien nodig
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS werkzaamheden (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        titel TEXT,
-        omschrijving TEXT,
-        locatie TEXT,
-        startdatum TEXT,
-        einddatum TEXT,
-        latitude REAL,
-        longitude REAL
-    )
-    """)
-    c.commit()
-
     try:
         df_werk = pd.read_sql(
             "SELECT * FROM werkzaamheden ORDER BY startdatum DESC",
             c
         )
-    except Exception as e:
-        st.error(f"Databasefout: {e}")
+    except Exception:
         df_werk = pd.DataFrame(
             columns=[
                 "id",
@@ -573,7 +565,6 @@ with tabs[4]:
             except Exception as e:
                 st.error(f"Opslaan mislukt: {e}")
 
-    # kaart
     st.subheader("🗺️ Kaart werkzaamheden")
 
     if not df_werk.empty:
