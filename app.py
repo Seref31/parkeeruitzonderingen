@@ -486,25 +486,35 @@ with tabs[4]:
 
     c = conn()
 
-    # ✅ zorg dat tabel altijd bestaat (fix voor GitHub DB)
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS werkzaamheden (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        titel TEXT,
-        omschrijving TEXT,
-        locatie TEXT,
-        startdatum DATE,
-        einddatum DATE,
-        latitude REAL,
-        longitude REAL
-    )
-    """)
-    c.commit()
+    # ✅ HARD CHECK – bestaat tabel echt?
+    tables = c.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='werkzaamheden'
+    """).fetchall()
 
+    if not tables:
+        # 🔥 tabel bestond NIET → nu maken + meteen uploaden
+        c.execute("""
+        CREATE TABLE werkzaamheden (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            titel TEXT,
+            omschrijving TEXT,
+            locatie TEXT,
+            startdatum DATE,
+            einddatum DATE,
+            latitude REAL,
+            longitude REAL
+        )
+        """)
+        c.commit()
+        upload_db()   # 🔥 super belangrijk
+
+    # ✅ nu pas lezen
     df_werk = pd.read_sql(
         "SELECT * FROM werkzaamheden ORDER BY startdatum DESC",
         c
     )
+
 
     st.dataframe(df_werk, use_container_width=True)
 
