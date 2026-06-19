@@ -486,14 +486,13 @@ with tabs[4]:
 
     c = conn()
 
-    # ✅ HARD CHECK – bestaat tabel echt?
+    # ✅ check tabel
     tables = c.execute("""
         SELECT name FROM sqlite_master 
         WHERE type='table' AND name='werkzaamheden'
     """).fetchall()
 
     if not tables:
-        # 🔥 tabel bestond NIET → nu maken + meteen uploaden
         c.execute("""
         CREATE TABLE werkzaamheden (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -507,14 +506,12 @@ with tabs[4]:
         )
         """)
         c.commit()
-        upload_db()   # 🔥 super belangrijk
+        upload_db()
 
-    # ✅ nu pas lezen
     df_werk = pd.read_sql(
         "SELECT * FROM werkzaamheden ORDER BY startdatum DESC",
         c
     )
-
 
     st.dataframe(df_werk, use_container_width=True)
 
@@ -552,35 +549,37 @@ with tabs[4]:
             st.success("✅ Werkzaamheden toegevoegd")
             st.rerun()
 
-   # ================= KAART =================
-st.subheader("🗺️ Kaart werkzaamheden")
+    # ================= KAART =================
+    st.subheader("🗺️ Kaart werkzaamheden")
 
-df_map = df_werk[
-    df_werk["latitude"].notna() & df_werk["longitude"].notna()
-]
+    df_map = df_werk[
+        df_werk["latitude"].notna() & df_werk["longitude"].notna()
+    ]
 
-if not df_map.empty:
-    m = folium.Map(
-        location=[df_map.latitude.mean(), df_map.longitude.mean()],
-        zoom_start=13
-    )
+    if not df_map.empty:
+        m = folium.Map(
+            location=[df_map.latitude.mean(), df_map.longitude.mean()],
+            zoom_start=13
+        )
 
-    for _, r in df_map.iterrows():
-        folium.Marker(
-            [r.latitude, r.longitude],
-            popup=f"""
-            <b>{r.titel}</b><br>
-            {r.omschrijving}<br>
-            Start: {r.startdatum}<br>
-            Eind: {r.einddatum}
-            """,
-            icon=folium.Icon(color="orange", icon="wrench", prefix="fa")
-        ).add_to(m)
+        for _, r in df_map.iterrows():
+            folium.Marker(
+                [r.latitude, r.longitude],
+                popup=f"""
+                <b>{r.titel}</b><br>
+                {r.omschrijving}<br>
+                Start: {r.startdatum}<br>
+                Eind: {r.einddatum}
+                """,
+                icon=folium.Icon(color="orange", icon="wrench", prefix="fa")
+            ).add_to(m)
 
-    components.html(m._repr_html_(), height=550)
+        components.html(m._repr_html_(), height=550)
 
-else:
-    st.info("Geen werkzaamheden met locatie beschikbaar.")
+    else:
+        st.info("Geen werkzaamheden met locatie beschikbaar.")
+
+    c.close()
     
 # ================= KAARTFOUTEN =================
 with tabs[5]:
