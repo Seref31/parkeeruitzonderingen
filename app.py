@@ -132,6 +132,19 @@ CREATE TABLE IF NOT EXISTS projecten_overzicht (
 )
 """)
 
+    cur.execute("""
+CREATE TABLE IF NOT EXISTS werkzaamheden (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    titel TEXT,
+    omschrijving TEXT,
+    locatie TEXT,
+    startdatum DATE,
+    einddatum DATE,
+    latitude REAL,
+    longitude REAL
+)
+""")
+
     # Admin user (kolommen expliciet!)
     cur.execute("""
     INSERT OR IGNORE INTO users (username, password, role, active)
@@ -469,60 +482,80 @@ with tabs[3]:
 
 # ================= WERKZAAMHEDEN =================
 with tabs[4]:
-    st.header("🔧 Werkzaamheden (projecten op kaart)")
+    st.header("🔧 Werkzaamheden")
 
     c = conn()
 
-    df_proj = pd.read_sql(
-        "SELECT * FROM projecten_overzicht",
+    df_werk = pd.read_sql(
+        "SELECT * FROM werkzaamheden ORDER BY startdatum DESC",
         c
     )
 
-    st.dataframe(df_proj, use_container_width=True)
+    st.dataframe(df_werk, use_container_width=True)
 
+    # ================= TOEVOEGEN =================
+    st.subheader("➕ Nieuwe werkzaamheden")
+
+    with st.form("werk_form"):
+        titel = st.text_input("Titel *")
+        omschrijving = st.text_area("Omschrijving")
+        postcode = st.text_input("Postcode *")
+        huisnummer = st.text_input("Huisnummer *")
+        locatie = st.text_input("Locatie (optioneel)")
+        start = st.date_input("Startdatum")
+        einde = st.date_input("Einddatum")
+
+        if st.form_submit_button("Opslaan"):
+            lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
+
+            c.execute("""
+                INSERT INTO werkzaamheden
+                (titel, omschrijving, locatie, startdatum, einddatum, latitude, longitude)
+                VALUES (?,?,?,?,?,?,?)
+            """, (
+                titel,
+                omschrijving,
+                locatie,
+                start.isoformat(),
+                einde.isoformat(),
+                lat,
+                lon
+            ))
+
+            c.commit()
+            upload_db()
+            st.success("✅ Werkzaamheden toegevoegd")
+            st.rerun()
+
+    # ================= KAART =================
     st.subheader("🗺️ Kaart werkzaamheden")
 
-    if not df_proj.empty:
+    df_map = df_werk[
+        df_werk["latitude"].notna() & df_werk["longitude"].notna()
+    ]
 
-        # fallback: NL midden
-        m = folium.Map(location=[52.1, 5.3], zoom_start=8)
+    if not df_map.empty:
+        m = folium.Map(
+            location=[df_map.latitude.mean(), df_map.longitude.mean()],
+            zoom_start=13
+        )
 
-        for _, p in df_proj.iterrows():
-            query = f"{p['naam']} Dordrecht"
-
-            try:
-                r = requests.get(
-                    "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free",
-                    params={"q": query, "rows": 1},
-                    timeout=5
-                )
-
-                docs = r.json()["response"]["docs"]
-
-                if docs:
-                    lon, lat = docs[0]["centroide_ll"].split("(")[1].replace(")", "").split()
-                    lat = float(lat)
-                    lon = float(lon)
-
-                    folium.Marker(
-                        [lat, lon],
-                        popup=f"""
-                        <b>{p['naam']}</b><br>
-                        Status: {p['status']}<br>
-                        Prioriteit: {p['prioriteit']}<br>
-                        Start: {p['startdatum']}<br>
-                        Eind: {p['einddatum']}
-                        """,
-                        icon=folium.Icon(color="orange", icon="wrench", prefix="fa")
-                    ).add_to(m)
-
-            except Exception:
-                pass
+        for _, r in df_map.iterrows():
+            folium.Marker(
+                [r.latitude, r.longitude],
+                popup=f"""
+                <b>{r.titel}</b><br>
+                {r.omschrijving}<br>
+                Start: {r.startdatum}<br>
+                Eind: {r.einddatum}
+                """,
+                icon=folium.Icon(color="orange", icon="wrench", prefix="fa")
+            ).add_to(m)
 
         components.html(m._repr_html_(), height=550)
 
     else:
-        st.info("Geen werkzaamheden beschikbaar.")
+        st.info("Geen werkzaamheden met locatie beschikbaar.")
 
     c.close()
     
