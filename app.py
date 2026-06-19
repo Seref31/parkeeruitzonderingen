@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 import folium
+from folium.plugins import Draw
 
 # ================= CONFIG =================
 DB_FILE = "parkeeruitzonderingen.db"
@@ -557,40 +558,53 @@ with tabs[4]:
             except Exception as e:
                 st.error(f"Opslaan mislukt: {e}")
 
-    st.subheader("🗺️ Kaart werkzaamheden")
+        st.subheader("🗺️ Werkgebied tekenen")
+
+    m = folium.Map(
+        location=[51.8133, 4.6901],
+        zoom_start=13
+    )
+
+    Draw(
+        export=True,
+        draw_options={
+            "polyline": True,
+            "polygon": True,
+            "rectangle": True,
+            "circle": False,
+            "circlemarker": False,
+            "marker": False
+        }
+    ).add_to(m)
 
     if not df_werk.empty:
 
-        df_map = df_werk[
-            df_werk["latitude"].notna() &
-            df_werk["longitude"].notna()
-        ]
+        for _, r in df_werk.iterrows():
 
-        if not df_map.empty:
+            if (
+                pd.notna(r["latitude"])
+                and pd.notna(r["longitude"])
+            ):
 
-            m = folium.Map(
-                location=[
-                    df_map["latitude"].mean(),
-                    df_map["longitude"].mean()
-                ],
-                zoom_start=12
-            )
-
-            for _, r in df_map.iterrows():
+                popup = f"""
+                <b>{r['titel']}</b><br>
+                {r['omschrijving']}<br>
+                {r['startdatum']} t/m {r['einddatum']}
+                """
 
                 folium.Marker(
                     [r["latitude"], r["longitude"]],
-                    popup=f"""
-                    <b>{r['titel']}</b><br>
-                    {r['omschrijving']}<br>
-                    {r['startdatum']} t/m {r['einddatum']}
-                    """
+                    popup=popup
                 ).add_to(m)
 
-            components.html(
-                m._repr_html_(),
-                height=500
-            )
+    components.html(
+        m._repr_html_(),
+        height=700
+    )
+
+    st.info(
+        "Gebruik de tekenknoppen linksboven op de kaart om een lijn, rechthoek of polygon te tekenen."
+    )
 
     c.close()
     
