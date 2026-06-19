@@ -5,3 +5,4 @@ folium>=0.15
 reportlab
 pdfplumber
 openpyxl
+streamlit-folium
