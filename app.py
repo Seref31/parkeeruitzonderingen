@@ -135,10 +135,6 @@ CREATE TABLE IF NOT EXISTS projecten_overzicht (
 )
 """)
 
-def init_db():
-    c = conn()
-    cur = c.cursor()
-
     cur.execute("""
     CREATE TABLE IF NOT EXISTS werkzaamheden (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,9 +155,6 @@ def init_db():
         )
     except:
         pass
-
-    c.commit()
-    c.close()
 
     # Admin user (kolommen expliciet!)
     cur.execute("""
