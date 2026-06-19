@@ -189,15 +189,7 @@ def safe_date(value):
 
 # ================= START =================
 download_db()
-
-# Oude tabel verwijderen zodat de juiste structuur opnieuw wordt aangemaakt
-c = conn()
-c.execute("DROP TABLE IF EXISTS werkzaamheden")
-c.commit()
-c.close()
-
 init_db()
-upload_db()
 
 # === TEMP: maak seref@dordrecht.nl admin (1x uitvoeren) ===
 c = conn()
