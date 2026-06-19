@@ -486,19 +486,20 @@ with tabs[4]:
 
     c = conn()
 
-c.execute("""
-CREATE TABLE IF NOT EXISTS werkzaamheden (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    titel TEXT,
-    omschrijving TEXT,
-    locatie TEXT,
-    startdatum DATE,
-    einddatum DATE,
-    latitude REAL,
-    longitude REAL
-)
-""")
-c.commit()
+    # ✅ zorg dat tabel altijd bestaat (fix voor GitHub DB)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS werkzaamheden (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titel TEXT,
+        omschrijving TEXT,
+        locatie TEXT,
+        startdatum DATE,
+        einddatum DATE,
+        latitude REAL,
+        longitude REAL
+    )
+    """)
+    c.commit()
 
     df_werk = pd.read_sql(
         "SELECT * FROM werkzaamheden ORDER BY startdatum DESC",
@@ -544,9 +545,9 @@ c.commit()
     # ================= KAART =================
     st.subheader("🗺️ Kaart werkzaamheden")
 
-   df_map = df_werk[
-    df_werk["latitude"].notna() & df_werk["longitude"].notna()
-]
+    df_map = df_werk[
+        df_werk["latitude"].notna() & df_werk["longitude"].notna()
+    ]
 
     if not df_map.empty:
         m = folium.Map(
