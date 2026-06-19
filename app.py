@@ -486,7 +486,21 @@ with tabs[4]:
 
     c = conn()
 
-    # ===== DATABASE MIGRATIE =====
+    # tabel aanmaken indien nodig
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS werkzaamheden (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titel TEXT,
+        omschrijving TEXT,
+        locatie TEXT,
+        startdatum TEXT,
+        einddatum TEXT,
+        latitude REAL,
+        longitude REAL
+    )
+    """)
+
+    # migratie oude database
     cols = [r[1] for r in c.execute(
         "PRAGMA table_info(werkzaamheden)"
     ).fetchall()]
@@ -506,32 +520,54 @@ with tabs[4]:
     c.commit()
 
     try:
-        df_werk = pd.read_sql_query("""
-            SELECT *
-            FROM werkzaamheden
-            ORDER BY startdatum DESC
-        """, c)
-
-        df_werk = pd.read_sql_query("""
-            SELECT *
-            FROM werkzaamheden
-            ORDER BY startdatum DESC
-        """, c)
-
-    except Exception as e:
-        st.error(f"Fout in tabel werkzaamheden: {e}")
-        df_werk = pd.DataFrame(
-            columns=[
-                "id",
-                "titel",
-                "omschrijving",
-                "locatie",
-                "startdatum",
-                "einddatum",
-                "latitude",
-                "longitude"
-            ]
+        df_werk = pd.read_sql_query(
+            "SELECT * FROM werkzaamheden ORDER BY startdatum DESC",
+            c
         )
+    except Exception:
+        df_werk = pd.DataFrame()
+
+    st.dataframe(df_werk, use_container_width=True)
+
+    st.subheader("➕ Nieuwe werkzaamheden")
+
+    with st.form("werk_form"):
+        titel = st.text_input("Titel")
+        omschrijving = st.text_area("Omschrijving")
+        postcode = st.text_input("Postcode")
+        huisnummer = st.text_input("Huisnummer")
+        locatie = st.text_input("Locatie")
+        start = st.date_input("Startdatum")
+        einde = st.date_input("Einddatum")
+
+        if st.form_submit_button("Opslaan"):
+            lat, lon = geocode_postcode_huisnummer(
+                postcode,
+                huisnummer
+            )
+
+            c.execute("""
+                INSERT INTO werkzaamheden
+                (titel, omschrijving, locatie,
+                 startdatum, einddatum,
+                 latitude, longitude)
+                VALUES (?,?,?,?,?,?,?)
+            """, (
+                titel,
+                omschrijving,
+                locatie,
+                start.isoformat(),
+                einde.isoformat(),
+                lat,
+                lon
+            ))
+
+            c.commit()
+            upload_db()
+            st.success("✅ Werkzaamheden opgeslagen")
+            st.rerun()
+
+    c.close()
     
 # ================= KAARTFOUTEN =================
 with tabs[5]:
