@@ -486,100 +486,41 @@ with tabs[4]:
 
     c = conn()
 
-    # ✅ check tabel
-    tables = c.execute("""
-        SELECT name FROM sqlite_master 
-        WHERE type='table' AND name='werkzaamheden'
-    """).fetchall()
-
-    if not tables:
+    try:
         c.execute("""
-        CREATE TABLE werkzaamheden (
+        CREATE TABLE IF NOT EXISTS werkzaamheden (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             titel TEXT,
             omschrijving TEXT,
             locatie TEXT,
-            startdatum DATE,
-            einddatum DATE,
+            startdatum TEXT,
+            einddatum TEXT,
             latitude REAL,
             longitude REAL
         )
         """)
         c.commit()
-        upload_db()
 
-    df_werk = pd.read_sql(
-        "SELECT * FROM werkzaamheden ORDER BY startdatum DESC",
-        c
-    )
+        df_werk = pd.read_sql_query("""
+            SELECT *
+            FROM werkzaamheden
+            ORDER BY startdatum DESC
+        """, c)
 
-    st.dataframe(df_werk, use_container_width=True)
-
-    # ================= TOEVOEGEN =================
-    st.subheader("➕ Nieuwe werkzaamheden")
-
-    with st.form("werk_form"):
-        titel = st.text_input("Titel *")
-        omschrijving = st.text_area("Omschrijving")
-        postcode = st.text_input("Postcode *")
-        huisnummer = st.text_input("Huisnummer *")
-        locatie = st.text_input("Locatie (optioneel)")
-        start = st.date_input("Startdatum")
-        einde = st.date_input("Einddatum")
-
-        if st.form_submit_button("Opslaan"):
-            lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
-
-            c.execute("""
-                INSERT INTO werkzaamheden
-                (titel, omschrijving, locatie, startdatum, einddatum, latitude, longitude)
-                VALUES (?,?,?,?,?,?,?)
-            """, (
-                titel,
-                omschrijving,
-                locatie,
-                start.isoformat(),
-                einde.isoformat(),
-                lat,
-                lon
-            ))
-
-            c.commit()
-            upload_db()
-            st.success("✅ Werkzaamheden toegevoegd")
-            st.rerun()
-
-    # ================= KAART =================
-    st.subheader("🗺️ Kaart werkzaamheden")
-
-    df_map = df_werk[
-        df_werk["latitude"].notna() & df_werk["longitude"].notna()
-    ]
-
-    if not df_map.empty:
-        m = folium.Map(
-            location=[df_map.latitude.mean(), df_map.longitude.mean()],
-            zoom_start=13
+    except Exception as e:
+        st.error(f"Fout in tabel werkzaamheden: {e}")
+        df_werk = pd.DataFrame(
+            columns=[
+                "id",
+                "titel",
+                "omschrijving",
+                "locatie",
+                "startdatum",
+                "einddatum",
+                "latitude",
+                "longitude"
+            ]
         )
-
-        for _, r in df_map.iterrows():
-            folium.Marker(
-                [r.latitude, r.longitude],
-                popup=f"""
-                <b>{r.titel}</b><br>
-                {r.omschrijving}<br>
-                Start: {r.startdatum}<br>
-                Eind: {r.einddatum}
-                """,
-                icon=folium.Icon(color="orange", icon="wrench", prefix="fa")
-            ).add_to(m)
-
-        components.html(m._repr_html_(), height=550)
-
-    else:
-        st.info("Geen werkzaamheden met locatie beschikbaar.")
-
-    c.close()
     
 # ================= KAARTFOUTEN =================
 with tabs[5]:
