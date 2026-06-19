@@ -135,26 +135,33 @@ CREATE TABLE IF NOT EXISTS projecten_overzicht (
 )
 """)
 
-cur.execute("""
-CREATE TABLE IF NOT EXISTS werkzaamheden (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    titel TEXT,
-    omschrijving TEXT,
-    locatie TEXT,
-    startdatum DATE,
-    einddatum DATE,
-    latitude REAL,
-    longitude REAL,
-    geometry TEXT
-)
-""")
+def init_db():
+    c = conn()
+    cur = c.cursor()
 
-try:
-    cur.execute(
-        "ALTER TABLE werkzaamheden ADD COLUMN geometry TEXT"
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS werkzaamheden (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titel TEXT,
+        omschrijving TEXT,
+        locatie TEXT,
+        startdatum DATE,
+        einddatum DATE,
+        latitude REAL,
+        longitude REAL,
+        geometry TEXT
     )
-except:
-    pass
+    """)
+
+    try:
+        cur.execute(
+            "ALTER TABLE werkzaamheden ADD COLUMN geometry TEXT"
+        )
+    except:
+        pass
+
+    c.commit()
+    c.close()
 
     # Admin user (kolommen expliciet!)
     cur.execute("""
