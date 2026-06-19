@@ -225,6 +225,7 @@ tabs = st.tabs([
     "🅿️ Uitzonderingen",
     "📅 Agenda",
     "🧩 Projectenoverzicht",
+    "🔧 Werkzaamheden",
     "🗺️ Kaartfouten",
     "👥 Gebruikers"
 ])
@@ -465,9 +466,68 @@ with tabs[3]:
             st.rerun()
 
     c.close()
+
+# ================= WERKZAAMHEDEN =================
+with tabs[4]:
+    st.header("🔧 Werkzaamheden (projecten op kaart)")
+
+    c = conn()
+
+    df_proj = pd.read_sql(
+        "SELECT * FROM projecten_overzicht",
+        c
+    )
+
+    st.dataframe(df_proj, use_container_width=True)
+
+    st.subheader("🗺️ Kaart werkzaamheden")
+
+    if not df_proj.empty:
+
+        # fallback: NL midden
+        m = folium.Map(location=[52.1, 5.3], zoom_start=8)
+
+        for _, p in df_proj.iterrows():
+            query = f"{p['naam']} Dordrecht"
+
+            try:
+                r = requests.get(
+                    "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free",
+                    params={"q": query, "rows": 1},
+                    timeout=5
+                )
+
+                docs = r.json()["response"]["docs"]
+
+                if docs:
+                    lon, lat = docs[0]["centroide_ll"].split("(")[1].replace(")", "").split()
+                    lat = float(lat)
+                    lon = float(lon)
+
+                    folium.Marker(
+                        [lat, lon],
+                        popup=f"""
+                        <b>{p['naam']}</b><br>
+                        Status: {p['status']}<br>
+                        Prioriteit: {p['prioriteit']}<br>
+                        Start: {p['startdatum']}<br>
+                        Eind: {p['einddatum']}
+                        """,
+                        icon=folium.Icon(color="orange", icon="wrench", prefix="fa")
+                    ).add_to(m)
+
+            except Exception:
+                pass
+
+        components.html(m._repr_html_(), height=550)
+
+    else:
+        st.info("Geen werkzaamheden beschikbaar.")
+
+    c.close()
     
 # ================= KAARTFOUTEN =================
-with tabs[4]:
+with tabs[5]:
     st.header("🗺️ Kaartfouten – parkeervakken")
 
     c = conn()
@@ -617,7 +677,7 @@ with tabs[4]:
     c.close()
 
 # ================= GEBRUIKERSBEHEER =================
-with tabs[5]:
+with tabs[6]:
     st.header("👥 Gebruikersbeheer")
 
     # Alleen admin
