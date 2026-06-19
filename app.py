@@ -486,7 +486,7 @@ with tabs[4]:
 
     c = conn()
 
-    # tabel aanmaken indien nodig
+    # tabel opnieuw opbouwen indien nodig
     c.execute("""
     CREATE TABLE IF NOT EXISTS werkzaamheden (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -499,33 +499,27 @@ with tabs[4]:
         longitude REAL
     )
     """)
-
-    # migratie oude database
-    cols = [r[1] for r in c.execute(
-        "PRAGMA table_info(werkzaamheden)"
-    ).fetchall()]
-
-    if "startdatum" not in cols:
-        c.execute("ALTER TABLE werkzaamheden ADD COLUMN startdatum TEXT")
-
-    if "einddatum" not in cols:
-        c.execute("ALTER TABLE werkzaamheden ADD COLUMN einddatum TEXT")
-
-    if "latitude" not in cols:
-        c.execute("ALTER TABLE werkzaamheden ADD COLUMN latitude REAL")
-
-    if "longitude" not in cols:
-        c.execute("ALTER TABLE werkzaamheden ADD COLUMN longitude REAL")
-
     c.commit()
 
     try:
-        df_werk = pd.read_sql_query(
+        df_werk = pd.read_sql(
             "SELECT * FROM werkzaamheden ORDER BY startdatum DESC",
             c
         )
-    except Exception:
-        df_werk = pd.DataFrame()
+    except Exception as e:
+        st.error(f"Databasefout: {e}")
+        df_werk = pd.DataFrame(
+            columns=[
+                "id",
+                "titel",
+                "omschrijving",
+                "locatie",
+                "startdatum",
+                "einddatum",
+                "latitude",
+                "longitude"
+            ]
+        )
 
     st.dataframe(df_werk, use_container_width=True)
 
@@ -541,31 +535,79 @@ with tabs[4]:
         einde = st.date_input("Einddatum")
 
         if st.form_submit_button("Opslaan"):
-            lat, lon = geocode_postcode_huisnummer(
-                postcode,
-                huisnummer
+
+            try:
+                lat, lon = geocode_postcode_huisnummer(
+                    postcode,
+                    huisnummer
+                )
+
+                c.execute("""
+                    INSERT INTO werkzaamheden
+                    (
+                        titel,
+                        omschrijving,
+                        locatie,
+                        startdatum,
+                        einddatum,
+                        latitude,
+                        longitude
+                    )
+                    VALUES (?,?,?,?,?,?,?)
+                """, (
+                    titel,
+                    omschrijving,
+                    locatie,
+                    start.isoformat(),
+                    einde.isoformat(),
+                    lat,
+                    lon
+                ))
+
+                c.commit()
+                upload_db()
+
+                st.success("✅ Werkzaamheden opgeslagen")
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Opslaan mislukt: {e}")
+
+    # kaart
+    st.subheader("🗺️ Kaart werkzaamheden")
+
+    if not df_werk.empty:
+
+        df_map = df_werk[
+            df_werk["latitude"].notna() &
+            df_werk["longitude"].notna()
+        ]
+
+        if not df_map.empty:
+
+            m = folium.Map(
+                location=[
+                    df_map["latitude"].mean(),
+                    df_map["longitude"].mean()
+                ],
+                zoom_start=12
             )
 
-            c.execute("""
-                INSERT INTO werkzaamheden
-                (titel, omschrijving, locatie,
-                 startdatum, einddatum,
-                 latitude, longitude)
-                VALUES (?,?,?,?,?,?,?)
-            """, (
-                titel,
-                omschrijving,
-                locatie,
-                start.isoformat(),
-                einde.isoformat(),
-                lat,
-                lon
-            ))
+            for _, r in df_map.iterrows():
 
-            c.commit()
-            upload_db()
-            st.success("✅ Werkzaamheden opgeslagen")
-            st.rerun()
+                folium.Marker(
+                    [r["latitude"], r["longitude"]],
+                    popup=f"""
+                    <b>{r['titel']}</b><br>
+                    {r['omschrijving']}<br>
+                    {r['startdatum']} t/m {r['einddatum']}
+                    """
+                ).add_to(m)
+
+            components.html(
+                m._repr_html_(),
+                height=500
+            )
 
     c.close()
     
