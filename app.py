@@ -487,37 +487,30 @@ with tabs[4]:
     c = conn()
 
     # ===== DATABASE MIGRATIE =====
-cols = [r[1] for r in c.execute(
-    "PRAGMA table_info(werkzaamheden)"
-).fetchall()]
+    cols = [r[1] for r in c.execute(
+        "PRAGMA table_info(werkzaamheden)"
+    ).fetchall()]
 
-if "startdatum" not in cols:
-    c.execute("ALTER TABLE werkzaamheden ADD COLUMN startdatum TEXT")
+    if "startdatum" not in cols:
+        c.execute("ALTER TABLE werkzaamheden ADD COLUMN startdatum TEXT")
 
-if "einddatum" not in cols:
-    c.execute("ALTER TABLE werkzaamheden ADD COLUMN einddatum TEXT")
+    if "einddatum" not in cols:
+        c.execute("ALTER TABLE werkzaamheden ADD COLUMN einddatum TEXT")
 
-if "latitude" not in cols:
-    c.execute("ALTER TABLE werkzaamheden ADD COLUMN latitude REAL")
+    if "latitude" not in cols:
+        c.execute("ALTER TABLE werkzaamheden ADD COLUMN latitude REAL")
 
-if "longitude" not in cols:
-    c.execute("ALTER TABLE werkzaamheden ADD COLUMN longitude REAL")
+    if "longitude" not in cols:
+        c.execute("ALTER TABLE werkzaamheden ADD COLUMN longitude REAL")
 
-c.commit()
+    c.commit()
+
     try:
-        c.execute("""
-        CREATE TABLE IF NOT EXISTS werkzaamheden (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            titel TEXT,
-            omschrijving TEXT,
-            locatie TEXT,
-            startdatum TEXT,
-            einddatum TEXT,
-            latitude REAL,
-            longitude REAL
-        )
-        """)
-        c.commit()
+        df_werk = pd.read_sql_query("""
+            SELECT *
+            FROM werkzaamheden
+            ORDER BY startdatum DESC
+        """, c)
 
         df_werk = pd.read_sql_query("""
             SELECT *
