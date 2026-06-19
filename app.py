@@ -11,6 +11,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 import folium
 from folium.plugins import Draw
+from streamlit_folium import st_folium
+import json
 
 # ================= CONFIG =================
 DB_FILE = "parkeeruitzonderingen.db"
@@ -133,7 +135,7 @@ CREATE TABLE IF NOT EXISTS projecten_overzicht (
 )
 """)
 
-    cur.execute("""
+cur.execute("""
 CREATE TABLE IF NOT EXISTS werkzaamheden (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     titel TEXT,
@@ -142,9 +144,17 @@ CREATE TABLE IF NOT EXISTS werkzaamheden (
     startdatum DATE,
     einddatum DATE,
     latitude REAL,
-    longitude REAL
+    longitude REAL,
+    geometry TEXT
 )
 """)
+
+try:
+    cur.execute(
+        "ALTER TABLE werkzaamheden ADD COLUMN geometry TEXT"
+    )
+except:
+    pass
 
     # Admin user (kolommen expliciet!)
     cur.execute("""
@@ -560,53 +570,53 @@ with tabs[4]:
 
         st.subheader("🗺️ Werkgebied tekenen")
 
-    m = folium.Map(
-        location=[51.8133, 4.6901],
-        zoom_start=13
-    )
+werk_opties = {
+    f"{row['titel']} ({row['locatie']})": row['id']
+    for _, row in df_werk.iterrows()
+}
 
-    Draw(
-        export=True,
-        draw_options={
-            "polyline": True,
-            "polygon": True,
-            "rectangle": True,
-            "circle": False,
-            "circlemarker": False,
-            "marker": False
-        }
-    ).add_to(m)
+werk_label = st.selectbox(
+    "Kies werkzaamheid",
+    list(werk_opties.keys())
+)
 
-    if not df_werk.empty:
+werk_id = werk_opties[werk_label]
 
-        for _, r in df_werk.iterrows():
+map_data = st_folium(
+    m,
+    width=1200,
+    height=700,
+    returned_objects=["last_active_drawing"]
+)
 
-            if (
-                pd.notna(r["latitude"])
-                and pd.notna(r["longitude"])
-            ):
+if st.button("💾 Werkgebied opslaan"):
 
-                popup = f"""
-                <b>{r['titel']}</b><br>
-                {r['omschrijving']}<br>
-                {r['startdatum']} t/m {r['einddatum']}
-                """
+    if map_data and map_data.get("last_active_drawing"):
 
-                folium.Marker(
-                    [r["latitude"], r["longitude"]],
-                    popup=popup
-                ).add_to(m)
+        geometry = json.dumps(
+            map_data["last_active_drawing"]
+        )
 
-    components.html(
-        m._repr_html_(),
-        height=700
-    )
+        c.execute("""
+            UPDATE werkzaamheden
+            SET geometry = ?
+            WHERE id = ?
+        """, (
+            geometry,
+            werk_id
+        ))
 
-    st.info(
-        "Gebruik de tekenknoppen linksboven op de kaart om een lijn, rechthoek of polygon te tekenen."
-    )
+        c.commit()
+        upload_db()
 
-    c.close()
+        st.success(
+            f"✅ Werkgebied gekoppeld aan: {werk_label}"
+        )
+
+    else:
+        st.warning(
+            "Teken eerst een lijn, rechthoek of polygon op de kaart."
+        )
     
 # ================= KAARTFOUTEN =================
 with tabs[5]:
