@@ -1169,44 +1169,25 @@ with tabs[6]:
     sel_info = df_users[df_users.username == sel_user].iloc[0]
 
     with st.form("user_edit"):
+        rollen = [
+    "admin",
+    "editor",
+    "viewer",
+    "viewer_ipm"
+]
 
-    rollen = [
-        "admin",
-        "editor",
-        "viewer",
-        "viewer_ipm"
-    ]
+role = st.selectbox(
+    "Rol",
+    rollen,
+    index=rollen.index(sel_info.role)
+)
+        active = st.checkbox("Actief", bool(sel_info.active))
+        reset_pw = st.checkbox("Wachtwoord resetten?")
+        new_pw = st.text_input("Nieuw wachtwoord", type="password", disabled=not reset_pw)
 
-    role = st.selectbox(
-        "Rol",
-        rollen,
-        index=rollen.index(sel_info.role)
-    )
-
-    active = st.checkbox(
-        "Actief",
-        bool(sel_info.active)
-    )
-
-    reset_pw = st.checkbox(
-        "Wachtwoord resetten?"
-    )
-
-    new_pw = st.text_input(
-        "Nieuw wachtwoord",
-        type="password",
-        disabled=not reset_pw
-    )
-
-    col1, col2 = st.columns(2)
-
-    save = col1.form_submit_button(
-        "💾 Opslaan"
-    )
-
-    delete = col2.form_submit_button(
-        "🗑️ Verwijderen"
-    )
+        col1, col2 = st.columns(2)
+        save = col1.form_submit_button("💾 Opslaan")
+        delete = col2.form_submit_button("🗑️ Verwijderen")
 
         if save:
             if reset_pw and not new_pw:
