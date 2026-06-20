@@ -512,6 +512,43 @@ with tabs[4]:
 
     st.dataframe(df_werk, use_container_width=True)
 
+    st.subheader("🗑️ Werkzaamheid verwijderen")
+
+if not df_werk.empty:
+
+    verwijder_opties = {
+        f"{row['titel']} ({row['locatie']})": row["id"]
+        for _, row in df_werk.iterrows()
+    }
+
+    verwijder_label = st.selectbox(
+        "Selecteer werkzaamheid",
+        list(verwijder_opties.keys()),
+        key="werk_verwijderen"
+    )
+
+    verwijder_id = verwijder_opties[verwijder_label]
+
+    st.warning(
+        "⚠️ Deze actie verwijdert ook het gekoppelde werkgebied."
+    )
+
+    if st.button("❌ Werkzaamheid verwijderen"):
+
+        c.execute(
+            "DELETE FROM werkzaamheden WHERE id = ?",
+            (verwijder_id,)
+        )
+
+        c.commit()
+        upload_db()
+
+        st.success(
+            f"✅ Werkzaamheid verwijderd: {verwijder_label}"
+        )
+
+        st.rerun()
+
     st.subheader("➕ Nieuwe werkzaamheden")
 
     with st.form("werk_form"):
