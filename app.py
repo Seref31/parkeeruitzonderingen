@@ -526,7 +526,7 @@ with tabs[4]:
 
         opslaan = st.form_submit_button("Opslaan")
 
-        if opslaan:
+               if opslaan:
 
             try:
 
@@ -566,7 +566,7 @@ with tabs[4]:
             except Exception as e:
                 st.error(f"Opslaan mislukt: {e}")
 
-           st.subheader("🗺️ Werkgebied tekenen")
+    st.subheader("🗺️ Werkgebied tekenen")
 
     werk_opties = {
         f"{row['titel']} ({row['locatie']})": row['id']
