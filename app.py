@@ -570,8 +570,8 @@ with tabs[4]:
                 st.success("✅ Werkzaamheden opgeslagen")
                 st.rerun()
 
-            except Exception as e:
-    st.error(f"Opslaan mislukt: {e}")
+                        except Exception as e:
+                st.error(f"Opslaan mislukt: {e}")
 
     st.subheader("🗺️ Werkgebied tekenen")
 
@@ -607,12 +607,7 @@ with tabs[4]:
         ).add_to(m)
 
         for _, r in df_werk.iterrows():
-
-            if (
-                pd.notna(r["latitude"])
-                and pd.notna(r["longitude"])
-            ):
-
+            if pd.notna(r["latitude"]) and pd.notna(r["longitude"]):
                 folium.Marker(
                     [r["latitude"], r["longitude"]],
                     popup=f"{r['titel']} - {r['locatie']}"
