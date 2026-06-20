@@ -587,6 +587,40 @@ with tabs[4]:
             zoom_start=13
         )
 
+        # bestaand werkgebied tonen
+selected_row = df_werk[df_werk["id"] == werk_id]
+
+if (
+    not selected_row.empty
+    and pd.notna(selected_row.iloc[0]["geometry"])
+    and selected_row.iloc[0]["geometry"] != "None"
+):
+
+    try:
+
+        geojson = json.loads(
+            selected_row.iloc[0]["geometry"]
+        )
+
+        folium.GeoJson(
+            geojson,
+            style_function=lambda x: {
+                "color": "red",
+                "weight": 5,
+                "fillColor": "red",
+                "fillOpacity": 0.3
+            },
+            tooltip=f"""
+            {selected_row.iloc[0]['titel']}
+            ({selected_row.iloc[0]['locatie']})
+            """
+        ).add_to(m)
+
+    except Exception as e:
+        st.warning(
+            f"Kan werkgebied niet laden: {e}"
+        )
+
         Draw(
             export=True,
             draw_options={
@@ -603,10 +637,15 @@ with tabs[4]:
 
             if pd.notna(r["latitude"]) and pd.notna(r["longitude"]):
 
-                folium.Marker(
-                    [r["latitude"], r["longitude"]],
-                    popup=f"{r['titel']} - {r['locatie']}"
-                ).add_to(m)
+                ffolium.CircleMarker(
+    [r["latitude"], r["longitude"]],
+    radius=8,
+    popup=f"""
+    <b>{r['titel']}</b><br>
+    {r['locatie']}<br>
+    {r['startdatum']} t/m {r['einddatum']}
+    """
+).add_to(m)
 
         map_data = st_folium(
             m,
