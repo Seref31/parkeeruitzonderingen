@@ -1158,17 +1158,19 @@ with tabs[6]:
 
     st.divider()
 
-    # ---- GEBRUIKER BEWERKEN / VERWIJDEREN ----
-    st.subheader("✏️ Gebruiker aanpassen of verwijderen")
+# ---- GEBRUIKER BEWERKEN / VERWIJDEREN ----
+st.subheader("✏️ Gebruiker aanpassen of verwijderen")
 
-    sel_user = st.selectbox(
-        "Selecteer gebruiker",
-        df_users["username"].tolist()
-    )
+sel_user = st.selectbox(
+    "Selecteer gebruiker",
+    df_users["username"].tolist()
+)
 
-    sel_info = df_users[df_users.username == sel_user].iloc[0]
+sel_info = df_users[
+    df_users.username == sel_user
+].iloc[0]
 
-    with st.form("user_edit"):
+with st.form("user_edit"):
 
     rollen = [
         "admin",
@@ -1181,6 +1183,8 @@ with tabs[6]:
         "Rol",
         rollen,
         index=rollen.index(sel_info.role)
+        if sel_info.role in rollen
+        else 0
     )
 
     active = st.checkbox(
@@ -1208,33 +1212,78 @@ with tabs[6]:
         "🗑️ Verwijderen"
     )
 
-        if save:
-            if reset_pw and not new_pw:
-                st.error("Nieuw wachtwoord ontbreekt.")
-            else:
-                if reset_pw:
-                    c.execute(
-                        """
-                        UPDATE users
-                        SET role=?, active=?, password=?
-                        WHERE username=?
-                        """,
-                        (role, int(active), hash_pw(new_pw), sel_user)
-                    )
-                else:
-                    c.execute(
-                        """
-                        UPDATE users
-                        SET role=?, active=?
-                        WHERE username=?
-                        """,
-                        (role, int(active), sel_user)
-                    )
+if save:
 
-                c.commit()
-                upload_db()
-                st.success("✅ Gebruiker bijgewerkt")
-                st.rerun()
+    if reset_pw and not new_pw:
+        st.error("Nieuw wachtwoord ontbreekt.")
+
+    else:
+
+        if reset_pw:
+
+            c.execute(
+                """
+                UPDATE users
+                SET role=?, active=?, password=?
+                WHERE username=?
+                """,
+                (
+                    role,
+                    int(active),
+                    hash_pw(new_pw),
+                    sel_user
+                )
+            )
+
+        else:
+
+            c.execute(
+                """
+                UPDATE users
+                SET role=?, active=?
+                WHERE username=?
+                """,
+                (
+                    role,
+                    int(active),
+                    sel_user
+                )
+            )
+
+        c.commit()
+
+        try:
+            upload_db()
+        except:
+            pass
+
+        st.success("✅ Gebruiker bijgewerkt")
+        st.rerun()
+
+if delete:
+
+    if sel_user == st.session_state.user:
+
+        st.error(
+            "❌ Je kunt jezelf niet verwijderen."
+        )
+
+    else:
+
+        c.execute(
+            "DELETE FROM users WHERE username=?",
+            (sel_user,)
+        )
+
+        c.commit()
+
+        try:
+            upload_db()
+        except:
+            pass
+
+        st.success("✅ Gebruiker verwijderd")
+        st.rerun()
 
         if delete:
             if sel_user == st.session_state.user:
