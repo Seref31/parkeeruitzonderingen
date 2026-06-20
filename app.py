@@ -290,10 +290,58 @@ tabs = st.tabs([
 
 # ================= DASHBOARD =================
 with tabs[0]:
+
+    st.header("📊 Dashboard")
+
     c = conn()
-    st.metric("Uitzonderingen", c.execute("SELECT COUNT(*) FROM uitzonderingen").fetchone()[0])
-    st.metric("Agenda", c.execute("SELECT COUNT(*) FROM agenda").fetchone()[0])
-    st.metric("Kaartfouten", c.execute("SELECT COUNT(*) FROM kaartfouten").fetchone()[0])
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "🅿️ Uitzonderingen",
+            c.execute(
+                "SELECT COUNT(*) FROM uitzonderingen"
+            ).fetchone()[0]
+        )
+
+        st.metric(
+            "📅 Agenda",
+            c.execute(
+                "SELECT COUNT(*) FROM agenda"
+            ).fetchone()[0]
+        )
+
+    with col2:
+        st.metric(
+            "🧩 Projecten",
+            c.execute(
+                "SELECT COUNT(*) FROM projecten_overzicht"
+            ).fetchone()[0]
+        )
+
+        st.metric(
+            "🔧 Werkzaamheden",
+            c.execute(
+                "SELECT COUNT(*) FROM werkzaamheden"
+            ).fetchone()[0]
+        )
+
+    with col3:
+        st.metric(
+            "🗺️ Kaartfouten",
+            c.execute(
+                "SELECT COUNT(*) FROM kaartfouten"
+            ).fetchone()[0]
+        )
+
+        st.metric(
+            "👥 Gebruikers",
+            c.execute(
+                "SELECT COUNT(*) FROM users WHERE active=1"
+            ).fetchone()[0]
+        )
+
     c.close()
 
 # ================= UITZONDERINGEN =================
