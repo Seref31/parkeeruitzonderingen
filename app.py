@@ -508,24 +508,14 @@ with tabs[4]:
             c
         )
     except Exception:
-        df_werk = pd.DataFrame(
-            columns=[
-                "id",
-                "titel",
-                "omschrijving",
-                "locatie",
-                "startdatum",
-                "einddatum",
-                "latitude",
-                "longitude"
-            ]
-        )
+        df_werk = pd.DataFrame()
 
     st.dataframe(df_werk, use_container_width=True)
 
     st.subheader("➕ Nieuwe werkzaamheden")
 
     with st.form("werk_form"):
+
         titel = st.text_input("Titel")
         omschrijving = st.text_area("Omschrijving")
         postcode = st.text_input("Postcode")
@@ -534,7 +524,9 @@ with tabs[4]:
         start = st.date_input("Startdatum")
         einde = st.date_input("Einddatum")
 
-                if st.form_submit_button("Opslaan"):
+        opslaan = st.form_submit_button("Opslaan")
+
+        if opslaan:
 
             try:
 
@@ -576,12 +568,12 @@ with tabs[4]:
 
     st.subheader("🗺️ Werkgebied tekenen")
 
-    werk_opties = {
-        f"{row['titel']} ({row['locatie']})": row['id']
-        for _, row in df_werk.iterrows()
-    }
+    if not df_werk.empty:
 
-    if werk_opties:
+        werk_opties = {
+            f"{row['titel']} ({row['locatie']})": row['id']
+            for _, row in df_werk.iterrows()
+        }
 
         werk_label = st.selectbox(
             "Kies werkzaamheid",
@@ -608,7 +600,9 @@ with tabs[4]:
         ).add_to(m)
 
         for _, r in df_werk.iterrows():
+
             if pd.notna(r["latitude"]) and pd.notna(r["longitude"]):
+
                 folium.Marker(
                     [r["latitude"], r["longitude"]],
                     popup=f"{r['titel']} - {r['locatie']}"
@@ -643,11 +637,6 @@ with tabs[4]:
 
                 st.success(
                     f"✅ Werkgebied gekoppeld aan: {werk_label}"
-                )
-
-            else:
-                st.warning(
-                    "Teken eerst een lijn, rechthoek of polygon."
                 )
 
     c.close()
