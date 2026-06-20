@@ -514,62 +514,62 @@ with tabs[4]:
 
     st.subheader("➕ Nieuwe werkzaamheden")
 
-   with st.form("werk_form"):
+    with st.form("werk_form"):
 
-    titel = st.text_input("Titel")
-    omschrijving = st.text_area("Omschrijving")
-    postcode = st.text_input("Postcode")
-    huisnummer = st.text_input("Huisnummer")
-    locatie = st.text_input("Locatie")
-    start = st.date_input("Startdatum")
-    einde = st.date_input("Einddatum")
+        titel = st.text_input("Titel")
+        omschrijving = st.text_area("Omschrijving")
+        postcode = st.text_input("Postcode")
+        huisnummer = st.text_input("Huisnummer")
+        locatie = st.text_input("Locatie")
+        start = st.date_input("Startdatum")
+        einde = st.date_input("Einddatum")
 
-    opslaan = st.form_submit_button("Opslaan")
+        opslaan = st.form_submit_button("Opslaan")
 
-    if opslaan:
+        if opslaan:
 
-        try:
+            try:
 
-            lat, lon = geocode_postcode_huisnummer(
-                postcode,
-                huisnummer
-            )
+                lat, lon = geocode_postcode_huisnummer(
+                    postcode,
+                    huisnummer
+                )
 
-            c.execute("""
-                INSERT INTO werkzaamheden
-                (
+                c.execute("""
+                    INSERT INTO werkzaamheden
+                    (
+                        titel,
+                        omschrijving,
+                        locatie,
+                        startdatum,
+                        einddatum,
+                        latitude,
+                        longitude
+                    )
+                    VALUES (?,?,?,?,?,?,?)
+                """, (
                     titel,
                     omschrijving,
                     locatie,
-                    startdatum,
-                    einddatum,
-                    latitude,
-                    longitude
-                )
-                VALUES (?,?,?,?,?,?,?)
-            """, (
-                titel,
-                omschrijving,
-                locatie,
-                start.isoformat(),
-                einde.isoformat(),
-                lat,
-                lon
-            ))
+                    start.isoformat(),
+                    einde.isoformat(),
+                    lat,
+                    lon
+                ))
 
-            c.commit()
-            upload_db()
+                c.commit()
+                upload_db()
 
-            st.success("✅ Werkzaamheden opgeslagen")
-            st.rerun()
+                st.success("✅ Werkzaamheden opgeslagen")
+                st.rerun()
 
-        except Exception as e:
-            st.error(f"Opslaan mislukt: {e}")
+            except Exception as e:
+                st.error(f"Opslaan mislukt: {e}")
 
     st.subheader("🗺️ Werkgebied tekenen")
 
     werk_opties = {
-        f"{row['titel']} ({row['locatie']})": row['id']
+        f"{row['titel']} ({row['locatie']})": row["id"]
         for _, row in df_werk.iterrows()
     }
 
@@ -591,8 +591,9 @@ with tabs[4]:
 
         if (
             not selected_row.empty
+            and "geometry" in selected_row.columns
             and pd.notna(selected_row.iloc[0]["geometry"])
-            and selected_row.iloc[0]["geometry"] != "None"
+            and str(selected_row.iloc[0]["geometry"]) != "None"
         ):
 
             try:
@@ -609,11 +610,16 @@ with tabs[4]:
                         "fillColor": "red",
                         "fillOpacity": 0.3
                     },
-                    tooltip=f"{selected_row.iloc[0]['titel']} ({selected_row.iloc[0]['locatie']})"
+                    tooltip=(
+                        f"{selected_row.iloc[0]['titel']} "
+                        f"({selected_row.iloc[0]['locatie']})"
+                    )
                 ).add_to(m)
 
             except Exception as e:
-                st.warning(f"Kan werkgebied niet laden: {e}")
+                st.warning(
+                    f"Kan werkgebied niet laden: {e}"
+                )
 
         Draw(
             export=True,
@@ -678,13 +684,14 @@ with tabs[4]:
                     f"✅ Werkgebied gekoppeld aan: {werk_label}"
                 )
 
+                st.rerun()
+
             else:
                 st.warning(
                     "Teken eerst een lijn, rechthoek of polygon."
                 )
 
     c.close()
-    
 # ================= KAARTFOUTEN =================
 with tabs[5]:
     st.header("🗺️ Kaartfouten – parkeervakken")
