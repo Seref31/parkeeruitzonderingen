@@ -483,6 +483,50 @@ with tabs[2]:
             upload_db()
             st.rerun()
 
+    st.subheader("🗑️ Agenda-item verwijderen")
+
+if not df.empty:
+
+    agenda_opties = {
+        f"{row['datum']} - {row['titel']}": row["id"]
+        for _, row in df.iterrows()
+    }
+
+    agenda_label = st.selectbox(
+        "Selecteer agenda-item",
+        list(agenda_opties.keys()),
+        key="agenda_verwijderen"
+    )
+
+    agenda_id = agenda_opties[agenda_label]
+
+    st.warning(
+        "⚠️ Dit agenda-item wordt definitief verwijderd."
+    )
+
+    if st.button(
+        "❌ Agenda-item verwijderen",
+        key="agenda_delete_btn"
+    ):
+
+        c.execute(
+            "DELETE FROM agenda WHERE id=?",
+            (agenda_id,)
+        )
+
+        c.commit()
+
+        try:
+            upload_db()
+        except:
+            pass
+
+        st.success(
+            f"✅ Verwijderd: {agenda_label}"
+        )
+
+        st.rerun()
+
     c.close()
 # ================= PROJECTENOVERZICHT =================
 with tabs[3]:
