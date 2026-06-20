@@ -541,13 +541,13 @@ if not df_werk.empty:
         )
 
         c.commit()
-        upload_db()
+upload_db()
 
-        st.success(
-            f"✅ Werkzaamheid verwijderd: {verwijder_label}"
-        )
+st.success(
+    f"✅ Werkzaamheid verwijderd: {verwijder_label}"
+)
 
-        st.rerun()
+st.rerun()
 
     st.subheader("➕ Nieuwe werkzaamheden")
 
