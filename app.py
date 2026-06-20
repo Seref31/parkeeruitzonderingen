@@ -568,55 +568,80 @@ with tabs[4]:
             except Exception as e:
                 st.error(f"Opslaan mislukt: {e}")
 
-        st.subheader("🗺️ Werkgebied tekenen")
+            st.subheader("🗺️ Werkgebied tekenen")
 
-werk_opties = {
-    f"{row['titel']} ({row['locatie']})": row['id']
-    for _, row in df_werk.iterrows()
-}
+    werk_opties = {
+        f"{row['titel']} ({row['locatie']})": row['id']
+        for _, row in df_werk.iterrows()
+    }
 
-werk_label = st.selectbox(
-    "Kies werkzaamheid",
-    list(werk_opties.keys())
-)
+    if werk_opties:
 
-werk_id = werk_opties[werk_label]
-
-map_data = st_folium(
-    m,
-    width=1200,
-    height=700,
-    returned_objects=["last_active_drawing"]
-)
-
-if st.button("💾 Werkgebied opslaan"):
-
-    if map_data and map_data.get("last_active_drawing"):
-
-        geometry = json.dumps(
-            map_data["last_active_drawing"]
+        werk_label = st.selectbox(
+            "Kies werkzaamheid",
+            list(werk_opties.keys())
         )
 
-        c.execute("""
-            UPDATE werkzaamheden
-            SET geometry = ?
-            WHERE id = ?
-        """, (
-            geometry,
-            werk_id
-        ))
+        werk_id = werk_opties[werk_label]
 
-        c.commit()
-        upload_db()
-
-        st.success(
-            f"✅ Werkgebied gekoppeld aan: {werk_label}"
+        m = folium.Map(
+            location=[51.8133, 4.6901],
+            zoom_start=13
         )
 
-    else:
-        st.warning(
-            "Teken eerst een lijn, rechthoek of polygon op de kaart."
+        Draw(
+            export=True,
+            draw_options={
+                "polyline": True,
+                "polygon": True,
+                "rectangle": True,
+                "circle": False,
+                "circlemarker": False,
+                "marker": False
+            }
+        ).add_to(m)
+
+        map_data = st_folium(
+            m,
+            width=1200,
+            height=700,
+            returned_objects=["last_active_drawing"]
         )
+
+        if st.button("💾 Werkgebied opslaan"):
+
+            if map_data and map_data.get("last_active_drawing"):
+
+                geometry = json.dumps(
+                    map_data["last_active_drawing"]
+                )
+
+                c.execute("""
+                    UPDATE werkzaamheden
+                    SET geometry = ?
+                    WHERE id = ?
+                """, (
+                    geometry,
+                    werk_id
+                ))
+
+                c.commit()
+
+                try:
+                    upload_db()
+                except Exception as e:
+                    st.warning(f"GitHub upload mislukt: {e}")
+
+                st.success(
+                    f"✅ Werkgebied gekoppeld aan {werk_label}"
+                )
+
+            else:
+                st.warning(
+                    "Teken eerst een lijn, rechthoek of polygon."
+                )
+
+    c.close()
     
 # ================= KAARTFOUTEN =================
 with tabs[5]:
