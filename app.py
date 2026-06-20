@@ -568,7 +568,7 @@ with tabs[4]:
             except Exception as e:
                 st.error(f"Opslaan mislukt: {e}")
 
-               st.subheader("🗺️ Werkgebied tekenen")
+    st.subheader("🗺️ Werkgebied tekenen")
 
     werk_opties = {
         f"{row['titel']} ({row['locatie']})": row['id']
@@ -584,7 +584,6 @@ with tabs[4]:
 
         werk_id = werk_opties[werk_label]
 
-        # Kaart aanmaken
         m = folium.Map(
             location=[51.8133, 4.6901],
             zoom_start=13
@@ -602,7 +601,6 @@ with tabs[4]:
             }
         ).add_to(m)
 
-        # bestaande markers tonen
         for _, r in df_werk.iterrows():
 
             if (
@@ -624,10 +622,7 @@ with tabs[4]:
 
         if st.button("💾 Werkgebied opslaan"):
 
-            if (
-                map_data
-                and map_data.get("last_active_drawing")
-            ):
+            if map_data and map_data.get("last_active_drawing"):
 
                 geometry = json.dumps(
                     map_data["last_active_drawing"]
