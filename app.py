@@ -325,7 +325,58 @@ with tabs[1]:
             c.commit()
             upload_db()
             st.rerun()
+    st.divider()
 
+    st.subheader("🗑️ Uitzondering verwijderen")
+
+    if not df.empty:
+
+        uitzondering_opties = {
+            f"{row['kenteken']} - {row['naam']} ({row['locatie']})": row["id"]
+            for _, row in df.iterrows()
+        }
+
+        uitzondering_label = st.selectbox(
+            "Selecteer uitzondering",
+            list(uitzondering_opties.keys()),
+            key="uitzondering_verwijderen"
+        )
+
+        uitzondering_id = uitzondering_opties[
+            uitzondering_label
+        ]
+
+        st.warning(
+            "⚠️ Deze uitzondering wordt definitief verwijderd."
+        )
+
+        bevestiging = st.checkbox(
+            "Ik weet zeker dat ik deze uitzondering wil verwijderen",
+            key="bevestig_uitzondering"
+        )
+
+        if bevestiging and st.button(
+            "❌ Uitzondering verwijderen"
+        ):
+
+            c.execute(
+                "DELETE FROM uitzonderingen WHERE id=?",
+                (uitzondering_id,)
+            )
+
+            c.commit()
+
+            try:
+                upload_db()
+            except:
+                pass
+
+            st.success(
+                f"✅ Verwijderd: {uitzondering_label}"
+            )
+
+            st.rerun()
+    
     c.close()
 
 # ================= AGENDA =================
