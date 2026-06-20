@@ -512,42 +512,60 @@ with tabs[4]:
 
     st.dataframe(df_werk, use_container_width=True)
 
+    # ================= VERWIJDEREN =================
+
     st.subheader("🗑️ Werkzaamheid verwijderen")
 
-if not df_werk.empty:
+    if not df_werk.empty:
 
-    verwijder_opties = {
-        f"{row['titel']} ({row['locatie']})": row["id"]
-        for _, row in df_werk.iterrows()
-    }
+        verwijder_opties = {
+            f"{row['titel']} ({row['locatie']})": row["id"]
+            for _, row in df_werk.iterrows()
+        }
 
-    verwijder_label = st.selectbox(
-        "Selecteer werkzaamheid",
-        list(verwijder_opties.keys()),
-        key="werk_verwijderen"
-    )
-
-    verwijder_id = verwijder_opties[verwijder_label]
-
-    st.warning(
-        "⚠️ Deze actie verwijdert ook het gekoppelde werkgebied."
-    )
-
-    if st.button("❌ Werkzaamheid verwijderen"):
-
-        c.execute(
-            "DELETE FROM werkzaamheden WHERE id = ?",
-            (verwijder_id,)
+        verwijder_label = st.selectbox(
+            "Selecteer werkzaamheid",
+            list(verwijder_opties.keys()),
+            key="werk_verwijderen"
         )
 
-        c.commit()
-upload_db()
+        verwijder_id = verwijder_opties[verwijder_label]
 
-st.success(
-    f"✅ Werkzaamheid verwijderd: {verwijder_label}"
-)
+        st.warning(
+            "⚠️ Deze actie verwijdert ook het gekoppelde werkgebied."
+        )
 
-st.rerun()
+        bevestiging = st.checkbox(
+            "Ik weet zeker dat ik deze werkzaamheid wil verwijderen"
+        )
+
+        if bevestiging and st.button(
+            "❌ Definitief verwijderen"
+        ):
+
+            c.execute(
+                "DELETE FROM werkzaamheden WHERE id = ?",
+                (verwijder_id,)
+            )
+
+            c.commit()
+
+            try:
+                upload_db()
+
+                st.success(
+                    f"✅ Werkzaamheid verwijderd: {verwijder_label}"
+                )
+
+            except Exception as e:
+
+                st.warning(
+                    f"Verwijderd uit database, maar GitHub upload mislukte: {e}"
+                )
+
+            st.rerun()
+
+    # ================= NIEUWE WERKZAAMHEID =================
 
     st.subheader("➕ Nieuwe werkzaamheden")
 
