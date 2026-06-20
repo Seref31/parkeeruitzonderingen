@@ -527,6 +527,7 @@ with tabs[3]:
 
 # ================= WERKZAAMHEDEN =================
 with tabs[4]:
+
     st.header("🔧 Werkzaamheden")
 
     c = conn()
@@ -541,102 +542,108 @@ with tabs[4]:
 
     st.dataframe(df_werk, use_container_width=True)
 
+    # ==================================================
+    # BEOORDELEN
+    # ==================================================
+
     st.subheader("📝 Werkzaamheid beoordelen")
 
-if not df_werk.empty:
+    if not df_werk.empty:
 
-    beoordeling_opties = {
-        f"{row['titel']} ({row['locatie']})": row["id"]
-        for _, row in df_werk.iterrows()
-    }
+        beoordeling_opties = {
+            f"{row['titel']} ({row['locatie']})": row["id"]
+            for _, row in df_werk.iterrows()
+        }
 
-    beoordeling_label = st.selectbox(
-        "Selecteer werkzaamheid",
-        list(beoordeling_opties.keys()),
-        key="werk_beoordeling"
-    )
+        beoordeling_label = st.selectbox(
+            "Selecteer werkzaamheid",
+            list(beoordeling_opties.keys()),
+            key="werk_beoordeling"
+        )
 
-    beoordeling_id = beoordeling_opties[
-        beoordeling_label
-    ]
+        beoordeling_id = beoordeling_opties[
+            beoordeling_label
+        ]
 
-    geselecteerd = df_werk[
-        df_werk["id"] == beoordeling_id
-    ].iloc[0]
+        geselecteerd = df_werk[
+            df_werk["id"] == beoordeling_id
+        ].iloc[0]
 
-    status = st.selectbox(
-        "Status",
-        [
-            "In behandeling",
-            "Goedgekeurd",
-            "Afgekeurd"
-        ],
-        index=[
-            "In behandeling",
-            "Goedgekeurd",
-            "Afgekeurd"
-        ].index(
-            geselecteerd["status_parkeren"]
-            if pd.notna(
+        status = st.selectbox(
+            "Status",
+            [
+                "In behandeling",
+                "Goedgekeurd",
+                "Afgekeurd"
+            ],
+            index=[
+                "In behandeling",
+                "Goedgekeurd",
+                "Afgekeurd"
+            ].index(
                 geselecteerd["status_parkeren"]
+                if pd.notna(
+                    geselecteerd["status_parkeren"]
+                )
+                else "In behandeling"
             )
-            else "In behandeling"
         )
-    )
 
-    behandeld_door = st.text_input(
-        "Behandeld door",
-        value=
-        geselecteerd["behandeld_door"]
-        if pd.notna(
+        behandeld_door = st.text_input(
+            "Behandeld door",
+            value=
             geselecteerd["behandeld_door"]
+            if pd.notna(
+                geselecteerd["behandeld_door"]
+            )
+            else ""
         )
-        else ""
-    )
 
-    opmerking = st.text_area(
-        "Opmerking",
-        value=
-        geselecteerd["opmerking_parkeren"]
-        if pd.notna(
+        opmerking = st.text_area(
+            "Opmerking",
+            value=
             geselecteerd["opmerking_parkeren"]
-        )
-        else ""
-    )
-
-    if st.button(
-        "💾 Status opslaan",
-        key="status_opslaan"
-    ):
-
-        c.execute("""
-            UPDATE werkzaamheden
-            SET
-                status_parkeren=?,
-                behandeld_door=?,
-                opmerking_parkeren=?
-            WHERE id=?
-        """, (
-            status,
-            behandeld_door,
-            opmerking,
-            beoordeling_id
-        ))
-
-        c.commit()
-
-        try:
-            upload_db()
-        except:
-            pass
-
-        st.success(
-            "✅ Beoordeling opgeslagen"
+            if pd.notna(
+                geselecteerd["opmerking_parkeren"]
+            )
+            else ""
         )
 
-        st.rerun()
+        if st.button(
+            "💾 Status opslaan",
+            key="status_opslaan"
+        ):
 
-    # ================= VERWIJDEREN =================
+            c.execute("""
+                UPDATE werkzaamheden
+                SET
+                    status_parkeren=?,
+                    behandeld_door=?,
+                    opmerking_parkeren=?
+                WHERE id=?
+            """, (
+                status,
+                behandeld_door,
+                opmerking,
+                beoordeling_id
+            ))
+
+            c.commit()
+
+            try:
+                upload_db()
+            except:
+                pass
+
+            st.success(
+                "✅ Beoordeling opgeslagen"
+            )
+
+            st.rerun()
+
+    # ==================================================
+    # VERWIJDEREN
+    # ==================================================
 
     st.subheader("🗑️ Werkzaamheid verwijderen")
 
@@ -653,7 +660,9 @@ if not df_werk.empty:
             key="werk_verwijderen"
         )
 
-        verwijder_id = verwijder_opties[verwijder_label]
+        verwijder_id = verwijder_opties[
+            verwijder_label
+        ]
 
         st.warning(
             "⚠️ Deze actie verwijdert ook het gekoppelde werkgebied."
@@ -668,7 +677,7 @@ if not df_werk.empty:
         ):
 
             c.execute(
-                "DELETE FROM werkzaamheden WHERE id = ?",
+                "DELETE FROM werkzaamheden WHERE id=?",
                 (verwijder_id,)
             )
 
@@ -676,57 +685,56 @@ if not df_werk.empty:
 
             try:
                 upload_db()
+            except:
+                pass
 
-                st.success(
-                    f"✅ Werkzaamheid verwijderd: {verwijder_label}"
-                )
-
-            except Exception as e:
-
-                st.warning(
-                    f"Verwijderd uit database, maar GitHub upload mislukte: {e}"
-                )
+            st.success(
+                f"✅ Verwijderd: {verwijder_label}"
+            )
 
             st.rerun()
 
-    # ================= NIEUWE WERKZAAMHEID =================
+    # ==================================================
+    # NIEUWE WERKZAAMHEID
+    # ==================================================
 
     st.subheader("➕ Nieuwe werkzaamheden")
 
     with st.form("werk_form"):
 
         titel = st.text_input("Titel")
-        omschrijving = st.text_area("Omschrijving")
 
-        postcode = st.text_input("Postcode")
-        huisnummer = st.text_input("Huisnummer")
-        locatie = st.text_input("Locatie")
+        omschrijving = st.text_area(
+            "Omschrijving"
+        )
+
+        postcode = st.text_input(
+            "Postcode"
+        )
+
+        huisnummer = st.text_input(
+            "Huisnummer"
+        )
+
+        locatie = st.text_input(
+            "Locatie"
+        )
 
         aangeleverd_door = st.text_input(
-        "Aangeleverd bij Parkeren door"
+            "Aangeleverd bij Parkeren door"
         )
 
-        status_parkeren = st.selectbox(
-        "Status Parkeren",
-        [
-        "In behandeling",
-        "Goedgekeurd",
-        "Afgekeurd"
-        ]
+        start = st.date_input(
+            "Startdatum"
         )
 
-        behandeld_door = st.text_input(
-        "Behandeld door (Parkeren)"
+        einde = st.date_input(
+            "Einddatum"
         )
 
-        opmerking_parkeren = st.text_area(
-        "Opmerking Parkeren"
+        opslaan = st.form_submit_button(
+            "Opslaan"
         )
-
-        start = st.date_input("Startdatum")
-        einde = st.date_input("Einddatum")
-
-        opslaan = st.form_submit_button("Opslaan")
 
         if opslaan:
 
@@ -738,72 +746,95 @@ if not df_werk.empty:
                 )
 
                 c.execute("""
-    INSERT INTO werkzaamheden
-    (
-        titel,
-        omschrijving,
-        locatie,
-        startdatum,
-        einddatum,
-        latitude,
-        longitude,
-        aangeleverd_door,
-        status_parkeren,
-        behandeld_door,
-        opmerking_parkeren
-    )
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)
-""", (
-    titel,
-    omschrijving,
-    locatie,
-    start.isoformat(),
-    einde.isoformat(),
-    lat,
-    lon,
-    aangeleverd_door,
-    status_parkeren,
-    behandeld_door,
-    opmerking_parkeren
-))
+                    INSERT INTO werkzaamheden
+                    (
+                        titel,
+                        omschrijving,
+                        locatie,
+                        startdatum,
+                        einddatum,
+                        latitude,
+                        longitude,
+                        aangeleverd_door,
+                        status_parkeren,
+                        behandeld_door,
+                        opmerking_parkeren
+                    )
+                    VALUES
+                    (?,?,?,?,?,?,?,?,?,?,?)
+                """, (
+                    titel,
+                    omschrijving,
+                    locatie,
+                    start.isoformat(),
+                    einde.isoformat(),
+                    lat,
+                    lon,
+                    aangeleverd_door,
+                    "In behandeling",
+                    "",
+                    ""
+                ))
 
                 c.commit()
-                upload_db()
 
-                st.success("✅ Werkzaamheden opgeslagen")
+                try:
+                    upload_db()
+                except:
+                    pass
+
+                st.success(
+                    "✅ Werkzaamheid opgeslagen"
+                )
+
                 st.rerun()
 
             except Exception as e:
-                st.error(f"Opslaan mislukt: {e}")
+                st.error(
+                    f"Opslaan mislukt: {e}"
+                )
+
+    # ==================================================
+    # WERKGEBIED TEKENEN
+    # ==================================================
 
     st.subheader("🗺️ Werkgebied tekenen")
 
-    werk_opties = {
-        f"{row['titel']} ({row['locatie']})": row["id"]
-        for _, row in df_werk.iterrows()
-    }
+    if not df_werk.empty:
 
-    if werk_opties:
+        werk_opties = {
+            f"{row['titel']} ({row['locatie']})": row["id"]
+            for _, row in df_werk.iterrows()
+        }
 
         werk_label = st.selectbox(
             "Kies werkzaamheid",
-            list(werk_opties.keys())
+            list(werk_opties.keys()),
+            key="werkgebied_select"
         )
 
-        werk_id = werk_opties[werk_label]
+        werk_id = werk_opties[
+            werk_label
+        ]
 
         m = folium.Map(
             location=[51.8133, 4.6901],
             zoom_start=13
         )
 
-        selected_row = df_werk[df_werk["id"] == werk_id]
+        selected_row = df_werk[
+            df_werk["id"] == werk_id
+        ]
 
         if (
             not selected_row.empty
             and "geometry" in selected_row.columns
-            and pd.notna(selected_row.iloc[0]["geometry"])
-            and str(selected_row.iloc[0]["geometry"]) != "None"
+            and pd.notna(
+                selected_row.iloc[0]["geometry"]
+            )
+            and str(
+                selected_row.iloc[0]["geometry"]
+            ) != "None"
         ):
 
             try:
@@ -816,20 +847,15 @@ if not df_werk.empty:
                     geojson,
                     style_function=lambda x: {
                         "color": "red",
-                        "weight": 5,
+                        "weight": 6,
                         "fillColor": "red",
-                        "fillOpacity": 0.3
+                        "fillOpacity": 0.35
                     },
-                    tooltip=(
-                        f"{selected_row.iloc[0]['titel']} "
-                        f"({selected_row.iloc[0]['locatie']})"
-                    )
+                    tooltip=werk_label
                 ).add_to(m)
 
-            except Exception as e:
-                st.warning(
-                    f"Kan werkgebied niet laden: {e}"
-                )
+            except:
+                pass
 
         Draw(
             export=True,
@@ -850,45 +876,60 @@ if not df_werk.empty:
                 and pd.notna(r["longitude"])
             ):
 
+                popup_txt = f"""
+                <b>{r['titel']}</b><br>
+                Locatie: {r['locatie']}<br>
+                Status: {r.get('status_parkeren','')}<br>
+                Aangeleverd door: {r.get('aangeleverd_door','')}
+                """
+
                 folium.CircleMarker(
                     [r["latitude"], r["longitude"]],
                     radius=8,
-                    popup=f"""
-                    <b>{r['titel']}</b><br>
-                    {r['locatie']}<br>
-                    {r['startdatum']} t/m {r['einddatum']}
-                    """
+                    popup=popup_txt
                 ).add_to(m)
 
         map_data = st_folium(
             m,
             width=1200,
             height=700,
-            returned_objects=["last_active_drawing"]
+            returned_objects=[
+                "last_active_drawing"
+            ]
         )
 
-        if st.button("💾 Werkgebied opslaan"):
+        if st.button(
+            "💾 Werkgebied opslaan"
+        ):
 
             if (
                 map_data
-                and map_data.get("last_active_drawing")
+                and map_data.get(
+                    "last_active_drawing"
+                )
             ):
 
                 geometry = json.dumps(
-                    map_data["last_active_drawing"]
+                    map_data[
+                        "last_active_drawing"
+                    ]
                 )
 
                 c.execute("""
                     UPDATE werkzaamheden
-                    SET geometry = ?
-                    WHERE id = ?
+                    SET geometry=?
+                    WHERE id=?
                 """, (
                     geometry,
                     werk_id
                 ))
 
                 c.commit()
-                upload_db()
+
+                try:
+                    upload_db()
+                except:
+                    pass
 
                 st.success(
                     f"✅ Werkgebied gekoppeld aan: {werk_label}"
@@ -897,8 +938,9 @@ if not df_werk.empty:
                 st.rerun()
 
             else:
+
                 st.warning(
-                    "Teken eerst een lijn, rechthoek of polygon."
+                    "Teken eerst een lijn, polygon of rechthoek."
                 )
 
     c.close()
