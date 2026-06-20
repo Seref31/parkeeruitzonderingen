@@ -738,30 +738,34 @@ if not df_werk.empty:
                 )
 
                 c.execute("""
-                    INSERT INTO werkzaamheden
-                    (
-                        titel,
-                        omschrijving,
-                        locatie,
-                        startdatum,
-                        einddatum,
-                        latitude,
-                        longitude
-                        aangeleverd_door,
-                        status_parkeren
-                    )
-                    VALUES (?,?,?,?,?,?,?)
-                """, (
-                    titel,
-                    omschrijving,
-                    locatie,
-                    start.isoformat(),
-                    einde.isoformat(),
-                    lat,
-                    lon,
-                    aangeleverd_door,
-                     "In behandeling"
-                ))
+    INSERT INTO werkzaamheden
+    (
+        titel,
+        omschrijving,
+        locatie,
+        startdatum,
+        einddatum,
+        latitude,
+        longitude,
+        aangeleverd_door,
+        status_parkeren,
+        behandeld_door,
+        opmerking_parkeren
+    )
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+""", (
+    titel,
+    omschrijving,
+    locatie,
+    start.isoformat(),
+    einde.isoformat(),
+    lat,
+    lon,
+    aangeleverd_door,
+    status_parkeren,
+    behandeld_door,
+    opmerking_parkeren
+))
 
                 c.commit()
                 upload_db()
