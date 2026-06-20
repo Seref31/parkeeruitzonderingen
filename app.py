@@ -460,72 +460,100 @@ with tabs[1]:
 
 # ================= AGENDA =================
 with tabs[2]:
+
     c = conn()
-    df = pd.read_sql("SELECT * FROM agenda", c)
-    st.dataframe(df, use_container_width=True)
+
+    df = pd.read_sql(
+        "SELECT * FROM agenda",
+        c
+    )
+
+    st.dataframe(
+        df,
+        use_container_width=True
+    )
+
+    st.subheader("➕ Nieuw agenda-item")
 
     with st.form("agenda_add"):
+
         titel = st.text_input("Titel")
         datum = st.date_input("Datum")
 
         if st.form_submit_button("Toevoegen"):
+
             c.execute("""
                 INSERT INTO agenda
-                (titel, datum, aangemaakt_door, aangemaakt_op)
+                (
+                    titel,
+                    datum,
+                    aangemaakt_door,
+                    aangemaakt_op
+                )
                 VALUES (?,?,?,?)
             """, (
                 titel,
                 datum.isoformat(),
                 st.session_state.user,
-                datetime.now().isoformat(timespec="seconds")
+                datetime.now().isoformat(
+                    timespec="seconds"
+                )
             ))
+
             c.commit()
-            upload_db()
+
+            try:
+                upload_db()
+            except:
+                pass
+
             st.rerun()
 
     st.subheader("🗑️ Agenda-item verwijderen")
 
-if not df.empty:
+    if not df.empty:
 
-    agenda_opties = {
-        f"{row['datum']} - {row['titel']}": row["id"]
-        for _, row in df.iterrows()
-    }
+        agenda_opties = {
+            f"{row['datum']} - {row['titel']}": row["id"]
+            for _, row in df.iterrows()
+        }
 
-    agenda_label = st.selectbox(
-        "Selecteer agenda-item",
-        list(agenda_opties.keys()),
-        key="agenda_verwijderen"
-    )
-
-    agenda_id = agenda_opties[agenda_label]
-
-    st.warning(
-        "⚠️ Dit agenda-item wordt definitief verwijderd."
-    )
-
-    if st.button(
-        "❌ Agenda-item verwijderen",
-        key="agenda_delete_btn"
-    ):
-
-        c.execute(
-            "DELETE FROM agenda WHERE id=?",
-            (agenda_id,)
+        agenda_label = st.selectbox(
+            "Selecteer agenda-item",
+            list(agenda_opties.keys()),
+            key="agenda_verwijderen"
         )
 
-        c.commit()
+        agenda_id = agenda_opties[
+            agenda_label
+        ]
 
-        try:
-            upload_db()
-        except:
-            pass
-
-        st.success(
-            f"✅ Verwijderd: {agenda_label}"
+        st.warning(
+            "⚠️ Dit agenda-item wordt definitief verwijderd."
         )
 
-        st.rerun()
+        if st.button(
+            "❌ Agenda-item verwijderen",
+            key="agenda_delete_btn"
+        ):
+
+            c.execute(
+                "DELETE FROM agenda WHERE id=?",
+                (agenda_id,)
+            )
+
+            c.commit()
+
+            try:
+                upload_db()
+            except:
+                pass
+
+            st.success(
+                f"✅ Verwijderd: {agenda_label}"
+            )
+
+            st.rerun()
 
     c.close()
 # ================= PROJECTENOVERZICHT =================
