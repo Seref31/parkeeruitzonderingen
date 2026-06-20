@@ -566,14 +566,14 @@ with tabs[4]:
             except Exception as e:
                 st.error(f"Opslaan mislukt: {e}")
 
-       st.subheader("🗺️ Werkgebied tekenen")
+           st.subheader("🗺️ Werkgebied tekenen")
 
-    if not df_werk.empty:
+    werk_opties = {
+        f"{row['titel']} ({row['locatie']})": row['id']
+        for _, row in df_werk.iterrows()
+    }
 
-        werk_opties = {
-            f"{row['titel']} ({row['locatie']})": row['id']
-            for _, row in df_werk.iterrows()
-        }
+    if werk_opties:
 
         werk_label = st.selectbox(
             "Kies werkzaamheid",
@@ -582,60 +582,51 @@ with tabs[4]:
 
         werk_id = werk_opties[werk_label]
 
-        geselecteerd = df_werk[
-            df_werk["id"] == werk_id
-        ].iloc[0]
-
         m = folium.Map(
-            location=[
-                geselecteerd["latitude"]
-                if pd.notna(geselecteerd["latitude"])
-                else 51.8133,
-                geselecteerd["longitude"]
-                if pd.notna(geselecteerd["longitude"])
-                else 4.6901
-            ],
-            zoom_start=16
+            location=[51.8133, 4.6901],
+            zoom_start=13
         )
 
-        # ALLE opgeslagen werkgebieden tonen
-        for _, r in df_werk.iterrows():
+        selected_row = df_werk[df_werk["id"] == werk_id]
 
-            if (
-                "geometry" in r
-                and pd.notna(r["geometry"])
-                and str(r["geometry"]) != "None"
-            ):
+        if (
+            not selected_row.empty
+            and pd.notna(selected_row.iloc[0]["geometry"])
+            and selected_row.iloc[0]["geometry"] != "None"
+        ):
 
-                try:
+            try:
 
-                    geojson = json.loads(
-                        r["geometry"]
-                    )
+                geojson = json.loads(
+                    selected_row.iloc[0]["geometry"]
+                )
 
-                    kleur = "#d62828"
+                folium.GeoJson(
+                    geojson,
+                    style_function=lambda x: {
+                        "color": "red",
+                        "weight": 5,
+                        "fillColor": "red",
+                        "fillOpacity": 0.3
+                    },
+                    tooltip=f"{selected_row.iloc[0]['titel']} ({selected_row.iloc[0]['locatie']})"
+                ).add_to(m)
 
-                    if r["id"] == werk_id:
-                        kleur = "#ffd60a"
+            except Exception as e:
+                st.warning(f"Kan werkgebied niet laden: {e}")
 
-                    folium.GeoJson(
-                        geojson,
-                        tooltip=f"""
-                        {r['titel']}
-                        ({r['locatie']})
-                        """,
-                        style_function=lambda x, kleur=kleur: {
-                            "color": kleur,
-                            "weight": 5,
-                            "fillColor": kleur,
-                            "fillOpacity": 0.25
-                        }
-                    ).add_to(m)
+        Draw(
+            export=True,
+            draw_options={
+                "polyline": True,
+                "polygon": True,
+                "rectangle": True,
+                "circle": False,
+                "circlemarker": False,
+                "marker": False
+            }
+        ).add_to(m)
 
-                except Exception:
-                    pass
-
-        # markers tonen
         for _, r in df_werk.iterrows():
 
             if (
@@ -650,21 +641,8 @@ with tabs[4]:
                     <b>{r['titel']}</b><br>
                     {r['locatie']}<br>
                     {r['startdatum']} t/m {r['einddatum']}
-                    """,
-                    fill=True
+                    """
                 ).add_to(m)
-
-        Draw(
-            export=True,
-            draw_options={
-                "polyline": True,
-                "polygon": True,
-                "rectangle": True,
-                "circle": False,
-                "circlemarker": False,
-                "marker": False
-            }
-        ).add_to(m)
 
         map_data = st_folium(
             m,
@@ -697,14 +675,12 @@ with tabs[4]:
                 upload_db()
 
                 st.success(
-                    f"✅ Werkgebied opgeslagen voor {werk_label}"
+                    f"✅ Werkgebied gekoppeld aan: {werk_label}"
                 )
-
-                st.rerun()
 
             else:
                 st.warning(
-                    "Teken eerst een lijn, vlak of polygon."
+                    "Teken eerst een lijn, rechthoek of polygon."
                 )
 
     c.close()
