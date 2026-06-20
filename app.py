@@ -605,9 +605,32 @@ with tabs[4]:
 
         titel = st.text_input("Titel")
         omschrijving = st.text_area("Omschrijving")
+
         postcode = st.text_input("Postcode")
         huisnummer = st.text_input("Huisnummer")
         locatie = st.text_input("Locatie")
+
+        aangeleverd_door = st.text_input(
+        "Aangeleverd bij Parkeren door"
+        )
+
+        status_parkeren = st.selectbox(
+        "Status Parkeren",
+        [
+        "In behandeling",
+        "Goedgekeurd",
+        "Afgekeurd"
+        ]
+        )
+
+        behandeld_door = st.text_input(
+        "Behandeld door (Parkeren)"
+        )
+
+        opmerking_parkeren = st.text_area(
+        "Opmerking Parkeren"
+        )
+
         start = st.date_input("Startdatum")
         einde = st.date_input("Einddatum")
 
