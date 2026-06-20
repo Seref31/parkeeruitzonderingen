@@ -342,6 +342,36 @@ with tabs[0]:
             ).fetchone()[0]
         )
 
+    st.divider()
+
+    st.subheader("📅 Eerstvolgende agenda-items")
+
+    try:
+
+        df_agenda = pd.read_sql(
+            """
+            SELECT titel, datum
+            FROM agenda
+            ORDER BY datum ASC
+            LIMIT 10
+            """,
+            c
+        )
+
+        if not df_agenda.empty:
+
+            for _, row in df_agenda.iterrows():
+
+                st.info(
+                    f"📌 {row['datum']} - {row['titel']}"
+                )
+
+        else:
+            st.caption("Geen agenda-items gevonden.")
+
+    except Exception as e:
+        st.error(f"Agenda kon niet worden geladen: {e}")
+
     c.close()
 
 # ================= UITZONDERINGEN =================
