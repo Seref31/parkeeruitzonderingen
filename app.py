@@ -534,27 +534,47 @@ with tabs[4]:
         start = st.date_input("Startdatum")
         einde = st.date_input("Einddatum")
 
-        if st.form_submit_button("Opslaan"):
+                if st.form_submit_button("Opslaan"):
 
-    try:
+            try:
 
-        lat, lon = geocode_postcode_huisnummer(
-            postcode,
-            huisnummer
-        )
+                lat, lon = geocode_postcode_huisnummer(
+                    postcode,
+                    huisnummer
+                )
 
-        c.execute(...)
+                c.execute("""
+                    INSERT INTO werkzaamheden
+                    (
+                        titel,
+                        omschrijving,
+                        locatie,
+                        startdatum,
+                        einddatum,
+                        latitude,
+                        longitude
+                    )
+                    VALUES (?,?,?,?,?,?,?)
+                """, (
+                    titel,
+                    omschrijving,
+                    locatie,
+                    start.isoformat(),
+                    einde.isoformat(),
+                    lat,
+                    lon
+                ))
 
-        c.commit()
-        upload_db()
+                c.commit()
+                upload_db()
 
-        st.success("✅ Werkzaamheden opgeslagen")
-        st.rerun()
+                st.success("✅ Werkzaamheden opgeslagen")
+                st.rerun()
 
-    except Exception as e:
-        st.error(f"Opslaan mislukt: {e}")
+            except Exception as e:
+                st.error(f"Opslaan mislukt: {e}")
 
-st.subheader("🗺️ Werkgebied tekenen")
+    st.subheader("🗺️ Werkgebied tekenen")
 
     werk_opties = {
         f"{row['titel']} ({row['locatie']})": row['id']
