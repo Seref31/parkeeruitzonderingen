@@ -280,9 +280,17 @@ if st.sidebar.button("Uitloggen"):
 
 if st.session_state.role == "viewer_ipm":
 
-    werkzaamheden_tab = st.tabs(
-        ["🔧 Werkzaamheden"]
-    )[0]
+    tabs = st.tabs([
+        "🔧 Werkzaamheden",
+        "Leeg1",
+        "Leeg2",
+        "Leeg3",
+        "Leeg4",
+        "Leeg5",
+        "Leeg6"
+    ])
+
+    werkzaamheden_tab = tabs[0]
 
 else:
 
@@ -299,7 +307,7 @@ else:
     werkzaamheden_tab = tabs[4]
 
 # ================= DASHBOARD =================
-with tabs[0]:
+if st.session_state.role != "viewer_ipm":     with tabs[0]:
     c = conn()
     st.metric("Uitzonderingen", c.execute("SELECT COUNT(*) FROM uitzonderingen").fetchone()[0])
     st.metric("Agenda", c.execute("SELECT COUNT(*) FROM agenda").fetchone()[0])
@@ -307,7 +315,7 @@ with tabs[0]:
     c.close()
 
 # ================= UITZONDERINGEN =================
-with tabs[1]:
+if st.session_state.role != "viewer_ipm":     with tabs[1]:
     c = conn()
     df = pd.read_sql("SELECT * FROM uitzonderingen", c)
 
@@ -339,7 +347,7 @@ with tabs[1]:
     c.close()
 
 # ================= AGENDA =================
-with tabs[2]:
+if st.session_state.role != "viewer_ipm":     with tabs[2]:
     c = conn()
     df = pd.read_sql("SELECT * FROM agenda", c)
     st.dataframe(df, use_container_width=True)
@@ -365,7 +373,7 @@ with tabs[2]:
 
     c.close()
 # ================= PROJECTENOVERZICHT =================
-with tabs[3]:
+if st.session_state.role != "viewer_ipm":     with tabs[3]:
     st.header("🧩 Projectenoverzicht")
 
     c = conn()
@@ -959,7 +967,7 @@ with werkzaamheden_tab:
 
     c.close()
 # ================= KAARTFOUTEN =================
-with tabs[5]:
+if st.session_state.role != "viewer_ipm":     with tabs[5]:
     st.header("🗺️ Kaartfouten – parkeervakken")
 
     c = conn()
@@ -1109,7 +1117,7 @@ with tabs[5]:
     c.close()
 
 # ================= GEBRUIKERSBEHEER =================
-with tabs[6]:
+if st.session_state.role != "viewer_ipm":     with tabs[6]:
     st.header("👥 Gebruikersbeheer")
 
     # Alleen admin
@@ -1284,15 +1292,5 @@ if delete:
 
         st.success("✅ Gebruiker verwijderd")
         st.rerun()
-
-        if delete:
-            if sel_user == st.session_state.user:
-                st.error("❌ Je kunt jezelf niet verwijderen.")
-            else:
-                c.execute("DELETE FROM users WHERE username=?", (sel_user,))
-                c.commit()
-                upload_db()
-                st.success("✅ Gebruiker verwijderd")
-                st.rerun()
 
     c.close()
