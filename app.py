@@ -202,15 +202,20 @@ def safe_date(value):
 download_db()
 init_db()
 
-# === TEMP: maak seref@dordrecht.nl admin (1x uitvoeren) ===
-c = conn()
-c.execute(
-    "UPDATE users SET role='admin', active=1 WHERE username=?",
-    ("seref@dordrecht.nl",)
-)
-c.commit()
-c.close()
-upload_db()
+# === TEMP admin fix ===
+if "admin_fix" not in st.session_state:
+
+    c = conn()
+
+    c.execute(
+        "UPDATE users SET role='admin', active=1 WHERE username=?",
+        ("seref@dordrecht.nl",)
+    )
+
+    c.commit()
+    c.close()
+
+    st.session_state.admin_fix = True
 # ================= LOGIN =================
 if "user" not in st.session_state:
     st.image(LOGO_PATH, width=160)
@@ -566,7 +571,7 @@ with tabs[4]:
                 st.rerun()
 
             except Exception as e:
-                st.error(f"Opslaan mislukt: {e}")
+    st.error(f"Opslaan mislukt: {e}")
 
     st.subheader("🗺️ Werkgebied tekenen")
 
