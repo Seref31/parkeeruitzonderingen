@@ -146,10 +146,7 @@ CREATE TABLE IF NOT EXISTS werkzaamheden (
     latitude REAL,
     longitude REAL,
     geometry TEXT,
-    aangeleverd_door TEXT,
-    status_parkeren TEXT,
-    behandeld_door TEXT,
-    opmerking_parkeren TEXT
+    aangeleverd_door TEXT
 )
 """)
 
@@ -544,6 +541,101 @@ with tabs[4]:
 
     st.dataframe(df_werk, use_container_width=True)
 
+    st.subheader("📝 Werkzaamheid beoordelen")
+
+if not df_werk.empty:
+
+    beoordeling_opties = {
+        f"{row['titel']} ({row['locatie']})": row["id"]
+        for _, row in df_werk.iterrows()
+    }
+
+    beoordeling_label = st.selectbox(
+        "Selecteer werkzaamheid",
+        list(beoordeling_opties.keys()),
+        key="werk_beoordeling"
+    )
+
+    beoordeling_id = beoordeling_opties[
+        beoordeling_label
+    ]
+
+    geselecteerd = df_werk[
+        df_werk["id"] == beoordeling_id
+    ].iloc[0]
+
+    status = st.selectbox(
+        "Status",
+        [
+            "In behandeling",
+            "Goedgekeurd",
+            "Afgekeurd"
+        ],
+        index=[
+            "In behandeling",
+            "Goedgekeurd",
+            "Afgekeurd"
+        ].index(
+            geselecteerd["status_parkeren"]
+            if pd.notna(
+                geselecteerd["status_parkeren"]
+            )
+            else "In behandeling"
+        )
+    )
+
+    behandeld_door = st.text_input(
+        "Behandeld door",
+        value=
+        geselecteerd["behandeld_door"]
+        if pd.notna(
+            geselecteerd["behandeld_door"]
+        )
+        else ""
+    )
+
+    opmerking = st.text_area(
+        "Opmerking",
+        value=
+        geselecteerd["opmerking_parkeren"]
+        if pd.notna(
+            geselecteerd["opmerking_parkeren"]
+        )
+        else ""
+    )
+
+    if st.button(
+        "💾 Status opslaan",
+        key="status_opslaan"
+    ):
+
+        c.execute("""
+            UPDATE werkzaamheden
+            SET
+                status_parkeren=?,
+                behandeld_door=?,
+                opmerking_parkeren=?
+            WHERE id=?
+        """, (
+            status,
+            behandeld_door,
+            opmerking,
+            beoordeling_id
+        ))
+
+        c.commit()
+
+        try:
+            upload_db()
+        except:
+            pass
+
+        st.success(
+            "✅ Beoordeling opgeslagen"
+        )
+
+        st.rerun()
+
     # ================= VERWIJDEREN =================
 
     st.subheader("🗑️ Werkzaamheid verwijderen")
@@ -655,6 +747,8 @@ with tabs[4]:
                         einddatum,
                         latitude,
                         longitude
+                        aangeleverd_door,
+                        status_parkeren
                     )
                     VALUES (?,?,?,?,?,?,?)
                 """, (
@@ -664,7 +758,9 @@ with tabs[4]:
                     start.isoformat(),
                     einde.isoformat(),
                     lat,
-                    lon
+                    lon,
+                    aangeleverd_door,
+                     "In behandeling"
                 ))
 
                 c.commit()
