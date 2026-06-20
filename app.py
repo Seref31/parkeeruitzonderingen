@@ -312,6 +312,7 @@ with tabs[1]:
     with st.form("uitz_add"):
         naam = st.text_input("Naam")
         kenteken = st.text_input("Kenteken")
+        opmerking = st.text_input("opmerking")
         locatie = st.text_input("Locatie")
         start = st.date_input("Start")
         einde = st.date_input("Einde")
