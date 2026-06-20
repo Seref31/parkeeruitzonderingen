@@ -278,25 +278,15 @@ if st.sidebar.button("Uitloggen"):
     st.session_state.clear()
     st.rerun()
 
-if st.session_state.role == "viewer_ipm":
-
-    werkzaamheden_tab = st.tabs(
-        ["🔧 Werkzaamheden"]
-    )[0]
-
-else:
-
-    tabs = st.tabs([
-        "📊 Dashboard",
-        "🅿️ Uitzonderingen",
-        "📅 Agenda",
-        "🧩 Projectenoverzicht",
-        "🔧 Werkzaamheden",
-        "🗺️ Kaartfouten",
-        "👥 Gebruikers"
-    ])
-
-    werkzaamheden_tab = tabs[4]
+tabs = st.tabs([
+    "📊 Dashboard",
+    "🅿️ Uitzonderingen",
+    "📅 Agenda",
+    "🧩 Projectenoverzicht",
+    "🔧 Werkzaamheden",
+    "🗺️ Kaartfouten",
+    "👥 Gebruikers"
+])
 
 # ================= DASHBOARD =================
 with tabs[0]:
@@ -536,11 +526,7 @@ with tabs[3]:
     c.close()
 
 # ================= WERKZAAMHEDEN =================
-with werkzaamheden_tab:
-
-    is_ipm = (
-    st.session_state.role == "viewer_ipm"
-        )
+with tabs[4]:
 
     st.header("🔧 Werkzaamheden")
 
@@ -560,7 +546,7 @@ with werkzaamheden_tab:
     # BEOORDELEN
     # ==================================================
 
-    if not is_ipm:      st.subheader("📝 Werkzaamheid beoordelen")
+    st.subheader("📝 Werkzaamheid beoordelen")
 
     if not df_werk.empty:
 
@@ -659,7 +645,7 @@ with werkzaamheden_tab:
     # VERWIJDEREN
     # ==================================================
 
-    if not is_ipm:      st.subheader("🗑️ Werkzaamheid verwijderen")
+    st.subheader("🗑️ Werkzaamheid verwijderen")
 
     if not df_werk.empty:
 
@@ -1134,7 +1120,7 @@ with tabs[6]:
     with st.form("user_add"):
         new_user = st.text_input("E-mailadres")
         new_pw = st.text_input("Wachtwoord", type="password")
-        new_role = st.selectbox(     "Rol",     ["admin", "editor", "viewer", "viewer_ipm"] )
+        new_role = st.selectbox("Rol", ["admin", "editor", "viewer"])
         active = st.checkbox("Actief", True)
 
         if st.form_submit_button("Gebruiker aanmaken"):
@@ -1169,18 +1155,11 @@ with tabs[6]:
     sel_info = df_users[df_users.username == sel_user].iloc[0]
 
     with st.form("user_edit"):
-        rollen = [
-    "admin",
-    "editor",
-    "viewer",
-    "viewer_ipm"
-]
-
-role = st.selectbox(
-    "Rol",
-    rollen,
-    index=rollen.index(sel_info.role)
-)
+        role = st.selectbox(
+            "Rol",
+            ["admin", "editor", "viewer"],
+            index=["admin", "editor", "viewer"].index(sel_info.role)
+        )
         active = st.checkbox("Actief", bool(sel_info.active))
         reset_pw = st.checkbox("Wachtwoord resetten?")
         new_pw = st.text_input("Nieuw wachtwoord", type="password", disabled=not reset_pw)
