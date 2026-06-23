@@ -66,8 +66,11 @@ def hash_pw(pw: str) -> str:
     return hashlib.sha256(pw.encode()).hexdigest()
 
 def init_db():
+
     c = conn()
     cur = c.cursor()
+
+    # ================= USERS =================
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
@@ -77,6 +80,8 @@ def init_db():
         active INTEGER
     )
     """)
+
+    # ================= UITZONDERINGEN =================
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS uitzonderingen (
@@ -92,15 +97,14 @@ def init_db():
 
     try:
         cur.execute("""
-            ALTER TABLE uitzonderingen
-            ADD COLUMN werkzaamheid_id INTEGER
+        ALTER TABLE uitzonderingen
+        ADD COLUMN werkzaamheid_id INTEGER
         """)
     except:
         pass
 
-    c.commit()
-    c.close()
-    
+    # ================= AGENDA =================
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS agenda (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,6 +114,8 @@ def init_db():
         aangemaakt_op TEXT
     )
     """)
+
+    # ================= KAARTFOUTEN =================
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS kaartfouten (
@@ -134,42 +140,46 @@ def init_db():
     )
     """)
 
-    cur.execute("""
-CREATE TABLE IF NOT EXISTS projecten_overzicht (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    naam TEXT,
-    adviseur TEXT,
-    prioriteit TEXT,
-    status TEXT,
-    startdatum DATE,
-    einddatum DATE,
-    toelichting TEXT
-)
-""")
+    # ================= PROJECTEN =================
 
     cur.execute("""
-CREATE TABLE IF NOT EXISTS werkzaamheden (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    titel TEXT,
-    omschrijving TEXT,
-    locatie TEXT,
-    startdatum DATE,
-    einddatum DATE,
-    latitude REAL,
-    longitude REAL,
-    geometry TEXT,
-    aangeleverd_door TEXT
-)
-""")
+    CREATE TABLE IF NOT EXISTS projecten_overzicht (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT,
+        adviseur TEXT,
+        prioriteit TEXT,
+        status TEXT,
+        startdatum DATE,
+        einddatum DATE,
+        toelichting TEXT
+    )
+    """)
+
+    # ================= WERKZAAMHEDEN =================
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS werkzaamheden (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titel TEXT,
+        omschrijving TEXT,
+        locatie TEXT,
+        startdatum DATE,
+        einddatum DATE,
+        latitude REAL,
+        longitude REAL,
+        geometry TEXT,
+        aangeleverd_door TEXT
+    )
+    """)
 
     try:
         cur.execute(
             "ALTER TABLE werkzaamheden ADD COLUMN geometry TEXT"
         )
     except:
-        pass 
+        pass
 
-    try: 
+    try:
         cur.execute(
             "ALTER TABLE werkzaamheden ADD COLUMN aangeleverd_door TEXT"
         )
@@ -197,9 +207,16 @@ CREATE TABLE IF NOT EXISTS werkzaamheden (
     except:
         pass
 
-    # Admin user (kolommen expliciet!)
+    # ================= ADMIN USER =================
+
     cur.execute("""
-    INSERT OR IGNORE INTO users (username, password, role, active)
+    INSERT OR IGNORE INTO users
+    (
+        username,
+        password,
+        role,
+        active
+    )
     VALUES (?,?,?,?)
     """, (
         "seref@dordrecht.nl",
