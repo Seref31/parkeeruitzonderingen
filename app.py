@@ -89,6 +89,14 @@ def init_db():
     )
     """)
 
+    try:
+    cur.execute("""
+        ALTER TABLE uitzonderingen
+        ADD COLUMN werkzaamheid_id INTEGER
+    """)
+except:
+    pass
+    
     cur.execute("""
     CREATE TABLE IF NOT EXISTS agenda (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -376,48 +384,154 @@ with tabs[0]:
 
 # ================= UITZONDERINGEN =================
 with tabs[1]:
+
     c = conn()
-    df = pd.read_sql("SELECT * FROM uitzonderingen", c)
+
+    st.header("🅿️ Uitzonderingen")
+
+    # ================= OVERZICHT =================
+
+    df = pd.read_sql("""
+        SELECT *
+        FROM uitzonderingen
+        ORDER BY start DESC
+    """, c)
 
     search = st.text_input("🔍 Zoeken")
+
     if search:
-        df = df[df.astype(str).apply(
-            lambda x: x.str.contains(search, case=False, na=False)
-        ).any(axis=1)]
+        df = df[
+            df.astype(str).apply(
+                lambda x: x.str.contains(
+                    search,
+                    case=False,
+                    na=False
+                )
+            ).any(axis=1)
+        ]
 
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(
+        df,
+        use_container_width=True
+    )
 
-    with st.form("uitz_add"):
-        naam = st.text_input("Naam")
-        kenteken = st.text_input("Kenteken")
-        opmerking = st.text_input("opmerking")
-        locatie = st.text_input("Locatie")
-        start = st.date_input("Start")
-        einde = st.date_input("Einde")
-
-        if st.form_submit_button("Toevoegen"):
-            c.execute("""
-                INSERT INTO uitzonderingen
-                (naam, kenteken, locatie, start, einde)
-                VALUES (?,?,?,?,?)
-            """, (naam, kenteken, locatie, start.isoformat(), einde.isoformat()))
-            c.commit()
-            upload_db()
-            st.rerun()
     st.divider()
 
-    st.subheader("🗑️ Uitzondering verwijderen")
+    # ================= TOEVOEGEN =================
+
+    st.subheader("➕ Nieuwe uitzondering")
+
+    df_werk = pd.read_sql("""
+        SELECT
+            id,
+            titel,
+            locatie,
+            startdatum,
+            einddatum
+        FROM werkzaamheden
+        ORDER BY startdatum DESC
+    """, c)
+
+    werk_opties = {
+        "Geen gekoppelde werkzaamheid": None
+    }
+
+    for _, row in df_werk.iterrows():
+
+        werk_opties[
+            f"{row['titel']} ({row['locatie']})"
+        ] = row["id"]
+
+    with st.form("uitz_add"):
+
+        naam = st.text_input("Naam")
+
+        kenteken = st.text_input(
+            "Kenteken"
+        ).upper()
+
+        opmerking = st.text_input(
+            "Opmerking"
+        )
+
+        locatie = st.text_input(
+            "Locatie"
+        )
+
+        gekoppelde_werkzaamheid = st.selectbox(
+            "Koppelen aan werkzaamheid (optioneel)",
+            list(werk_opties.keys())
+        )
+
+        start = st.date_input(
+            "Start"
+        )
+
+        einde = st.date_input(
+            "Einde"
+        )
+
+        if st.form_submit_button(
+            "➕ Toevoegen"
+        ):
+
+            c.execute("""
+                INSERT INTO uitzonderingen
+                (
+                    naam,
+                    kenteken,
+                    locatie,
+                    start,
+                    einde,
+                    werkzaamheid_id
+                )
+                VALUES
+                (?,?,?,?,?,?)
+            """, (
+                naam,
+                kenteken,
+                locatie,
+                start.isoformat(),
+                einde.isoformat(),
+                werk_opties[
+                    gekoppelde_werkzaamheid
+                ]
+            ))
+
+            c.commit()
+
+            try:
+                upload_db()
+            except:
+                pass
+
+            st.success(
+                "✅ Uitzondering toegevoegd"
+            )
+
+            st.rerun()
+
+    st.divider()
+
+    # ================= VERWIJDEREN =================
+
+    st.subheader(
+        "🗑️ Uitzondering verwijderen"
+    )
 
     if not df.empty:
 
         uitzondering_opties = {
-            f"{row['kenteken']} - {row['naam']} ({row['locatie']})": row["id"]
+            f"{row['kenteken']} - {row['naam']} ({row['locatie']})":
+            row["id"]
             for _, row in df.iterrows()
         }
 
         uitzondering_label = st.selectbox(
             "Selecteer uitzondering",
-            list(uitzondering_opties.keys()),
+            list(
+                uitzondering_opties.keys()
+            ),
             key="uitzondering_verwijderen"
         )
 
@@ -434,12 +548,18 @@ with tabs[1]:
             key="bevestig_uitzondering"
         )
 
-        if bevestiging and st.button(
-            "❌ Uitzondering verwijderen"
+        if (
+            bevestiging
+            and st.button(
+                "❌ Uitzondering verwijderen"
+            )
         ):
 
             c.execute(
-                "DELETE FROM uitzonderingen WHERE id=?",
+                """
+                DELETE FROM uitzonderingen
+                WHERE id=?
+                """,
                 (uitzondering_id,)
             )
 
@@ -455,7 +575,7 @@ with tabs[1]:
             )
 
             st.rerun()
-    
+
     c.close()
 
 # ================= AGENDA =================
