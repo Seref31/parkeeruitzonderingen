@@ -88,6 +88,14 @@ def init_db():
         werkzaamheid_id INTEGER
     )
     """)
+
+    try:
+    cur.execute("""
+        ALTER TABLE uitzonderingen
+        ADD COLUMN werkzaamheid_id INTEGER
+    """)
+except:
+    pass
     
     cur.execute("""
     CREATE TABLE IF NOT EXISTS agenda (
