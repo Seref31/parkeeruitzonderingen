@@ -409,103 +409,97 @@ with tabs[1]:
 
     st.divider()
 
-    # ================= TOEVOEGEN =================
+   # ==================================================
+# WERKZAAMHEDEN OPHALEN
+# ==================================================
 
-    st.subheader("➕ Nieuwe uitzondering")
+df_werk = pd.read_sql("""
+    SELECT
+        id,
+        titel,
+        locatie,
+        startdatum,
+        einddatum
+    FROM werkzaamheden
+    ORDER BY startdatum DESC
+""", c)
 
-    df_werk = pd.read_sql("""
-        SELECT
-            id,
-            titel,
-            locatie,
-            startdatum,
-            einddatum
-        FROM werkzaamheden
-        ORDER BY startdatum DESC
-    """, c)
+werk_opties = {
+    "Geen gekoppelde werkzaamheid": None
+}
 
-    werk_opties = {
-        "Geen gekoppelde werkzaamheid": None
-    }
+for _, row in df_werk.iterrows():
+    werk_opties[
+        f"{row['titel']} ({row['locatie']})"
+    ] = row["id"]
 
-    for _, row in df_werk.iterrows():
+# ==================================================
+# TOEVOEGEN
+# ==================================================
 
-        werk_opties[
-            f"{row['titel']} ({row['locatie']})"
-        ] = row["id"]
+st.subheader("➕ Nieuwe uitzondering")
 
-    with st.form("uitz_add"):
+with st.form("uitz_add"):
 
-        naam = st.text_input("Naam")
+    naam = st.text_input("Naam")
 
-        kenteken = st.text_input(
-            "Kenteken"
-        ).upper()
+    kenteken = st.text_input(
+        "Kenteken"
+    ).upper()
 
-        opmerking = st.text_input(
-            "Opmerking"
-        )
+    locatie = st.text_input(
+        "Locatie"
+    )
 
-        locatie = st.text_input(
-            "Locatie"
-        )
+    gekoppelde_werkzaamheid = st.selectbox(
+        "Koppelen aan werkzaamheid (optioneel)",
+        list(werk_opties.keys())
+    )
 
-        gekoppelde_werkzaamheid = st.selectbox(
-            "Koppelen aan werkzaamheid (optioneel)",
-            list(werk_opties.keys())
-        )
+    start = st.date_input("Start")
+    einde = st.date_input("Einde")
 
-        start = st.date_input(
-            "Start"
-        )
+    if st.form_submit_button("➕ Toevoegen"):
 
-        einde = st.date_input(
-            "Einde"
-        )
-
-        if st.form_submit_button(
-            "➕ Toevoegen"
-        ):
-
-            c.execute("""
-                INSERT INTO uitzonderingen
-                (
-                    naam,
-                    kenteken,
-                    locatie,
-                    start,
-                    einde,
-                    werkzaamheid_id
-                )
-                VALUES
-                (?,?,?,?,?,?)
-            """, (
+        c.execute("""
+            INSERT INTO uitzonderingen
+            (
                 naam,
                 kenteken,
                 locatie,
-                start.isoformat(),
-                einde.isoformat(),
-                werk_opties[
-                    gekoppelde_werkzaamheid
-                ]
-            ))
-
-            c.commit()
-
-            try:
-                upload_db()
-            except:
-                pass
-
-            st.success(
-                "✅ Uitzondering toegevoegd"
+                start,
+                einde,
+                werkzaamheid_id
             )
+            VALUES
+            (?,?,?,?,?,?)
+        """, (
+            naam,
+            kenteken,
+            locatie,
+            start.isoformat(),
+            einde.isoformat(),
+            werk_opties[gekoppelde_werkzaamheid]
+        ))
 
-            st.rerun()
+        c.commit()
 
-    st.divider()
+        try:
+            upload_db()
+        except:
+            pass
 
-    st.divider()
+        st.success(
+            "✅ Uitzondering toegevoegd"
+        )
+
+        st.rerun()
+
+st.divider()
+
+# ==================================================
+# BEWERKEN
+# ==================================================
 
 st.subheader("✏️ Uitzondering aanpassen")
 
@@ -522,13 +516,31 @@ if not df.empty:
         key="uitzondering_bewerken"
     )
 
-    uitzondering_id = uitzondering_opties[geselecteerd_label]
+    uitzondering_id = uitzondering_opties[
+        geselecteerd_label
+    ]
 
     uitzondering = df[
         df["id"] == uitzondering_id
     ].iloc[0]
 
-    with st.form("uitzondering_edit_form"):
+    huidige_werkzaamheid = uitzondering.get(
+        "werkzaamheid_id",
+        None
+    )
+
+    geselecteerde_index = 0
+
+    for i, waarde in enumerate(
+        werk_opties.values()
+    ):
+        if waarde == huidige_werkzaamheid:
+            geselecteerde_index = i
+            break
+
+    with st.form(
+        "uitzondering_edit_form"
+    ):
 
         naam = st.text_input(
             "Naam",
@@ -545,17 +557,29 @@ if not df.empty:
             value=uitzondering["locatie"]
         )
 
+        gekoppelde_werkzaamheid = st.selectbox(
+            "Gekoppelde werkzaamheid",
+            list(werk_opties.keys()),
+            index=geselecteerde_index
+        )
+
         start = st.date_input(
             "Start",
-            value=safe_date(uitzondering["start"])
+            value=safe_date(
+                uitzondering["start"]
+            )
         )
 
         einde = st.date_input(
             "Einde",
-            value=safe_date(uitzondering["einde"])
+            value=safe_date(
+                uitzondering["einde"]
+            )
         )
 
-        if st.form_submit_button("💾 Wijzigingen opslaan"):
+        if st.form_submit_button(
+            "💾 Wijzigingen opslaan"
+        ):
 
             c.execute("""
                 UPDATE uitzonderingen
@@ -564,7 +588,8 @@ if not df.empty:
                     kenteken=?,
                     locatie=?,
                     start=?,
-                    einde=?
+                    einde=?,
+                    werkzaamheid_id=?
                 WHERE id=?
             """, (
                 naam,
@@ -572,6 +597,9 @@ if not df.empty:
                 locatie,
                 start.isoformat(),
                 einde.isoformat(),
+                werk_opties[
+                    gekoppelde_werkzaamheid
+                ],
                 uitzondering_id
             ))
 
@@ -582,74 +610,78 @@ if not df.empty:
             except:
                 pass
 
-            st.success("✅ Uitzondering bijgewerkt")
+            st.success(
+                "✅ Uitzondering bijgewerkt"
+            )
 
             st.rerun()
 
-    # ================= VERWIJDEREN =================
+st.divider()
 
-    st.subheader(
-        "🗑️ Uitzondering verwijderen"
+# ==================================================
+# VERWIJDEREN
+# ==================================================
+
+st.subheader(
+    "🗑️ Uitzondering verwijderen"
+)
+
+if not df.empty:
+
+    uitzondering_opties = {
+        f"{row['kenteken']} - {row['naam']} ({row['locatie']})":
+        row["id"]
+        for _, row in df.iterrows()
+    }
+
+    uitzondering_label = st.selectbox(
+        "Selecteer uitzondering",
+        list(
+            uitzondering_opties.keys()
+        ),
+        key="uitzondering_verwijderen"
     )
 
-    if not df.empty:
+    uitzondering_id = uitzondering_opties[
+        uitzondering_label
+    ]
 
-        uitzondering_opties = {
-            f"{row['kenteken']} - {row['naam']} ({row['locatie']})":
-            row["id"]
-            for _, row in df.iterrows()
-        }
+    st.warning(
+        "⚠️ Deze uitzondering wordt definitief verwijderd."
+    )
 
-        uitzondering_label = st.selectbox(
-            "Selecteer uitzondering",
-            list(
-                uitzondering_opties.keys()
-            ),
-            key="uitzondering_verwijderen"
+    bevestiging = st.checkbox(
+        "Ik weet zeker dat ik deze uitzondering wil verwijderen",
+        key="bevestig_uitzondering"
+    )
+
+    if (
+        bevestiging
+        and st.button(
+            "❌ Uitzondering verwijderen"
+        )
+    ):
+
+        c.execute(
+            """
+            DELETE FROM uitzonderingen
+            WHERE id=?
+            """,
+            (uitzondering_id,)
         )
 
-        uitzondering_id = uitzondering_opties[
-            uitzondering_label
-        ]
+        c.commit()
 
-        st.warning(
-            "⚠️ Deze uitzondering wordt definitief verwijderd."
+        try:
+            upload_db()
+        except:
+            pass
+
+        st.success(
+            f"✅ Verwijderd: {uitzondering_label}"
         )
 
-        bevestiging = st.checkbox(
-            "Ik weet zeker dat ik deze uitzondering wil verwijderen",
-            key="bevestig_uitzondering"
-        )
-
-        if (
-            bevestiging
-            and st.button(
-                "❌ Uitzondering verwijderen"
-            )
-        ):
-
-            c.execute(
-                """
-                DELETE FROM uitzonderingen
-                WHERE id=?
-                """,
-                (uitzondering_id,)
-            )
-
-            c.commit()
-
-            try:
-                upload_db()
-            except:
-                pass
-
-            st.success(
-                f"✅ Verwijderd: {uitzondering_label}"
-            )
-
-            st.rerun()
-
-    c.close()
+        st.rerun()
 
 # ================= AGENDA =================
 with tabs[2]:
