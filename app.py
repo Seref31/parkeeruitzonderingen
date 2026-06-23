@@ -505,6 +505,85 @@ with tabs[1]:
 
     st.divider()
 
+st.subheader("✏️ Uitzondering aanpassen")
+
+if not df.empty:
+
+    uitzondering_opties = {
+        f"{row['kenteken']} - {row['naam']} ({row['locatie']})": row["id"]
+        for _, row in df.iterrows()
+    }
+
+    geselecteerd_label = st.selectbox(
+        "Selecteer uitzondering",
+        list(uitzondering_opties.keys()),
+        key="uitzondering_bewerken"
+    )
+
+    uitzondering_id = uitzondering_opties[geselecteerd_label]
+
+    uitzondering = df[
+        df["id"] == uitzondering_id
+    ].iloc[0]
+
+    with st.form("uitzondering_edit_form"):
+
+        naam = st.text_input(
+            "Naam",
+            value=uitzondering["naam"]
+        )
+
+        kenteken = st.text_input(
+            "Kenteken",
+            value=uitzondering["kenteken"]
+        )
+
+        locatie = st.text_input(
+            "Locatie",
+            value=uitzondering["locatie"]
+        )
+
+        start = st.date_input(
+            "Start",
+            value=safe_date(uitzondering["start"])
+        )
+
+        einde = st.date_input(
+            "Einde",
+            value=safe_date(uitzondering["einde"])
+        )
+
+        if st.form_submit_button("💾 Wijzigingen opslaan"):
+
+            c.execute("""
+                UPDATE uitzonderingen
+                SET
+                    naam=?,
+                    kenteken=?,
+                    locatie=?,
+                    start=?,
+                    einde=?
+                WHERE id=?
+            """, (
+                naam,
+                kenteken.upper(),
+                locatie,
+                start.isoformat(),
+                einde.isoformat(),
+                uitzondering_id
+            ))
+
+            c.commit()
+
+            try:
+                upload_db()
+            except:
+                pass
+
+            st.success("✅ Uitzondering bijgewerkt")
+
+            st.rerun()
+
     # ================= VERWIJDEREN =================
 
     st.subheader(
