@@ -77,7 +77,6 @@ def init_db():
         active INTEGER
     )
     """)
-
     cur.execute("""
     CREATE TABLE IF NOT EXISTS uitzonderingen (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,17 +84,10 @@ def init_db():
         kenteken TEXT,
         locatie TEXT,
         start DATE,
-        einde DATE
+        einde DATE,
+        werkzaamheid_id INTEGER
     )
     """)
-
-    try:
-    cur.execute("""
-        ALTER TABLE uitzonderingen
-        ADD COLUMN werkzaamheid_id INTEGER
-    """)
-except:
-    pass
     
     cur.execute("""
     CREATE TABLE IF NOT EXISTS agenda (
