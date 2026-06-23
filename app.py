@@ -793,9 +793,11 @@ with tabs[2]:
     c.close()
 # ================= PROJECTENOVERZICHT =================
 with tabs[3]:
+
     st.header("🧩 Projectenoverzicht")
 
     c = conn()
+
     df = pd.read_sql(
         "SELECT * FROM projecten_overzicht ORDER BY prioriteit, startdatum",
         c
@@ -803,151 +805,192 @@ with tabs[3]:
 
     # 🔍 Zoeken
     zoek = st.text_input("🔍 Zoeken (naam / adviseur / status)")
+
     if zoek:
         df = df[df.astype(str).apply(
-            lambda x: x.str.contains(zoek, case=False, na=False)
+            lambda x: x.str.contains(
+                zoek,
+                case=False,
+                na=False
+            )
         ).any(axis=1)]
 
     st.dataframe(df, use_container_width=True)
+
     st.divider()
 
     # ============== PROJECT TOEVOEGEN ==============
+
     if st.session_state.role in ["admin", "editor"]:
+
         st.subheader("➕ Nieuw project")
 
         with st.form("project_add"):
+
             naam = st.text_input("Projectnaam *")
             adviseur = st.text_input("Adviseur / projectleider")
-            prioriteit = st.selectbox("Prioriteit", ["Hoog", "Gemiddeld", "Laag"])
-            status = st.selectbox("Status", ["Niet gestart", "Actief", "Afgerond"])
+
+            prioriteit = st.selectbox(
+                "Prioriteit",
+                ["Hoog", "Gemiddeld", "Laag"]
+            )
+
+            status = st.selectbox(
+                "Status",
+                ["Niet gestart", "Actief", "Afgerond"]
+            )
+
             start = st.date_input("Startdatum")
             einde = st.date_input("Einddatum")
+
             toelichting = st.text_area("Toelichting")
 
             if st.form_submit_button("Opslaan"):
-                if not naam:
-                    st.error("Projectnaam is verplicht.")
-                else:
-                    c.execute("""
-                        INSERT INTO projecten_overzicht
-                        (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
-                        VALUES (?,?,?,?,?,?,?)
-                    """, (
+
+                c.execute("""
+                    INSERT INTO projecten_overzicht
+                    (
                         naam,
                         adviseur,
                         prioriteit,
                         status,
-                        start.isoformat(),
-                        einde.isoformat(),
+                        startdatum,
+                        einddatum,
                         toelichting
-                    ))
-                    c.commit()
-                    upload_db()
-                    st.success("✅ Project toegevoegd")
-                    st.rerun()
-    else:
-        st.info("👀 Alleen bekijken (geen rechten om te wijzigen).")
+                    )
+                    VALUES (?,?,?,?,?,?,?)
+                """, (
+                    naam,
+                    adviseur,
+                    prioriteit,
+                    status,
+                    start.isoformat(),
+                    einde.isoformat(),
+                    toelichting
+                ))
+
+                c.commit()
+                upload_db()
+
+                st.success("✅ Project toegevoegd")
+                st.rerun()
 
     st.divider()
 
     # ============== PROJECT AANPASSEN ==============
 
-st.subheader("✏️ Project aanpassen")
+    st.subheader("✏️ Project aanpassen")
 
-if not df.empty and st.session_state.role in ["admin", "editor"]:
+    if not df.empty and st.session_state.role in ["admin", "editor"]:
 
-    project_opties = {
-        f"{row['naam']} (#{row['id']})": row["id"]
-        for _, row in df.iterrows()
-    }
+        project_opties = {
+            f"{row['naam']} (#{row['id']})": row["id"]
+            for _, row in df.iterrows()
+        }
 
-    project_label = st.selectbox(
-        "Selecteer project",
-        list(project_opties.keys()),
-        key="project_edit_select"
-    )
-
-    project_id = project_opties[project_label]
-    project = df[df["id"] == project_id].iloc[0]
-
-    with st.form("project_edit_form"):
-
-        naam = st.text_input("Projectnaam", project["naam"])
-
-        adviseur = st.text_input(
-            "Adviseur",
-            project["adviseur"]
+        project_label = st.selectbox(
+            "Selecteer project",
+            list(project_opties.keys()),
+            key="project_edit_select"
         )
 
-        prioriteit = st.selectbox(
-            "Prioriteit",
-            ["Hoog", "Gemiddeld", "Laag"],
-            index=["Hoog", "Gemiddeld", "Laag"].index(
-                project["prioriteit"]
+        project_id = project_opties[project_label]
+
+        project = df[
+            df["id"] == project_id
+        ].iloc[0]
+
+        with st.form("project_edit_form"):
+
+            naam = st.text_input(
+                "Projectnaam",
+                project["naam"]
             )
-        )
 
-        status = st.selectbox(
-            "Status",
-            ["Niet gestart", "Actief", "Afgerond"],
-            index=["Niet gestart", "Actief", "Afgerond"].index(
-                project["status"]
+            adviseur = st.text_input(
+                "Adviseur",
+                project["adviseur"]
             )
+
+            prioriteit = st.selectbox(
+                "Prioriteit",
+                ["Hoog", "Gemiddeld", "Laag"],
+                index=["Hoog", "Gemiddeld", "Laag"].index(
+                    project["prioriteit"]
+                )
+            )
+
+            status = st.selectbox(
+                "Status",
+                ["Niet gestart", "Actief", "Afgerond"],
+                index=["Niet gestart", "Actief", "Afgerond"].index(
+                    project["status"]
+                )
+            )
+
+            start = st.date_input(
+                "Startdatum",
+                safe_date(project["startdatum"])
+            )
+
+            einde = st.date_input(
+                "Einddatum",
+                safe_date(project["einddatum"])
+            )
+
+            toelichting = st.text_area(
+                "Toelichting",
+                project["toelichting"]
+                if pd.notna(project["toelichting"])
+                else ""
+            )
+
+            if st.form_submit_button(
+                "💾 Wijzigingen opslaan"
+            ):
+
+                c.execute("""
+                    UPDATE projecten_overzicht
+                    SET
+                        naam=?,
+                        adviseur=?,
+                        prioriteit=?,
+                        status=?,
+                        startdatum=?,
+                        einddatum=?,
+                        toelichting=?
+                    WHERE id=?
+                """, (
+                    naam,
+                    adviseur,
+                    prioriteit,
+                    status,
+                    start.isoformat(),
+                    einde.isoformat(),
+                    toelichting,
+                    project_id
+                ))
+
+                c.commit()
+
+                try:
+                    upload_db()
+                except:
+                    pass
+
+                st.success("✅ Project aangepast")
+                st.rerun()
+
+    else:
+
+        st.info(
+            "👀 Geen projecten of onvoldoende rechten."
         )
 
-        start = st.date_input(
-            "Startdatum",
-            safe_date(project["startdatum"])
-        )
-
-        einde = st.date_input(
-            "Einddatum",
-            safe_date(project["einddatum"])
-        )
-
-        toelichting = st.text_area(
-            "Toelichting",
-            project["toelichting"]
-        )
-
-        if st.form_submit_button("💾 Wijzigingen opslaan"):
-
-            c.execute("""
-                UPDATE projecten_overzicht
-                SET
-                    naam=?,
-                    adviseur=?,
-                    prioriteit=?,
-                    status=?,
-                    startdatum=?,
-                    einddatum=?,
-                    toelichting=?
-                WHERE id=?
-            """, (
-                naam,
-                adviseur,
-                prioriteit,
-                status,
-                start.isoformat(),
-                einde.isoformat(),
-                toelichting,
-                project_id
-            ))
-
-            c.commit()
-
-            try:
-                upload_db()
-            except:
-                pass
-
-            st.success("✅ Project aangepast")
-            st.rerun()
-
-else:
-    st.info("👀 Geen projecten of onvoldoende rechten.")
+    st.divider()
 
     # ============== PROJECT VERWIJDEREN ==============
+
     st.subheader("🗑️ Project verwijderen")
 
     if not df.empty and st.session_state.role in ["admin", "editor"]:
@@ -960,56 +1003,21 @@ else:
 
         project_id = project_opties[project_label]
 
-        st.warning("⚠️ Deze actie is definitief.")
+        if st.button("❌ Verwijder project"):
 
-        if st.button("❌ Verwijder dit project"):
             c.execute(
                 "DELETE FROM projecten_overzicht WHERE id=?",
                 (project_id,)
             )
+
             c.commit()
+
             upload_db()
+
             st.success("✅ Project verwijderd")
             st.rerun()
-    else:
-        st.info("👀 Geen projecten of onvoldoende rechten.")
 
     c.close()
-
-    # ============== EXCEL IMPORT ==============
-    st.subheader("📥 Projecten importeren vanuit Excel")
-
-    excel_file = st.file_uploader(
-        "Upload Excelbestand (Projectenoverzicht)",
-        type=["xlsx"]
-    )
-
-    if excel_file:
-        df_excel = pd.read_excel(excel_file)
-        st.dataframe(df_excel.head(), use_container_width=True)
-
-        if st.button("✅ Importeer projecten uit Excel"):
-            for _, r in df_excel.iterrows():
-                c.execute("""
-                    INSERT INTO projecten_overzicht
-                    (naam, adviseur, prioriteit, status, startdatum, einddatum, toelichting)
-                    VALUES (?,?,?,?,?,?,?)
-                """, (
-                    str(r.get("naam", "")).strip(),
-                    str(r.get("Adviseur", "")).strip(),
-                    str(r.get("prio", "")).strip(),
-                    str(r.get("status", "")).strip(),
-                    str(r.get("(geplande) Startdatum", "")),
-                    str(r.get("(geplande) Einddatum", "")),
-                    str(r.get("status", ""))
-                ))
-            c.commit()
-            upload_db()
-            st.success("✅ Excel geïmporteerd")
-            st.rerun()
-
-    c.close()
-
 # ================= WERKZAAMHEDEN =================
 with tabs[4]:
 
