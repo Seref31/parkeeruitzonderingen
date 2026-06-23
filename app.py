@@ -505,6 +505,8 @@ with tabs[1]:
 
     st.divider()
 
+    st.divider()
+
 st.subheader("✏️ Uitzondering aanpassen")
 
 if not df.empty:
