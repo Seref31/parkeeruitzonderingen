@@ -77,8 +77,8 @@ def init_db():
         active INTEGER
     )
     """)
-    
-  cur.execute("""
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS uitzonderingen (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         naam TEXT,
@@ -90,13 +90,16 @@ def init_db():
     )
     """)
 
-try:
-    cur.execute("""
-        ALTER TABLE uitzonderingen
-        ADD COLUMN werkzaamheid_id INTEGER
-    """)
-except:
-    pass
+    try:
+        cur.execute("""
+            ALTER TABLE uitzonderingen
+            ADD COLUMN werkzaamheid_id INTEGER
+        """)
+    except:
+        pass
+
+    c.commit()
+    c.close()
     
     cur.execute("""
     CREATE TABLE IF NOT EXISTS agenda (
