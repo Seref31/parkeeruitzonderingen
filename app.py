@@ -851,7 +851,8 @@ with tabs[3]:
     st.divider()
 
     # ============== PROJECT AANPASSEN ==============
- st.subheader("✏️ Project aanpassen")
+
+st.subheader("✏️ Project aanpassen")
 
 if not df.empty and st.session_state.role in ["admin", "editor"]:
 
@@ -871,11 +872,68 @@ if not df.empty and st.session_state.role in ["admin", "editor"]:
 
     with st.form("project_edit_form"):
 
-        # alle velden hier...
+        naam = st.text_input("Projectnaam", project["naam"])
+
+        adviseur = st.text_input(
+            "Adviseur",
+            project["adviseur"]
+        )
+
+        prioriteit = st.selectbox(
+            "Prioriteit",
+            ["Hoog", "Gemiddeld", "Laag"],
+            index=["Hoog", "Gemiddeld", "Laag"].index(
+                project["prioriteit"]
+            )
+        )
+
+        status = st.selectbox(
+            "Status",
+            ["Niet gestart", "Actief", "Afgerond"],
+            index=["Niet gestart", "Actief", "Afgerond"].index(
+                project["status"]
+            )
+        )
+
+        start = st.date_input(
+            "Startdatum",
+            safe_date(project["startdatum"])
+        )
+
+        einde = st.date_input(
+            "Einddatum",
+            safe_date(project["einddatum"])
+        )
+
+        toelichting = st.text_area(
+            "Toelichting",
+            project["toelichting"]
+        )
 
         if st.form_submit_button("💾 Wijzigingen opslaan"):
 
-            c.execute(...)
+            c.execute("""
+                UPDATE projecten_overzicht
+                SET
+                    naam=?,
+                    adviseur=?,
+                    prioriteit=?,
+                    status=?,
+                    startdatum=?,
+                    einddatum=?,
+                    toelichting=?
+                WHERE id=?
+            """, (
+                naam,
+                adviseur,
+                prioriteit,
+                status,
+                start.isoformat(),
+                einde.isoformat(),
+                toelichting,
+                project_id
+            ))
+
             c.commit()
 
             try:
