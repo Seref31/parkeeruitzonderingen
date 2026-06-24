@@ -139,6 +139,7 @@ def init_db():
         geupload_op TEXT
     )
     """)
+
 # ================= PROJECTEN =================
 
 cur.execute("""
@@ -146,6 +147,7 @@ CREATE TABLE IF NOT EXISTS projecten_overzicht (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     naam TEXT,
     adviseur TEXT,
+    projectsecretaris TEXT,
     prioriteit TEXT,
     status TEXT,
     startdatum DATE,
