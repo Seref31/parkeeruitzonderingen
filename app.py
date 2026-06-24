@@ -798,6 +798,7 @@ with tabs[2]:
             st.rerun()
 
     c.close()
+    
 # ================= PROJECTENOVERZICHT =================
 with tabs[3]:
 
@@ -805,20 +806,20 @@ with tabs[3]:
 
     c = conn()
 
-   df = pd.read_sql("""
-    SELECT
-        id,
-        naam,
-        adviseur,
-        projectsecretaris,
-        prioriteit,
-        status,
-        startdatum,
-        einddatum,
-        toelichting
-    FROM projecten_overzicht
-    ORDER BY prioriteit, startdatum
-""", c)
+    df = pd.read_sql("""
+        SELECT
+            id,
+            naam,
+            adviseur,
+            projectsecretaris,
+            prioriteit,
+            status,
+            startdatum,
+            einddatum,
+            toelichting
+        FROM projecten_overzicht
+        ORDER BY prioriteit, startdatum
+    """, c)
 
     # ============== PROJECT TOEVOEGEN ==============
 
