@@ -139,21 +139,28 @@ def init_db():
         geupload_op TEXT
     )
     """)
+# ================= PROJECTEN =================
 
-    # ================= PROJECTEN =================
+cur.execute("""
+CREATE TABLE IF NOT EXISTS projecten_overzicht (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    naam TEXT,
+    adviseur TEXT,
+    prioriteit TEXT,
+    status TEXT,
+    startdatum DATE,
+    einddatum DATE,
+    toelichting TEXT
+)
+""")
 
+try:
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS projecten_overzicht (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        naam TEXT,
-        adviseur TEXT,
-        prioriteit TEXT,
-        status TEXT,
-        startdatum DATE,
-        einddatum DATE,
-        toelichting TEXT
-    )
+        ALTER TABLE projecten_overzicht
+        ADD COLUMN projectsecretaris TEXT
     """)
+except:
+    pass
 
     # ================= WERKZAAMHEDEN =================
 
@@ -798,26 +805,20 @@ with tabs[3]:
 
     c = conn()
 
-    df = pd.read_sql(
-        "SELECT * FROM projecten_overzicht ORDER BY prioriteit, startdatum",
-        c
-    )
-
-    # 🔍 Zoeken
-    zoek = st.text_input("🔍 Zoeken (naam / adviseur / status)")
-
-    if zoek:
-        df = df[df.astype(str).apply(
-            lambda x: x.str.contains(
-                zoek,
-                case=False,
-                na=False
-            )
-        ).any(axis=1)]
-
-    st.dataframe(df, use_container_width=True)
-
-    st.divider()
+   df = pd.read_sql("""
+    SELECT
+        id,
+        naam,
+        adviseur,
+        projectsecretaris,
+        prioriteit,
+        status,
+        startdatum,
+        einddatum,
+        toelichting
+    FROM projecten_overzicht
+    ORDER BY prioriteit, startdatum
+""", c)
 
     # ============== PROJECT TOEVOEGEN ==============
 
@@ -829,6 +830,10 @@ with tabs[3]:
 
             naam = st.text_input("Projectnaam *")
             adviseur = st.text_input("Adviseur / projectleider")
+
+            projectsecretaris = st.text_input(
+        "Betrokken projectsecretaris (optioneel)"
+    )
 
             prioriteit = st.selectbox(
                 "Prioriteit",
@@ -852,6 +857,7 @@ with tabs[3]:
                     (
                         naam,
                         adviseur,
+                        projectsecretaris,
                         prioriteit,
                         status,
                         startdatum,
@@ -862,6 +868,7 @@ with tabs[3]:
                 """, (
                     naam,
                     adviseur,
+                    projectsecretaris,
                     prioriteit,
                     status,
                     start.isoformat(),
@@ -911,6 +918,12 @@ with tabs[3]:
                 "Adviseur",
                 project["adviseur"]
             )
+            projectsecretaris = st.text_input(
+        "Projectsecretaris",
+        project["projectsecretaris"]
+        if pd.notna(project["projectsecretaris"])
+        else ""
+    )
 
             prioriteit = st.selectbox(
                 "Prioriteit",
@@ -954,6 +967,7 @@ with tabs[3]:
                     SET
                         naam=?,
                         adviseur=?,
+                        projectsecretaris=?
                         prioriteit=?,
                         status=?,
                         startdatum=?,
@@ -963,6 +977,7 @@ with tabs[3]:
                 """, (
                     naam,
                     adviseur,
+                    projectsecretaris,
                     prioriteit,
                     status,
                     start.isoformat(),
