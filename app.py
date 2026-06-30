@@ -840,7 +840,7 @@ with tabs[3]:
 
    # ============== PROJECT TOEVOEGEN ==============
 
-if st.session_state.role in ["admin", "editor"]:
+    if st.session_state.role in ["admin", "editor"]:
 
     st.subheader("➕ Nieuw project")
 
@@ -914,7 +914,7 @@ if st.session_state.role in ["admin", "editor"]:
 
 st.subheader("✏️ Project aanpassen")
 
-if not df.empty and st.session_state.role in ["admin", "editor"]:
+    if not df.empty and st.session_state.role in ["admin", "editor"]:
 
     project_opties = {
         f"{row['naam']} (#{row['id']})": row["id"]
