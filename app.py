@@ -1034,7 +1034,7 @@ else:
 
     st.info("👀 Geen projecten of onvoldoende rechten.")
 
-st.divider()
+    st.divider()
 
     # ============== PROJECT VERWIJDEREN ==============
 
