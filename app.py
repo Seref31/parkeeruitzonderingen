@@ -193,22 +193,23 @@ CREATE TABLE IF NOT EXISTS project_taken (
     FOREIGN KEY(project_id) REFERENCES projecten_overzicht(id)
 )
 """)
-    # ================= WERKZAAMHEDEN =================
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS werkzaamheden (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        titel TEXT,
-        omschrijving TEXT,
-        locatie TEXT,
-        startdatum DATE,
-        einddatum DATE,
-        latitude REAL,
-        longitude REAL,
-        geometry TEXT,
-        aangeleverd_door TEXT
-    )
-    """)
+# ================= WERKZAAMHEDEN =================
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS werkzaamheden (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    titel TEXT,
+    omschrijving TEXT,
+    locatie TEXT,
+    startdatum DATE,
+    einddatum DATE,
+    latitude REAL,
+    longitude REAL,
+    geometry TEXT,
+    aangeleverd_door TEXT
+)
+""")
 
     try:
         cur.execute(
