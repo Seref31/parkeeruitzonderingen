@@ -140,76 +140,77 @@ def init_db():
     )
     """)
 
-  # ================= PROJECTEN =================
+    # ================= PROJECTEN =================
 
-cur.execute("""
-CREATE TABLE IF NOT EXISTS projecten_overzicht (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    naam TEXT,
-    adviseur TEXT,
-    projectsecretaris_betrokken TEXT,
-    projectsecretaris TEXT,
-    prioriteit TEXT,
-    status TEXT,
-    startdatum DATE,
-    einddatum DATE,
-    toelichting TEXT
-)
-""")
-
-# Bestaande databases uitbreiden
-try:
     cur.execute("""
-    ALTER TABLE projecten_overzicht
-    ADD COLUMN projectsecretaris_betrokken TEXT
+    CREATE TABLE IF NOT EXISTS projecten_overzicht (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT,
+        adviseur TEXT,
+        projectsecretaris_betrokken TEXT,
+        projectsecretaris TEXT,
+        prioriteit TEXT,
+        status TEXT,
+        startdatum DATE,
+        einddatum DATE,
+        toelichting TEXT
+    )
     """)
-except:
-    pass
 
-try:
+    # Bestaande databases uitbreiden
+    try:
+        cur.execute("""
+        ALTER TABLE projecten_overzicht
+        ADD COLUMN projectsecretaris_betrokken TEXT
+        """)
+    except:
+        pass
+
+    try:
+        cur.execute("""
+        ALTER TABLE projecten_overzicht
+        ADD COLUMN projectsecretaris TEXT
+        """)
+    except:
+        pass
+
+
+    # ================= PROJECTTAKEN =================
+
     cur.execute("""
-    ALTER TABLE projecten_overzicht
-    ADD COLUMN projectsecretaris TEXT
+    CREATE TABLE IF NOT EXISTS project_taken (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        titel TEXT NOT NULL,
+        omschrijving TEXT,
+        eigenaar TEXT,
+        prioriteit TEXT DEFAULT 'Gemiddeld',
+        status TEXT DEFAULT 'Niet gestart',
+        startdatum DATE,
+        einddatum DATE,
+        voltooid_op DATE,
+        aangemaakt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(project_id) REFERENCES projecten_overzicht(id)
+    )
     """)
-except:
-    pass
 
 
-# ================= PROJECTTAKEN =================
+    # ================= WERKZAAMHEDEN =================
 
-cur.execute("""
-CREATE TABLE IF NOT EXISTS project_taken (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER NOT NULL,
-    titel TEXT NOT NULL,
-    omschrijving TEXT,
-    eigenaar TEXT,
-    prioriteit TEXT DEFAULT 'Gemiddeld',
-    status TEXT DEFAULT 'Niet gestart',
-    startdatum DATE,
-    einddatum DATE,
-    voltooid_op DATE,
-    aangemaakt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(project_id) REFERENCES projecten_overzicht(id)
-)
-""")
-
-# ================= WERKZAAMHEDEN =================
-
-cur.execute("""
-CREATE TABLE IF NOT EXISTS werkzaamheden (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    titel TEXT,
-    omschrijving TEXT,
-    locatie TEXT,
-    startdatum DATE,
-    einddatum DATE,
-    latitude REAL,
-    longitude REAL,
-    geometry TEXT,
-    aangeleverd_door TEXT
-)
-""")
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS werkzaamheden (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titel TEXT,
+        omschrijving TEXT,
+        locatie TEXT,
+        startdatum DATE,
+        einddatum DATE,
+        latitude REAL,
+        longitude REAL,
+        geometry TEXT,
+        aangeleverd_door TEXT
+    )
+    """)
 
     try:
         cur.execute(
