@@ -959,34 +959,34 @@ if st.session_state.role in ["admin", "editor"]:
                     "Naam projectsecretaris",
                     value=project["projectsecretaris"] if pd.notna(project["projectsecretaris"]) else ""
                 )
-    prioriteit = st.selectbox(
-        "Prioriteit",
-        ["Hoog", "Gemiddeld", "Laag"],
-        index=["Hoog", "Gemiddeld", "Laag"].index(project["prioriteit"])
-    )
+        prioriteit = st.selectbox(
+            "Prioriteit",
+            ["Hoog", "Gemiddeld", "Laag"],
+            index=["Hoog", "Gemiddeld", "Laag"].index(project["prioriteit"])
+        )
 
-    status = st.selectbox(
-        "Status",
-        ["Niet gestart", "Actief", "Afgerond"],
-        index=["Niet gestart", "Actief", "Afgerond"].index(project["status"])
-    )
+        status = st.selectbox(
+            "Status",
+            ["Niet gestart", "Actief", "Afgerond"],
+            index=["Niet gestart", "Actief", "Afgerond"].index(project["status"])
+        )
 
-    start = st.date_input(
-        "Startdatum",
-        safe_date(project["startdatum"])
-    )
+        start = st.date_input(
+            "Startdatum",
+            safe_date(project["startdatum"])
+        )
 
-    einde = st.date_input(
-        "Einddatum",
-        safe_date(project["einddatum"])
-    )
+        einde = st.date_input(
+            "Einddatum",
+            safe_date(project["einddatum"])
+        )
 
-    toelichting = st.text_area(
-        "Toelichting",
-        value=project["toelichting"] if pd.notna(project["toelichting"]) else ""
-    )
+        toelichting = st.text_area(
+            "Toelichting",
+            value=project["toelichting"] if pd.notna(project["toelichting"]) else ""
+        )
 
-    if st.form_submit_button("💾 Wijzigingen opslaan"):
+        if st.form_submit_button("💾 Wijzigingen opslaan"):
 
         c.execute("""
             UPDATE projecten_overzicht
