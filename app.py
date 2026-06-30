@@ -142,37 +142,37 @@ def init_db():
 
     # ================= PROJECTEN =================
 
-cur.execute("""
-CREATE TABLE IF NOT EXISTS projecten_overzicht (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    naam TEXT,
-    adviseur TEXT,
-    projectsecretaris_betrokken TEXT,
-    projectsecretaris TEXT,
-    prioriteit TEXT,
-    status TEXT,
-    startdatum DATE,
-    einddatum DATE,
-    toelichting TEXT
-)
-""")
-
-# Bestaande databases uitbreiden
-try:
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS projecten_overzicht (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT,
+        adviseur TEXT,
+        projectsecretaris_betrokken TEXT,
+        projectsecretaris TEXT,
+        prioriteit TEXT,
+        status TEXT,
+        startdatum DATE,
+        einddatum DATE,
+        toelichting TEXT
+    )
+    """)
+
+    # Bestaande databases uitbreiden
+    try:
+        cur.execute("""
         ALTER TABLE projecten_overzicht
         ADD COLUMN projectsecretaris_betrokken TEXT
     """)
-except:
-    pass
+    except:
+        pass
 
-try:
+    try:
     cur.execute("""
         ALTER TABLE projecten_overzicht
         ADD COLUMN projectsecretaris TEXT
     """)
-except:
-    pass
+    except:
+        pass
 
     # ================= WERKZAAMHEDEN =================
 
