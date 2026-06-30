@@ -1086,60 +1086,67 @@ with tabs[3]:
 
             st.divider()
 
-        # ==================================================
-    # PROJECTVOORTGANG
-    # ==================================================
-    
-    totaal_taken = c.execute(
-        """
-        SELECT COUNT(*)
-        FROM project_taken
-        WHERE project_id=?
-        """,
-        (project_id,)
-    ).fetchone()[0]
-    
-    afgerond_taken = c.execute(
-        """
-        SELECT COUNT(*)
-        FROM project_taken
-        WHERE project_id=?
-        AND status='Afgerond'
-        """,
-        (project_id,)
-    ).fetchone()[0]
-    
-    percentage = 0
-    
-    if totaal_taken > 0:
-        percentage = int((afgerond_taken / totaal_taken) * 100)
-    
-    st.subheader("📈 Projectvoortgang")
-    
-    st.progress(percentage / 100)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    col1.metric("📋 Taken", totaal_taken)
-    col2.metric("✅ Afgerond", afgerond_taken)
-    col3.metric("📊 Voortgang", f"{percentage}%")
+         st.divider()
 
-    
+        # ==================================================
+        # PROJECTVOORTGANG
+        # ==================================================
+
+        totaal_taken = c.execute(
+            """
+            SELECT COUNT(*)
+            FROM project_taken
+            WHERE project_id=?
+            """,
+            (project_id,)
+        ).fetchone()[0]
+
+        afgerond_taken = c.execute(
+            """
+            SELECT COUNT(*)
+            FROM project_taken
+            WHERE project_id=?
+            AND status='Afgerond'
+            """,
+            (project_id,)
+        ).fetchone()[0]
+
+        percentage = 0
+
+        if totaal_taken > 0:
+            percentage = round((afgerond_taken / totaal_taken) * 100)
+
+        st.subheader("📈 Projectvoortgang")
+
+        st.progress(percentage / 100)
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric("📋 Taken", totaal_taken)
+        col2.metric("✅ Afgerond", afgerond_taken)
+        col3.metric("📊 Voortgang", f"{percentage}%")
+
+        st.divider()
+
+        # ==================================================
+        # TAKEN
+        # ==================================================
+
         st.subheader("📋 Taken")
 
         df_taken = pd.read_sql(
             """
-            SELECT
-                id,
-                titel,
-                eigenaar,
-                prioriteit,
-                status,
-                startdatum,
-                einddatum
+            SELECT *
             FROM project_taken
             WHERE project_id=?
-            ORDER BY einddatum
+            ORDER BY
+                CASE status
+                    WHEN 'Actief' THEN 1
+                    WHEN 'Niet gestart' THEN 2
+                    WHEN 'Wachten op' THEN 3
+                    WHEN 'Afgerond' THEN 4
+                END,
+                einddatum
             """,
             c,
             params=(project_id,)
@@ -1151,240 +1158,313 @@ with tabs[3]:
 
         else:
 
-            if df_taken.empty:
+            for _, taak in df_taken.iterrows():
 
-    st.info("Nog geen taken toegevoegd.")
+                if taak["status"] == "Afgerond":
+                    icoon = "✅"
+                elif taak["status"] == "Actief":
+                    icoon = "🟢"
+                elif taak["status"] == "Wachten op":
+                    icoon = "🟡"
+                else:
+                    icoon = "⚪"
 
-else:
+                with st.container(border=True):
 
-    for _, taak in df_taken.iterrows():
+                    st.markdown(f"### {icoon} {taak['titel']}")
 
-    if taak["status"] == "Afgerond":
-        icoon = "✅"
-    elif taak["status"] == "Actief":
-        icoon = "🟢"
-    elif taak["status"] == "Wachten op":
-        icoon = "🟡"
-    else:
-        icoon = "⚪"
+                    col1, col2 = st.columns(2)
 
-    with st.container(border=True):
+                    with col1:
+                        st.write(f"👤 **Eigenaar:** {taak['eigenaar']}")
+                        st.write(f"🚦 **Status:** {taak['status']}")
 
-        st.markdown(f"### {icoon} {taak['titel']}")
+                    with col2:
+                        st.write(f"🔥 **Prioriteit:** {taak['prioriteit']}")
+                        st.write(f"📅 **Deadline:** {taak['einddatum']}")
 
-        col1, col2 = st.columns(2)
+                    if (
+                        pd.notna(taak["omschrijving"])
+                        and taak["omschrijving"]
+                    ):
+                        st.caption(taak["omschrijving"])
 
-        with col1:
-            st.write(f"👤 **Eigenaar:** {taak['eigenaar']}")
-            st.write(f"🚦 **Status:** {taak['status']}")
+                    if taak["status"] == "Afgerond":
+                        st.success("Afgerond")
+                    elif taak["status"] == "Actief":
+                        st.info("In uitvoering")
+                    elif taak["status"] == "Wachten op":
+                        st.warning("Wachten op")
+                    else:
+                        st.error("Nog niet gestart")
 
-        with col2:
-            st.write(f"🔥 **Prioriteit:** {taak['prioriteit']}")
-            st.write(f"📅 **Deadline:** {taak['einddatum']}")
+        st.divider()
+                # ==================================================
+        # TAAK BEHEREN
+        # ==================================================
 
-        if pd.notna(taak["omschrijving"]) and taak["omschrijving"]:
-            st.caption(taak["omschrijving"])
-    )
+        if not df_taken.empty:
 
-    st.subheader("✏️ Taak beheren")
+            st.subheader("✏️ Taak beheren")
 
-    taak_opties = {
-        f"{row['titel']} ({row['status']})": row["id"]
-        for _, row in df_taken.iterrows()
-    }
+            taak_opties = {
+                f"{row['titel']} ({row['status']})": row["id"]
+                for _, row in df_taken.iterrows()
+            }
 
-    taak_label = st.selectbox(
-        "Selecteer taak",
-        list(taak_opties.keys())
-    )
-
-    taak_id = taak_opties[taak_label]
-
-    taak = pd.read_sql(
-        "SELECT * FROM project_taken WHERE id=?",
-        c,
-        params=(taak_id,)
-    ).iloc[0]
-
-    with st.form("taak_bewerken"):
-
-        titel = st.text_input(
-            "Titel",
-            value=taak["titel"]
-        )
-
-        omschrijving = st.text_area(
-            "Omschrijving",
-            value=taak["omschrijving"] if pd.notna(taak["omschrijving"]) else ""
-        )
-
-        eigenaar = st.text_input(
-            "Eigenaar",
-            value=taak["eigenaar"] if pd.notna(taak["eigenaar"]) else ""
-        )
-
-        prioriteit = st.selectbox(
-            "Prioriteit",
-            ["Laag","Gemiddeld","Hoog"],
-            index=["Laag","Gemiddeld","Hoog"].index(taak["prioriteit"])
-        )
-
-        status = st.selectbox(
-            "Status",
-            [
-                "Niet gestart",
-                "Actief",
-                "Wachten op",
-                "Afgerond"
-            ],
-            index=[
-                "Niet gestart",
-                "Actief",
-                "Wachten op",
-                "Afgerond"
-            ].index(taak["status"])
-        )
-
-        startdatum = st.date_input(
-            "Startdatum",
-            safe_date(taak["startdatum"])
-        )
-
-        einddatum = st.date_input(
-            "Einddatum",
-            safe_date(taak["einddatum"])
-        )
-
-        col1, col2 = st.columns(2)
-
-        opslaan = col1.form_submit_button("💾 Opslaan")
-        verwijderen = col2.form_submit_button("🗑️ Verwijderen")
-
-        if opslaan:
-
-            c.execute("""
-                UPDATE project_taken
-                SET
-                    titel=?,
-                    omschrijving=?,
-                    eigenaar=?,
-                    prioriteit=?,
-                    status=?,
-                    startdatum=?,
-                    einddatum=?
-                WHERE id=?
-            """,(
-                titel,
-                omschrijving,
-                eigenaar,
-                prioriteit,
-                status,
-                startdatum.isoformat(),
-                einddatum.isoformat(),
-                taak_id
-            ))
-
-            c.commit()
-
-            try:
-                upload_db()
-            except:
-                pass
-
-            st.success("✅ Taak bijgewerkt")
-
-            st.rerun()
-
-        if verwijderen:
-
-            c.execute(
-                "DELETE FROM project_taken WHERE id=?",
-                (taak_id,)
+            taak_label = st.selectbox(
+                "Selecteer taak",
+                list(taak_opties.keys()),
+                key="taak_selecteren"
             )
 
-            c.commit()
+            taak_id = taak_opties[taak_label]
 
-            try:
-                upload_db()
-            except:
-                pass
+            taak = pd.read_sql(
+                "SELECT * FROM project_taken WHERE id=?",
+                c,
+                params=(taak_id,)
+            ).iloc[0]
 
-            st.success("✅ Taak verwijderd")
+            with st.form("taak_bewerken"):
 
-            st.rerun()
+                titel = st.text_input(
+                    "Titel",
+                    value=taak["titel"]
+                )
 
-    st.divider()
+                omschrijving = st.text_area(
+                    "Omschrijving",
+                    value=taak["omschrijving"] if pd.notna(taak["omschrijving"]) else ""
+                )
 
-st.subheader("➕ Nieuwe taak")
+                eigenaar = st.text_input(
+                    "Eigenaar",
+                    value=taak["eigenaar"] if pd.notna(taak["eigenaar"]) else ""
+                )
 
-with st.form("taak_toevoegen"):
+                prioriteit = st.selectbox(
+                    "Prioriteit",
+                    ["Laag", "Gemiddeld", "Hoog"],
+                    index=["Laag", "Gemiddeld", "Hoog"].index(
+                        taak["prioriteit"]
+                    )
+                )
 
-    titel = st.text_input("Titel *")
+                status = st.selectbox(
+                    "Status",
+                    [
+                        "Niet gestart",
+                        "Actief",
+                        "Wachten op",
+                        "Afgerond"
+                    ],
+                    index=[
+                        "Niet gestart",
+                        "Actief",
+                        "Wachten op",
+                        "Afgerond"
+                    ].index(
+                        taak["status"]
+                    )
+                )
 
-    omschrijving = st.text_area("Omschrijving")
+                startdatum = st.date_input(
+                    "Startdatum",
+                    safe_date(taak["startdatum"])
+                )
 
-    eigenaar = st.text_input("Eigenaar")
+                einddatum = st.date_input(
+                    "Einddatum",
+                    safe_date(taak["einddatum"])
+                )
 
-    prioriteit = st.selectbox(
-        "Prioriteit",
-        ["Laag", "Gemiddeld", "Hoog"]
-    )
+                col1, col2 = st.columns(2)
 
-    status = st.selectbox(
-        "Status",
-        [
-            "Niet gestart",
-            "Actief",
-            "Wachten op",
-            "Afgerond"
-        ]
-    )
+                opslaan = col1.form_submit_button(
+                    "💾 Opslaan"
+                )
 
-    startdatum = st.date_input("Startdatum")
+                verwijderen = col2.form_submit_button(
+                    "🗑️ Verwijderen"
+                )
 
-    einddatum = st.date_input("Einddatum")
+                if opslaan:
 
-    if st.form_submit_button("➕ Taak toevoegen"):
+                    voltooid_op = None
 
-        c.execute("""
-            INSERT INTO project_taken
-            (
-                project_id,
-                titel,
-                omschrijving,
-                eigenaar,
-                prioriteit,
-                status,
-                startdatum,
-                einddatum
+                    if status == "Afgerond":
+                        from datetime import date
+                        voltooid_op = date.today().isoformat()
+
+                    c.execute("""
+                        UPDATE project_taken
+                        SET
+                            titel=?,
+                            omschrijving=?,
+                            eigenaar=?,
+                            prioriteit=?,
+                            status=?,
+                            startdatum=?,
+                            einddatum=?,
+                            voltooid_op=?
+                        WHERE id=?
+                    """, (
+                        titel,
+                        omschrijving,
+                        eigenaar,
+                        prioriteit,
+                        status,
+                        startdatum.isoformat(),
+                        einddatum.isoformat(),
+                        voltooid_op,
+                        taak_id
+                    ))
+
+                    c.commit()
+
+                    try:
+                        upload_db()
+                    except:
+                        pass
+
+                    st.success("✅ Taak bijgewerkt")
+
+                    st.rerun()
+
+                if verwijderen:
+
+                    c.execute(
+                        "DELETE FROM project_taken WHERE id=?",
+                        (taak_id,)
+                    )
+
+                    c.commit()
+
+                    try:
+                        upload_db()
+                    except:
+                        pass
+
+                    st.success("✅ Taak verwijderd")
+
+                    st.rerun()
+
+        st.divider()
+
+            # ==================================================
+        # NIEUWE TAAK
+        # ==================================================
+
+        st.subheader("➕ Nieuwe taak")
+
+        with st.form("taak_toevoegen", clear_on_submit=True):
+
+            titel = st.text_input("Titel *")
+
+            omschrijving = st.text_area(
+                "Omschrijving"
             )
-            VALUES (?,?,?,?,?,?,?,?)
-        """, (
-            project_id,
-            titel,
-            omschrijving,
-            eigenaar,
-            prioriteit,
-            status,
-            startdatum.isoformat(),
-            einddatum.isoformat()
-        ))
 
-        c.commit()
+            eigenaar = st.text_input(
+                "Eigenaar"
+            )
 
-        try:
-            upload_db()
-        except:
-            pass
+            col1, col2 = st.columns(2)
 
-        st.success("✅ Taak toegevoegd")
+            with col1:
 
-        st.rerun()
+                prioriteit = st.selectbox(
+                    "Prioriteit",
+                    [
+                        "Laag",
+                        "Gemiddeld",
+                        "Hoog"
+                    ]
+                )
 
-    else:
-        st.info("👀 Geen projecten of onvoldoende rechten.")
+                status = st.selectbox(
+                    "Status",
+                    [
+                        "Niet gestart",
+                        "Actief",
+                        "Wachten op",
+                        "Afgerond"
+                    ]
+                )
 
-    st.divider()
+            with col2:
+
+                startdatum = st.date_input(
+                    "Startdatum"
+                )
+
+                einddatum = st.date_input(
+                    "Einddatum"
+                )
+
+            toevoegen = st.form_submit_button(
+                "➕ Taak toevoegen",
+                use_container_width=True
+            )
+
+            if toevoegen:
+
+                if titel.strip() == "":
+
+                    st.error(
+                        "Vul minimaal een titel in."
+                    )
+
+                else:
+
+                    voltooid_op = None
+
+                    if status == "Afgerond":
+                        from datetime import date
+                        voltooid_op = date.today().isoformat()
+
+                    c.execute("""
+                        INSERT INTO project_taken
+                        (
+                            project_id,
+                            titel,
+                            omschrijving,
+                            eigenaar,
+                            prioriteit,
+                            status,
+                            startdatum,
+                            einddatum,
+                            voltooid_op
+                        )
+                        VALUES
+                        (?,?,?,?,?,?,?,?,?)
+                    """,(
+                        project_id,
+                        titel,
+                        omschrijving,
+                        eigenaar,
+                        prioriteit,
+                        status,
+                        startdatum.isoformat(),
+                        einddatum.isoformat(),
+                        voltooid_op
+                    ))
+
+                    c.commit()
+
+                    try:
+                        upload_db()
+                    except:
+                        pass
+
+                    st.success(
+                        "✅ Taak succesvol toegevoegd."
+                    )
+
+                    st.rerun()
+
+        st.divider()
 
         # ==================================================
     # PROJECT VERWIJDEREN
