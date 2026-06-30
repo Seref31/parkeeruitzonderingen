@@ -909,7 +909,7 @@ if st.session_state.role in ["admin", "editor"]:
             st.success("✅ Project toegevoegd")
             st.rerun()
 
-st.divider()
+    st.divider()
 
     # ============== PROJECT AANPASSEN ==============
 
