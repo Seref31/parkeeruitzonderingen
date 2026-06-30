@@ -928,46 +928,37 @@ if st.session_state.role in ["admin", "editor"]:
             key="project_edit_select"
         )
 
-        project_id = project_opties[project_label]
+               project_id = project_opties[project_label]
 
         project = df[
             df["id"] == project_id
         ].iloc[0]
 
-   with st.form("project_edit_form"):
+        with st.form("project_edit_form"):
 
-    naam = st.text_input(
-        "Projectnaam",
-        value=project["naam"]
-    )
+            naam = st.text_input(
+                "Projectnaam",
+                value=project["naam"]
+            )
 
-    adviseur = st.text_input(
-        "Adviseur",
-        value=project["adviseur"]
-    )
+            adviseur = st.text_input(
+                "Adviseur",
+                value=project["adviseur"]
+            )
 
-    projectsecretaris_betrokken = st.selectbox(
-        "Projectsecretaris betrokken?",
-        ["Nee", "Ja"],
-        index=0 if project["projectsecretaris_betrokken"] != "Ja" else 1
-    )
+            projectsecretaris_betrokken = st.selectbox(
+                "Projectsecretaris betrokken?",
+                ["Nee", "Ja"],
+                index=0 if project["projectsecretaris_betrokken"] != "Ja" else 1
+            )
 
-    projectsecretaris = ""
+            projectsecretaris = ""
 
-    if projectsecretaris_betrokken == "Ja":
-        projectsecretaris = st.text_input(
-            "Naam projectsecretaris",
-            value=project["projectsecretaris"] if pd.notna(project["projectsecretaris"]) else ""
-        )
-
-    projectsecretaris = ""
-
-    if projectsecretaris_betrokken == "Ja":
-        projectsecretaris = st.text_input(
-            "Naam projectsecretaris",
-            value=project["projectsecretaris"] if pd.notna(project["projectsecretaris"]) else ""
-        )
-
+            if projectsecretaris_betrokken == "Ja":
+                projectsecretaris = st.text_input(
+                    "Naam projectsecretaris",
+                    value=project["projectsecretaris"] if pd.notna(project["projectsecretaris"]) else ""
+                )
     prioriteit = st.selectbox(
         "Prioriteit",
         ["Hoog", "Gemiddeld", "Laag"],
