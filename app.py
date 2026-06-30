@@ -844,7 +844,7 @@ with tabs[3]:
 
         st.subheader("➕ Nieuw project")
 
-        with st.form("project_add"):
+    with st.form("project_add"):
 
     naam = st.text_input("Projectnaam *")
 
@@ -858,9 +858,7 @@ with tabs[3]:
     projectsecretaris = ""
 
     if projectsecretaris_betrokken == "Ja":
-        projectsecretaris = st.text_input(
-            "Naam projectsecretaris"
-        )
+        projectsecretaris = st.text_input("Naam projectsecretaris")
 
     prioriteit = st.selectbox(
         "Prioriteit",
@@ -906,11 +904,9 @@ with tabs[3]:
         ))
 
         c.commit()
-
         upload_db()
 
         st.success("✅ Project toegevoegd")
-
         st.rerun()
 
     st.divider()
