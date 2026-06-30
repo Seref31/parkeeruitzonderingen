@@ -928,7 +928,7 @@ if st.session_state.role in ["admin", "editor"]:
             key="project_edit_select"
         )
 
-               project_id = project_opties[project_label]
+        project_id = project_opties[project_label]
 
         project = df[
             df["id"] == project_id
