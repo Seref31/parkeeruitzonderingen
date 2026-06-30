@@ -934,9 +934,9 @@ if st.session_state.role in ["admin", "editor"]:
             df["id"] == project_id
         ].iloc[0]
 
-        with st.form("project_edit_form"):
+   with st.form("project_edit_form"):
 
-        naam = st.text_input(
+    naam = st.text_input(
         "Projectnaam",
         value=project["naam"]
     )
@@ -951,6 +951,14 @@ if st.session_state.role in ["admin", "editor"]:
         ["Nee", "Ja"],
         index=0 if project["projectsecretaris_betrokken"] != "Ja" else 1
     )
+
+    projectsecretaris = ""
+
+    if projectsecretaris_betrokken == "Ja":
+        projectsecretaris = st.text_input(
+            "Naam projectsecretaris",
+            value=project["projectsecretaris"] if pd.notna(project["projectsecretaris"]) else ""
+        )
 
     projectsecretaris = ""
 
