@@ -908,7 +908,7 @@ with tabs[3]:
 
         st.success("✅ Project toegevoegd")
         st.rerun()
-
+        
     st.divider()
 
     # ============== PROJECT AANPASSEN ==============
