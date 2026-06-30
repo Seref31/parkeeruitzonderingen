@@ -167,7 +167,7 @@ def init_db():
         pass
 
     try:
-    cur.execute("""
+        cur.execute("""
         ALTER TABLE projecten_overzicht
         ADD COLUMN projectsecretaris TEXT
     """)
