@@ -838,78 +838,78 @@ with tabs[3]:
 
     st.divider()
 
-    # ============== PROJECT TOEVOEGEN ==============
+   # ============== PROJECT TOEVOEGEN ==============
 
-    if st.session_state.role in ["admin", "editor"]:
+if st.session_state.role in ["admin", "editor"]:
 
-        st.subheader("➕ Nieuw project")
+    st.subheader("➕ Nieuw project")
 
     with st.form("project_add"):
 
-    naam = st.text_input("Projectnaam *")
+        naam = st.text_input("Projectnaam *")
 
-    adviseur = st.text_input("Adviseur / projectleider")
+        adviseur = st.text_input("Adviseur / projectleider")
 
-    projectsecretaris_betrokken = st.selectbox(
-        "Projectsecretaris betrokken?",
-        ["Nee", "Ja"]
-    )
+        projectsecretaris_betrokken = st.selectbox(
+            "Projectsecretaris betrokken?",
+            ["Nee", "Ja"]
+        )
 
-    projectsecretaris = ""
+        projectsecretaris = ""
 
-    if projectsecretaris_betrokken == "Ja":
-        projectsecretaris = st.text_input("Naam projectsecretaris")
+        if projectsecretaris_betrokken == "Ja":
+            projectsecretaris = st.text_input("Naam projectsecretaris")
 
-    prioriteit = st.selectbox(
-        "Prioriteit",
-        ["Hoog", "Gemiddeld", "Laag"]
-    )
+        prioriteit = st.selectbox(
+            "Prioriteit",
+            ["Hoog", "Gemiddeld", "Laag"]
+        )
 
-    status = st.selectbox(
-        "Status",
-        ["Niet gestart", "Actief", "Afgerond"]
-    )
+        status = st.selectbox(
+            "Status",
+            ["Niet gestart", "Actief", "Afgerond"]
+        )
 
-    start = st.date_input("Startdatum")
-    einde = st.date_input("Einddatum")
+        start = st.date_input("Startdatum")
+        einde = st.date_input("Einddatum")
 
-    toelichting = st.text_area("Toelichting")
+        toelichting = st.text_area("Toelichting")
 
-    if st.form_submit_button("Opslaan"):
+        if st.form_submit_button("Opslaan"):
 
-        c.execute("""
-            INSERT INTO projecten_overzicht
-            (
+            c.execute("""
+                INSERT INTO projecten_overzicht
+                (
+                    naam,
+                    adviseur,
+                    projectsecretaris_betrokken,
+                    projectsecretaris,
+                    prioriteit,
+                    status,
+                    startdatum,
+                    einddatum,
+                    toelichting
+                )
+                VALUES (?,?,?,?,?,?,?,?,?)
+            """, (
                 naam,
                 adviseur,
                 projectsecretaris_betrokken,
                 projectsecretaris,
                 prioriteit,
                 status,
-                startdatum,
-                einddatum,
+                start.isoformat(),
+                einde.isoformat(),
                 toelichting
-            )
-            VALUES (?,?,?,?,?,?,?,?,?)
-        """, (
-            naam,
-            adviseur,
-            projectsecretaris_betrokken,
-            projectsecretaris,
-            prioriteit,
-            status,
-            start.isoformat(),
-            einde.isoformat(),
-            toelichting
-        ))
+            ))
 
-        c.commit()
-        upload_db()
+            c.commit()
+            upload_db()
 
-        st.success("✅ Project toegevoegd")
-        st.rerun()
-        
-    st.divider()
+            st.success("✅ Project toegevoegd")
+            st.rerun()
+
+st.divider()
 
     # ============== PROJECT AANPASSEN ==============
 
