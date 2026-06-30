@@ -936,7 +936,7 @@ if st.session_state.role in ["admin", "editor"]:
 
         with st.form("project_edit_form"):
 
-    naam = st.text_input(
+        naam = st.text_input(
         "Projectnaam",
         value=project["naam"]
     )
