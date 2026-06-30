@@ -1087,42 +1087,42 @@ with tabs[3]:
             st.divider()
 
         # ==================================================
-# PROJECTVOORTGANG
-# ==================================================
-
-totaal_taken = c.execute(
-    """
-    SELECT COUNT(*)
-    FROM project_taken
-    WHERE project_id=?
-    """,
-    (project_id,)
-).fetchone()[0]
-
-afgerond_taken = c.execute(
-    """
-    SELECT COUNT(*)
-    FROM project_taken
-    WHERE project_id=?
-    AND status='Afgerond'
-    """,
-    (project_id,)
-).fetchone()[0]
-
-percentage = 0
-
-if totaal_taken > 0:
-    percentage = int((afgerond_taken / totaal_taken) * 100)
-
-st.subheader("📈 Projectvoortgang")
-
-st.progress(percentage / 100)
-
-col1, col2, col3 = st.columns(3)
-
-col1.metric("📋 Taken", totaal_taken)
-col2.metric("✅ Afgerond", afgerond_taken)
-col3.metric("📊 Voortgang", f"{percentage}%")
+    # PROJECTVOORTGANG
+    # ==================================================
+    
+    totaal_taken = c.execute(
+        """
+        SELECT COUNT(*)
+        FROM project_taken
+        WHERE project_id=?
+        """,
+        (project_id,)
+    ).fetchone()[0]
+    
+    afgerond_taken = c.execute(
+        """
+        SELECT COUNT(*)
+        FROM project_taken
+        WHERE project_id=?
+        AND status='Afgerond'
+        """,
+        (project_id,)
+    ).fetchone()[0]
+    
+    percentage = 0
+    
+    if totaal_taken > 0:
+        percentage = int((afgerond_taken / totaal_taken) * 100)
+    
+    st.subheader("📈 Projectvoortgang")
+    
+    st.progress(percentage / 100)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    col1.metric("📋 Taken", totaal_taken)
+    col2.metric("✅ Afgerond", afgerond_taken)
+    col3.metric("📊 Voortgang", f"{percentage}%")
 
     
         st.subheader("📋 Taken")
