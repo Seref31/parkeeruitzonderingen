@@ -196,6 +196,485 @@ def init_db():
 
 
     # ================= WERKZAAMHEDEN =================
+with tabs[4]:
+    st.header("🔧 Werkzaamheden")
+
+    c = conn()
+
+    try:
+        df_werk = pd.read_sql(
+            "SELECT * FROM werkzaamheden ORDER BY startdatum DESC",
+            c
+        )
+    except Exception:
+        df_werk = pd.DataFrame()
+
+    st.subheader("📋 Ingevoerde werkzaamheden")
+
+    if df_werk.empty:
+        st.info("Nog geen werkzaamheden ingevoerd.")
+    else:
+        st.dataframe(df_werk, use_container_width=True)
+
+    # ==================================================
+    # NIEUWE WERKZAAMHEID
+    # Alle rollen mogen nieuwe werkzaamheden invoeren.
+    # ==================================================
+    st.subheader("➕ Nieuwe werkzaamheden")
+
+    with st.form("werk_form", clear_on_submit=True):
+        titel = st.text_input("Titel")
+        omschrijving = st.text_area("Omschrijving")
+        postcode = st.text_input("Postcode")
+        huisnummer = st.text_input("Huisnummer")
+        locatie = st.text_input("Locatie")
+        aangeleverd_door = st.text_input("Aangeleverd bij Parkeren door")
+        startdatum = st.date_input("Startdatum")
+        einddatum = st.date_input("Einddatum")
+
+        if st.form_submit_button("➕ Werkzaamheid toevoegen"):
+            if not titel.strip():
+                st.error("Vul minimaal een titel in.")
+            else:
+                try:
+                    lat, lon = geocode_postcode_huisnummer(
+                        postcode, huisnummer
+                    )
+
+                    c.execute(
+                        """
+                        INSERT INTO werkzaamheden
+                        (
+                            titel, omschrijving, locatie,
+                            startdatum, einddatum,
+                            latitude, longitude,
+                            aangeleverd_door,
+                            status_parkeren,
+                            behandeld_door,
+                            opmerking_parkeren
+                        )
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (
+                            titel,
+                            omschrijving,
+                            locatie,
+                            startdatum.isoformat(),
+                            einddatum.isoformat(),
+                            lat,
+                            lon,
+                            aangeleverd_door,
+                            "In behandeling",
+                            "",
+                            ""
+                        )
+                    )
+
+                    c.commit()
+
+                    try:
+                        upload_db()
+                    except Exception:
+                        pass
+
+                    st.success("✅ Werkzaamheid opgeslagen")
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Opslaan mislukt: {e}")
+
+    # ==================================================
+    # EXPLICIETE SELECTIE VOOR DE KAART
+    # ==================================================
+    if not df_werk.empty:
+        st.divider()
+        st.subheader("🗺️ Werkzaamheid selecteren voor kaart")
+
+        werk_opties = {
+            f"{row['titel']} ({row['locatie']})": int(row["id"])
+            for _, row in df_werk.iterrows()
+        }
+
+        kaart_label = st.selectbox(
+            "Selecteer werkzaamheid",
+            list(werk_opties.keys()),
+            key="werkzaamheden_kaart_select"
+        )
+
+        geselecteerde_id = werk_opties[kaart_label]
+
+        # Dit is bewust een aparte knop.
+        if st.button(
+            "📍 Selecteer werkzaamheid",
+            key="werkzaamheid_kaart_selecteren",
+            use_container_width=False
+        ):
+            st.session_state["werkzaamheden_kaart_selected_id"] = (
+                geselecteerde_id
+            )
+
+        actieve_id = st.session_state.get(
+            "werkzaamheden_kaart_selected_id"
+        )
+
+        if actieve_id not in werk_opties.values():
+            actieve_id = None
+            st.session_state.pop(
+                "werkzaamheden_kaart_selected_id",
+                None
+            )
+
+        if actieve_id is None:
+            st.info(
+                "Selecteer hierboven een werkzaamheid en klik op "
+                "‘📍 Selecteer werkzaamheid’ om de kaart te tonen."
+            )
+        else:
+            kaart_row = df_werk[
+                df_werk["id"] == actieve_id
+            ].iloc[0]
+
+            st.success(
+                f"📍 Geselecteerd: **{kaart_row['titel']}**"
+            )
+
+            try:
+                lat = (
+                    float(kaart_row["latitude"])
+                    if pd.notna(kaart_row["latitude"])
+                    else 51.8133
+                )
+                lon = (
+                    float(kaart_row["longitude"])
+                    if pd.notna(kaart_row["longitude"])
+                    else 4.6901
+                )
+            except Exception:
+                lat, lon = 51.8133, 4.6901
+
+            # ==================================================
+            # DEZELFDE LEAFLET/OPENSTREETMAP-KAART VOOR ALLE ROLLEN
+            # ==================================================
+            m = folium.Map(
+                location=[lat, lon],
+                zoom_start=15,
+                control_scale=True
+            )
+
+            for _, r in df_werk.iterrows():
+                geometry = (
+                    r.get("geometry")
+                    if "geometry" in df_werk.columns
+                    else None
+                )
+
+                if (
+                    pd.notna(geometry)
+                    and str(geometry) not in ("None", "", "nan")
+                ):
+                    try:
+                        geojson = json.loads(geometry)
+                        selected = int(r["id"]) == int(actieve_id)
+
+                        folium.GeoJson(
+                            geojson,
+                            style_function=lambda feature,
+                            selected=selected: {
+                                "color": "red" if selected else "blue",
+                                "weight": 6 if selected else 4,
+                                "fillColor": "red" if selected else "blue",
+                                "fillOpacity": 0.35 if selected else 0.20
+                            },
+                            tooltip=str(r["titel"])
+                        ).add_to(m)
+                    except Exception:
+                        pass
+
+                if (
+                    pd.notna(r.get("latitude"))
+                    and pd.notna(r.get("longitude"))
+                ):
+                    selected = int(r["id"]) == int(actieve_id)
+
+                    popup = (
+                        f"<b>{r['titel']}</b><br>"
+                        f"Locatie: {r['locatie']}<br>"
+                        f"Start: {r['startdatum']}<br>"
+                        f"Einde: {r['einddatum']}<br>"
+                        f"Status: {r.get('status_parkeren', '')}<br>"
+                        f"Aangeleverd door: "
+                        f"{r.get('aangeleverd_door', '')}"
+                    )
+
+                    folium.CircleMarker(
+                        [r["latitude"], r["longitude"]],
+                        radius=10 if selected else 7,
+                        popup=popup,
+                        tooltip=str(r["titel"])
+                    ).add_to(m)
+
+            map_data = None
+
+            # Alleen admin/editor mag tekenen.
+            if IS_EDITOR:
+                Draw(
+                    export=True,
+                    draw_options={
+                        "polyline": True,
+                        "polygon": True,
+                        "rectangle": True,
+                        "circle": False,
+                        "circlemarker": False,
+                        "marker": False
+                    }
+                ).add_to(m)
+
+                map_data = st_folium(
+                    m,
+                    width=1200,
+                    height=700,
+                    returned_objects=["last_active_drawing"],
+                    key="werkzaamheden_kaart_editor"
+                )
+            else:
+                # Viewer krijgt exact dezelfde kaart, zonder tekenlaag.
+                st_folium(
+                    m,
+                    width=1200,
+                    height=700,
+                    returned_objects=[],
+                    key="werkzaamheden_kaart_viewer"
+                )
+
+            # ==================================================
+            # BEHEERFUNCTIES ALLEEN VOOR ADMIN/EDITOR
+            # ==================================================
+            if IS_EDITOR:
+                st.divider()
+                st.subheader("📝 Werkzaamheid beoordelen")
+
+                status_opties = [
+                    "In behandeling",
+                    "Goedgekeurd",
+                    "Afgekeurd"
+                ]
+
+                huidige_status = kaart_row.get("status_parkeren")
+
+                if (
+                    pd.isna(huidige_status)
+                    or huidige_status not in status_opties
+                ):
+                    huidige_status = "In behandeling"
+
+                status = st.selectbox(
+                    "Status",
+                    status_opties,
+                    index=status_opties.index(huidige_status),
+                    key="werk_status"
+                )
+
+                behandeld_door = st.text_input(
+                    "Behandeld door",
+                    value=(
+                        kaart_row.get("behandeld_door")
+                        if pd.notna(kaart_row.get("behandeld_door"))
+                        else ""
+                    ),
+                    key="werk_behandeld"
+                )
+
+                opmerking = st.text_area(
+                    "Opmerking",
+                    value=(
+                        kaart_row.get("opmerking_parkeren")
+                        if pd.notna(kaart_row.get("opmerking_parkeren"))
+                        else ""
+                    ),
+                    key="werk_opmerking"
+                )
+
+                if st.button(
+                    "💾 Status opslaan",
+                    key="werk_status_opslaan"
+                ):
+                    c.execute(
+                        """
+                        UPDATE werkzaamheden
+                        SET status_parkeren=?,
+                            behandeld_door=?,
+                            opmerking_parkeren=?
+                        WHERE id=?
+                        """,
+                        (
+                            status,
+                            behandeld_door,
+                            opmerking,
+                            actieve_id
+                        )
+                    )
+                    c.commit()
+
+                    try:
+                        upload_db()
+                    except Exception:
+                        pass
+
+                    st.success("✅ Beoordeling opgeslagen")
+                    st.rerun()
+
+                st.subheader("💾 Werkgebied opslaan")
+
+                if st.button(
+                    "💾 Werkgebied opslaan",
+                    key="werkgebied_opslaan"
+                ):
+                    if map_data and map_data.get("last_active_drawing"):
+                        c.execute(
+                            """
+                            UPDATE werkzaamheden
+                            SET geometry=?
+                            WHERE id=?
+                            """,
+                            (
+                                json.dumps(
+                                    map_data["last_active_drawing"]
+                                ),
+                                actieve_id
+                            )
+                        )
+                        c.commit()
+
+                        try:
+                            upload_db()
+                        except Exception:
+                            pass
+
+                        st.success(
+                            f"✅ Werkgebied gekoppeld aan: {kaart_label}"
+                        )
+                        st.rerun()
+                    else:
+                        st.warning(
+                            "Teken eerst een lijn, polygon of rechthoek."
+                        )
+
+                st.subheader("🗑️ Werkzaamheid verwijderen")
+
+                bevestig_verwijderen = st.checkbox(
+                    "Ik weet zeker dat ik deze werkzaamheid wil verwijderen",
+                    key="bevestig_werk_verwijderen"
+                )
+
+                if bevestig_verwijderen and st.button(
+                    "❌ Definitief verwijderen",
+                    key="werk_verwijderen_btn"
+                ):
+                    c.execute(
+                        "DELETE FROM werkzaamheden WHERE id=?",
+                        (actieve_id,)
+                    )
+                    c.commit()
+
+                    try:
+                        upload_db()
+                    except Exception:
+                        pass
+
+                    st.success(
+                        f"✅ Verwijderd: {kaart_label}"
+                    )
+
+                    st.session_state.pop(
+                        "werkzaamheden_kaart_selected_id",
+                        None
+                    )
+
+                    st.rerun()
+
+    c.close()
+
+# ================= KAARTFOUTEN =================
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS kaartfouten (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vak_id TEXT,
+        melding_type TEXT,
+        omschrijving TEXT,
+        status TEXT,
+        melder TEXT,
+        gemeld_op TEXT,
+        latitude REAL,
+        longitude REAL
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS kaartfout_fotos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kaartfout_id INTEGER,
+        bestandsnaam TEXT,
+        geupload_op TEXT
+    )
+    """)
+
+    # ================= PROJECTEN =================
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS projecten_overzicht (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        naam TEXT,
+        adviseur TEXT,
+        projectsecretaris_betrokken TEXT,
+        projectsecretaris TEXT,
+        prioriteit TEXT,
+        status TEXT,
+        startdatum DATE,
+        einddatum DATE,
+        toelichting TEXT
+    )
+    """)
+
+    # Bestaande databases uitbreiden
+    try:
+        cur.execute("""
+        ALTER TABLE projecten_overzicht
+        ADD COLUMN projectsecretaris_betrokken TEXT
+        """)
+    except:
+        pass
+
+    try:
+        cur.execute("""
+        ALTER TABLE projecten_overzicht
+        ADD COLUMN projectsecretaris TEXT
+        """)
+    except:
+        pass
+
+
+    # ================= PROJECTTAKEN =================
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS project_taken (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        titel TEXT NOT NULL,
+        omschrijving TEXT,
+        eigenaar TEXT,
+        prioriteit TEXT DEFAULT 'Gemiddeld',
+        status TEXT DEFAULT 'Niet gestart',
+        startdatum DATE,
+        einddatum DATE,
+        voltooid_op DATE,
+        aangemaakt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(project_id) REFERENCES projecten_overzicht(id)
+    )
+    """)
+
+
+    # ================= WERKZAAMHEDEN =================
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS werkzaamheden (
