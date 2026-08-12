@@ -1562,7 +1562,38 @@ with tabs[4]:
     if df_werk.empty:
         st.info("Nog geen werkzaamheden ingevoerd.")
     else:
-        st.dataframe(df_werk, use_container_width=True)
+        # Technische locatievelden NOOIT tonen in het overzicht.
+        # Ze blijven wel in df_werk/database aanwezig voor de kaart.
+        # Expliciete whitelist: alleen deze kolommen mogen in het
+        # werkzaamheden-overzicht worden getoond.
+        zichtbare_kolommen = [
+            "id",
+            "titel",
+            "omschrijving",
+            "locatie",
+            "startdatum",
+            "einddatum",
+            "aangeleverd_door",
+            "status_parkeren",
+            "behandeld_door",
+            "opmerking_parkeren",
+        ]
+
+        zichtbare_kolommen = [
+            kolom
+            for kolom in zichtbare_kolommen
+            if kolom in df_werk.columns
+        ]
+
+        df_werk_weergave = df_werk.loc[
+            :,
+            zichtbare_kolommen
+        ].copy()
+
+        st.dataframe(
+            df_werk_weergave,
+            use_container_width=True
+        )
 
     # Alleen admin/editor/viewer mogen nieuwe werkzaamheden invoeren.
     # Manager is volledig alleen-lezen.
