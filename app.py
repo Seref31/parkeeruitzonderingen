@@ -196,485 +196,6 @@ def init_db():
 
 
     # ================= WERKZAAMHEDEN =================
-with tabs[4]:
-    st.header("🔧 Werkzaamheden")
-
-    c = conn()
-
-    try:
-        df_werk = pd.read_sql(
-            "SELECT * FROM werkzaamheden ORDER BY startdatum DESC",
-            c
-        )
-    except Exception:
-        df_werk = pd.DataFrame()
-
-    st.subheader("📋 Ingevoerde werkzaamheden")
-
-    if df_werk.empty:
-        st.info("Nog geen werkzaamheden ingevoerd.")
-    else:
-        st.dataframe(df_werk, use_container_width=True)
-
-    # ==================================================
-    # NIEUWE WERKZAAMHEID
-    # Alle rollen mogen nieuwe werkzaamheden invoeren.
-    # ==================================================
-    st.subheader("➕ Nieuwe werkzaamheden")
-
-    with st.form("werk_form", clear_on_submit=True):
-        titel = st.text_input("Titel")
-        omschrijving = st.text_area("Omschrijving")
-        postcode = st.text_input("Postcode")
-        huisnummer = st.text_input("Huisnummer")
-        locatie = st.text_input("Locatie")
-        aangeleverd_door = st.text_input("Aangeleverd bij Parkeren door")
-        startdatum = st.date_input("Startdatum")
-        einddatum = st.date_input("Einddatum")
-
-        if st.form_submit_button("➕ Werkzaamheid toevoegen"):
-            if not titel.strip():
-                st.error("Vul minimaal een titel in.")
-            else:
-                try:
-                    lat, lon = geocode_postcode_huisnummer(
-                        postcode, huisnummer
-                    )
-
-                    c.execute(
-                        """
-                        INSERT INTO werkzaamheden
-                        (
-                            titel, omschrijving, locatie,
-                            startdatum, einddatum,
-                            latitude, longitude,
-                            aangeleverd_door,
-                            status_parkeren,
-                            behandeld_door,
-                            opmerking_parkeren
-                        )
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                        """,
-                        (
-                            titel,
-                            omschrijving,
-                            locatie,
-                            startdatum.isoformat(),
-                            einddatum.isoformat(),
-                            lat,
-                            lon,
-                            aangeleverd_door,
-                            "In behandeling",
-                            "",
-                            ""
-                        )
-                    )
-
-                    c.commit()
-
-                    try:
-                        upload_db()
-                    except Exception:
-                        pass
-
-                    st.success("✅ Werkzaamheid opgeslagen")
-                    st.rerun()
-
-                except Exception as e:
-                    st.error(f"Opslaan mislukt: {e}")
-
-    # ==================================================
-    # EXPLICIETE SELECTIE VOOR DE KAART
-    # ==================================================
-    if not df_werk.empty:
-        st.divider()
-        st.subheader("🗺️ Werkzaamheid selecteren voor kaart")
-
-        werk_opties = {
-            f"{row['titel']} ({row['locatie']})": int(row["id"])
-            for _, row in df_werk.iterrows()
-        }
-
-        kaart_label = st.selectbox(
-            "Selecteer werkzaamheid",
-            list(werk_opties.keys()),
-            key="werkzaamheden_kaart_select"
-        )
-
-        geselecteerde_id = werk_opties[kaart_label]
-
-        # Dit is bewust een aparte knop.
-        if st.button(
-            "📍 Selecteer werkzaamheid",
-            key="werkzaamheid_kaart_selecteren",
-            use_container_width=False
-        ):
-            st.session_state["werkzaamheden_kaart_selected_id"] = (
-                geselecteerde_id
-            )
-
-        actieve_id = st.session_state.get(
-            "werkzaamheden_kaart_selected_id"
-        )
-
-        if actieve_id not in werk_opties.values():
-            actieve_id = None
-            st.session_state.pop(
-                "werkzaamheden_kaart_selected_id",
-                None
-            )
-
-        if actieve_id is None:
-            st.info(
-                "Selecteer hierboven een werkzaamheid en klik op "
-                "‘📍 Selecteer werkzaamheid’ om de kaart te tonen."
-            )
-        else:
-            kaart_row = df_werk[
-                df_werk["id"] == actieve_id
-            ].iloc[0]
-
-            st.success(
-                f"📍 Geselecteerd: **{kaart_row['titel']}**"
-            )
-
-            try:
-                lat = (
-                    float(kaart_row["latitude"])
-                    if pd.notna(kaart_row["latitude"])
-                    else 51.8133
-                )
-                lon = (
-                    float(kaart_row["longitude"])
-                    if pd.notna(kaart_row["longitude"])
-                    else 4.6901
-                )
-            except Exception:
-                lat, lon = 51.8133, 4.6901
-
-            # ==================================================
-            # DEZELFDE LEAFLET/OPENSTREETMAP-KAART VOOR ALLE ROLLEN
-            # ==================================================
-            m = folium.Map(
-                location=[lat, lon],
-                zoom_start=15,
-                control_scale=True
-            )
-
-            for _, r in df_werk.iterrows():
-                geometry = (
-                    r.get("geometry")
-                    if "geometry" in df_werk.columns
-                    else None
-                )
-
-                if (
-                    pd.notna(geometry)
-                    and str(geometry) not in ("None", "", "nan")
-                ):
-                    try:
-                        geojson = json.loads(geometry)
-                        selected = int(r["id"]) == int(actieve_id)
-
-                        folium.GeoJson(
-                            geojson,
-                            style_function=lambda feature,
-                            selected=selected: {
-                                "color": "red" if selected else "blue",
-                                "weight": 6 if selected else 4,
-                                "fillColor": "red" if selected else "blue",
-                                "fillOpacity": 0.35 if selected else 0.20
-                            },
-                            tooltip=str(r["titel"])
-                        ).add_to(m)
-                    except Exception:
-                        pass
-
-                if (
-                    pd.notna(r.get("latitude"))
-                    and pd.notna(r.get("longitude"))
-                ):
-                    selected = int(r["id"]) == int(actieve_id)
-
-                    popup = (
-                        f"<b>{r['titel']}</b><br>"
-                        f"Locatie: {r['locatie']}<br>"
-                        f"Start: {r['startdatum']}<br>"
-                        f"Einde: {r['einddatum']}<br>"
-                        f"Status: {r.get('status_parkeren', '')}<br>"
-                        f"Aangeleverd door: "
-                        f"{r.get('aangeleverd_door', '')}"
-                    )
-
-                    folium.CircleMarker(
-                        [r["latitude"], r["longitude"]],
-                        radius=10 if selected else 7,
-                        popup=popup,
-                        tooltip=str(r["titel"])
-                    ).add_to(m)
-
-            map_data = None
-
-            # Alleen admin/editor mag tekenen.
-            if IS_EDITOR:
-                Draw(
-                    export=True,
-                    draw_options={
-                        "polyline": True,
-                        "polygon": True,
-                        "rectangle": True,
-                        "circle": False,
-                        "circlemarker": False,
-                        "marker": False
-                    }
-                ).add_to(m)
-
-                map_data = st_folium(
-                    m,
-                    width=1200,
-                    height=700,
-                    returned_objects=["last_active_drawing"],
-                    key="werkzaamheden_kaart_editor"
-                )
-            else:
-                # Viewer krijgt exact dezelfde kaart, zonder tekenlaag.
-                st_folium(
-                    m,
-                    width=1200,
-                    height=700,
-                    returned_objects=[],
-                    key="werkzaamheden_kaart_viewer"
-                )
-
-            # ==================================================
-            # BEHEERFUNCTIES ALLEEN VOOR ADMIN/EDITOR
-            # ==================================================
-            if IS_EDITOR:
-                st.divider()
-                st.subheader("📝 Werkzaamheid beoordelen")
-
-                status_opties = [
-                    "In behandeling",
-                    "Goedgekeurd",
-                    "Afgekeurd"
-                ]
-
-                huidige_status = kaart_row.get("status_parkeren")
-
-                if (
-                    pd.isna(huidige_status)
-                    or huidige_status not in status_opties
-                ):
-                    huidige_status = "In behandeling"
-
-                status = st.selectbox(
-                    "Status",
-                    status_opties,
-                    index=status_opties.index(huidige_status),
-                    key="werk_status"
-                )
-
-                behandeld_door = st.text_input(
-                    "Behandeld door",
-                    value=(
-                        kaart_row.get("behandeld_door")
-                        if pd.notna(kaart_row.get("behandeld_door"))
-                        else ""
-                    ),
-                    key="werk_behandeld"
-                )
-
-                opmerking = st.text_area(
-                    "Opmerking",
-                    value=(
-                        kaart_row.get("opmerking_parkeren")
-                        if pd.notna(kaart_row.get("opmerking_parkeren"))
-                        else ""
-                    ),
-                    key="werk_opmerking"
-                )
-
-                if st.button(
-                    "💾 Status opslaan",
-                    key="werk_status_opslaan"
-                ):
-                    c.execute(
-                        """
-                        UPDATE werkzaamheden
-                        SET status_parkeren=?,
-                            behandeld_door=?,
-                            opmerking_parkeren=?
-                        WHERE id=?
-                        """,
-                        (
-                            status,
-                            behandeld_door,
-                            opmerking,
-                            actieve_id
-                        )
-                    )
-                    c.commit()
-
-                    try:
-                        upload_db()
-                    except Exception:
-                        pass
-
-                    st.success("✅ Beoordeling opgeslagen")
-                    st.rerun()
-
-                st.subheader("💾 Werkgebied opslaan")
-
-                if st.button(
-                    "💾 Werkgebied opslaan",
-                    key="werkgebied_opslaan"
-                ):
-                    if map_data and map_data.get("last_active_drawing"):
-                        c.execute(
-                            """
-                            UPDATE werkzaamheden
-                            SET geometry=?
-                            WHERE id=?
-                            """,
-                            (
-                                json.dumps(
-                                    map_data["last_active_drawing"]
-                                ),
-                                actieve_id
-                            )
-                        )
-                        c.commit()
-
-                        try:
-                            upload_db()
-                        except Exception:
-                            pass
-
-                        st.success(
-                            f"✅ Werkgebied gekoppeld aan: {kaart_label}"
-                        )
-                        st.rerun()
-                    else:
-                        st.warning(
-                            "Teken eerst een lijn, polygon of rechthoek."
-                        )
-
-                st.subheader("🗑️ Werkzaamheid verwijderen")
-
-                bevestig_verwijderen = st.checkbox(
-                    "Ik weet zeker dat ik deze werkzaamheid wil verwijderen",
-                    key="bevestig_werk_verwijderen"
-                )
-
-                if bevestig_verwijderen and st.button(
-                    "❌ Definitief verwijderen",
-                    key="werk_verwijderen_btn"
-                ):
-                    c.execute(
-                        "DELETE FROM werkzaamheden WHERE id=?",
-                        (actieve_id,)
-                    )
-                    c.commit()
-
-                    try:
-                        upload_db()
-                    except Exception:
-                        pass
-
-                    st.success(
-                        f"✅ Verwijderd: {kaart_label}"
-                    )
-
-                    st.session_state.pop(
-                        "werkzaamheden_kaart_selected_id",
-                        None
-                    )
-
-                    st.rerun()
-
-    c.close()
-
-# ================= KAARTFOUTEN =================
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS kaartfouten (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        vak_id TEXT,
-        melding_type TEXT,
-        omschrijving TEXT,
-        status TEXT,
-        melder TEXT,
-        gemeld_op TEXT,
-        latitude REAL,
-        longitude REAL
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS kaartfout_fotos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        kaartfout_id INTEGER,
-        bestandsnaam TEXT,
-        geupload_op TEXT
-    )
-    """)
-
-    # ================= PROJECTEN =================
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS projecten_overzicht (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        naam TEXT,
-        adviseur TEXT,
-        projectsecretaris_betrokken TEXT,
-        projectsecretaris TEXT,
-        prioriteit TEXT,
-        status TEXT,
-        startdatum DATE,
-        einddatum DATE,
-        toelichting TEXT
-    )
-    """)
-
-    # Bestaande databases uitbreiden
-    try:
-        cur.execute("""
-        ALTER TABLE projecten_overzicht
-        ADD COLUMN projectsecretaris_betrokken TEXT
-        """)
-    except:
-        pass
-
-    try:
-        cur.execute("""
-        ALTER TABLE projecten_overzicht
-        ADD COLUMN projectsecretaris TEXT
-        """)
-    except:
-        pass
-
-
-    # ================= PROJECTTAKEN =================
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS project_taken (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project_id INTEGER NOT NULL,
-        titel TEXT NOT NULL,
-        omschrijving TEXT,
-        eigenaar TEXT,
-        prioriteit TEXT DEFAULT 'Gemiddeld',
-        status TEXT DEFAULT 'Niet gestart',
-        startdatum DATE,
-        einddatum DATE,
-        voltooid_op DATE,
-        aangemaakt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(project_id) REFERENCES projecten_overzicht(id)
-    )
-    """)
-
-
-    # ================= WERKZAAMHEDEN =================
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS werkzaamheden (
@@ -817,12 +338,6 @@ if "user" not in st.session_state:
             st.error("Onjuiste inloggegevens")
 
     st.stop()
-
-# ================= RECHTEN =================
-ROLE = st.session_state.get("role", "viewer")
-IS_ADMIN = ROLE == "admin"
-IS_EDITOR = ROLE in ["admin", "editor"]
-CAN_ADD_WORK = ROLE in ["admin", "editor", "viewer"]
 
 # ================= SIDEBAR =================
 st.sidebar.image(LOGO_PATH, use_container_width=True)
@@ -991,49 +506,160 @@ with tabs[1]:
     # TOEVOEGEN
     # ==================================================
 
-    if IS_EDITOR:
-        st.subheader("➕ Nieuwe uitzondering")
+    st.subheader("➕ Nieuwe uitzondering")
 
-        with st.form("uitz_add"):
+    with st.form("uitz_add"):
 
-            naam = st.text_input("Naam")
+        naam = st.text_input("Naam")
 
-            kenteken = st.text_input(
-                "Kenteken"
-            ).upper()
+        kenteken = st.text_input(
+            "Kenteken"
+        ).upper()
 
-            locatie = st.text_input(
-                "Locatie"
-            )
+        locatie = st.text_input(
+            "Locatie"
+        )
 
-            gekoppelde_werkzaamheid = st.selectbox(
-                "Koppelen aan werkzaamheid (optioneel)",
-                list(werk_opties.keys())
-            )
+        gekoppelde_werkzaamheid = st.selectbox(
+            "Koppelen aan werkzaamheid (optioneel)",
+            list(werk_opties.keys())
+        )
 
-            start = st.date_input("Start")
-            einde = st.date_input("Einde")
+        start = st.date_input("Start")
+        einde = st.date_input("Einde")
 
-            if st.form_submit_button("➕ Toevoegen"):
+        if st.form_submit_button("➕ Toevoegen"):
 
-                c.execute("""
-                    INSERT INTO uitzonderingen
-                    (
-                        naam,
-                        kenteken,
-                        locatie,
-                        start,
-                        einde,
-                        werkzaamheid_id
-                    )
-                    VALUES (?,?,?,?,?,?)
-                """, (
+            c.execute("""
+                INSERT INTO uitzonderingen
+                (
                     naam,
                     kenteken,
                     locatie,
+                    start,
+                    einde,
+                    werkzaamheid_id
+                )
+                VALUES (?,?,?,?,?,?)
+            """, (
+                naam,
+                kenteken,
+                locatie,
+                start.isoformat(),
+                einde.isoformat(),
+                werk_opties[gekoppelde_werkzaamheid]
+            ))
+
+            c.commit()
+
+            try:
+                upload_db()
+            except:
+                pass
+
+            st.success("✅ Uitzondering toegevoegd")
+            st.rerun()
+
+    st.divider()
+
+    # ==================================================
+    # BEWERKEN
+    # ==================================================
+
+    st.subheader("✏️ Uitzondering aanpassen")
+
+    if not df.empty:
+
+        uitzondering_opties = {
+            f"{row['kenteken']} - {row['naam']} ({row['locatie']})": row["id"]
+            for _, row in df.iterrows()
+        }
+
+        geselecteerd_label = st.selectbox(
+            "Selecteer uitzondering",
+            list(uitzondering_opties.keys()),
+            key="uitzondering_bewerken"
+        )
+
+        uitzondering_id = uitzondering_opties[geselecteerd_label]
+
+        uitzondering = df[
+            df["id"] == uitzondering_id
+        ].iloc[0]
+
+        huidige_werkzaamheid = uitzondering.get(
+            "werkzaamheid_id",
+            None
+        )
+
+        geselecteerde_index = 0
+
+        for i, waarde in enumerate(werk_opties.values()):
+            if waarde == huidige_werkzaamheid:
+                geselecteerde_index = i
+                break
+
+        with st.form("uitzondering_edit_form"):
+
+            naam = st.text_input(
+                "Naam",
+                value=uitzondering["naam"]
+            )
+
+            kenteken = st.text_input(
+                "Kenteken",
+                value=uitzondering["kenteken"]
+            )
+
+            locatie = st.text_input(
+                "Locatie",
+                value=uitzondering["locatie"]
+            )
+
+            gekoppelde_werkzaamheid = st.selectbox(
+                "Gekoppelde werkzaamheid",
+                list(werk_opties.keys()),
+                index=geselecteerde_index
+            )
+
+            start = st.date_input(
+                "Start",
+                value=safe_date(
+                    uitzondering["start"]
+                )
+            )
+
+            einde = st.date_input(
+                "Einde",
+                value=safe_date(
+                    uitzondering["einde"]
+                )
+            )
+
+            if st.form_submit_button(
+                "💾 Wijzigingen opslaan"
+            ):
+
+                c.execute("""
+                    UPDATE uitzonderingen
+                    SET
+                        naam=?,
+                        kenteken=?,
+                        locatie=?,
+                        start=?,
+                        einde=?,
+                        werkzaamheid_id=?
+                    WHERE id=?
+                """, (
+                    naam,
+                    kenteken.upper(),
+                    locatie,
                     start.isoformat(),
                     einde.isoformat(),
-                    werk_opties[gekoppelde_werkzaamheid]
+                    werk_opties[
+                        gekoppelde_werkzaamheid
+                    ],
+                    uitzondering_id
                 ))
 
                 c.commit()
@@ -1043,181 +669,67 @@ with tabs[1]:
                 except:
                     pass
 
-                st.success("✅ Uitzondering toegevoegd")
+                st.success(
+                    "✅ Uitzondering bijgewerkt"
+                )
+
                 st.rerun()
 
-        st.divider()
+    st.divider()
 
-        # ==================================================
-    # BEWERKEN
     # ==================================================
-
-    if IS_EDITOR:
-        st.subheader("✏️ Uitzondering aanpassen")
-
-        if not df.empty:
-
-            uitzondering_opties = {
-                f"{row['kenteken']} - {row['naam']} ({row['locatie']})": row["id"]
-                for _, row in df.iterrows()
-            }
-
-            geselecteerd_label = st.selectbox(
-                "Selecteer uitzondering",
-                list(uitzondering_opties.keys()),
-                key="uitzondering_bewerken"
-            )
-
-            uitzondering_id = uitzondering_opties[geselecteerd_label]
-
-            uitzondering = df[
-                df["id"] == uitzondering_id
-            ].iloc[0]
-
-            huidige_werkzaamheid = uitzondering.get(
-                "werkzaamheid_id",
-                None
-            )
-
-            geselecteerde_index = 0
-
-            for i, waarde in enumerate(werk_opties.values()):
-                if waarde == huidige_werkzaamheid:
-                    geselecteerde_index = i
-                    break
-
-            with st.form("uitzondering_edit_form"):
-
-                naam = st.text_input(
-                    "Naam",
-                    value=uitzondering["naam"]
-                )
-
-                kenteken = st.text_input(
-                    "Kenteken",
-                    value=uitzondering["kenteken"]
-                )
-
-                locatie = st.text_input(
-                    "Locatie",
-                    value=uitzondering["locatie"]
-                )
-
-                gekoppelde_werkzaamheid = st.selectbox(
-                    "Gekoppelde werkzaamheid",
-                    list(werk_opties.keys()),
-                    index=geselecteerde_index
-                )
-
-                start = st.date_input(
-                    "Start",
-                    value=safe_date(
-                        uitzondering["start"]
-                    )
-                )
-
-                einde = st.date_input(
-                    "Einde",
-                    value=safe_date(
-                        uitzondering["einde"]
-                    )
-                )
-
-                if st.form_submit_button(
-                    "💾 Wijzigingen opslaan"
-                ):
-
-                    c.execute("""
-                        UPDATE uitzonderingen
-                        SET
-                            naam=?,
-                            kenteken=?,
-                            locatie=?,
-                            start=?,
-                            einde=?,
-                            werkzaamheid_id=?
-                        WHERE id=?
-                    """, (
-                        naam,
-                        kenteken.upper(),
-                        locatie,
-                        start.isoformat(),
-                        einde.isoformat(),
-                        werk_opties[
-                            gekoppelde_werkzaamheid
-                        ],
-                        uitzondering_id
-                    ))
-
-                    c.commit()
-
-                    try:
-                        upload_db()
-                    except:
-                        pass
-
-                    st.success(
-                        "✅ Uitzondering bijgewerkt"
-                    )
-
-                    st.rerun()
-
-        st.divider()
-
-        # ==================================================
     # VERWIJDEREN
     # ==================================================
 
-    if IS_EDITOR:
-        st.subheader("🗑️ Uitzondering verwijderen")
+    st.subheader("🗑️ Uitzondering verwijderen")
 
-        if not df.empty:
+    if not df.empty:
 
-            uitzondering_opties = {
-                f"{row['kenteken']} - {row['naam']} ({row['locatie']})": row["id"]
-                for _, row in df.iterrows()
-            }
+        uitzondering_opties = {
+            f"{row['kenteken']} - {row['naam']} ({row['locatie']})": row["id"]
+            for _, row in df.iterrows()
+        }
 
-            uitzondering_label = st.selectbox(
-                "Selecteer uitzondering",
-                list(uitzondering_opties.keys()),
-                key="uitzondering_verwijderen"
+        uitzondering_label = st.selectbox(
+            "Selecteer uitzondering",
+            list(uitzondering_opties.keys()),
+            key="uitzondering_verwijderen"
+        )
+
+        uitzondering_id = uitzondering_opties[
+            uitzondering_label
+        ]
+
+        st.warning(
+            "⚠️ Deze uitzondering wordt definitief verwijderd."
+        )
+
+        bevestiging = st.checkbox(
+            "Ik weet zeker dat ik deze uitzondering wil verwijderen",
+            key="bevestig_uitzondering"
+        )
+
+        if bevestiging and st.button(
+            "❌ Uitzondering verwijderen"
+        ):
+
+            c.execute(
+                "DELETE FROM uitzonderingen WHERE id=?",
+                (uitzondering_id,)
             )
 
-            uitzondering_id = uitzondering_opties[
-                uitzondering_label
-            ]
+            c.commit()
 
-            st.warning(
-                "⚠️ Deze uitzondering wordt definitief verwijderd."
+            try:
+                upload_db()
+            except:
+                pass
+
+            st.success(
+                f"✅ Verwijderd: {uitzondering_label}"
             )
 
-            bevestiging = st.checkbox(
-                "Ik weet zeker dat ik deze uitzondering wil verwijderen",
-                key="bevestig_uitzondering"
-            )
-
-            if bevestiging and st.button(
-                "❌ Uitzondering verwijderen"
-            ):
-
-                c.execute(
-                    "DELETE FROM uitzonderingen WHERE id=?",
-                    (uitzondering_id,)
-                )
-
-                c.commit()
-
-                try:
-                    upload_db()
-                except:
-                    pass
-
-                st.success(
-                    f"✅ Verwijderd: {uitzondering_label}"
-                )
-
-                st.rerun()
+            st.rerun()
 
     c.close()
 
@@ -1236,89 +748,87 @@ with tabs[2]:
         use_container_width=True
     )
 
-    if IS_EDITOR:
-        st.subheader("➕ Nieuw agenda-item")
+    st.subheader("➕ Nieuw agenda-item")
 
-        with st.form("agenda_add"):
+    with st.form("agenda_add"):
 
-            titel = st.text_input("Titel")
-            datum = st.date_input("Datum")
+        titel = st.text_input("Titel")
+        datum = st.date_input("Datum")
 
-            if st.form_submit_button("Toevoegen"):
+        if st.form_submit_button("Toevoegen"):
 
-                c.execute("""
-                    INSERT INTO agenda
-                    (
-                        titel,
-                        datum,
-                        aangemaakt_door,
-                        aangemaakt_op
-                    )
-                    VALUES (?,?,?,?)
-                """, (
+            c.execute("""
+                INSERT INTO agenda
+                (
                     titel,
-                    datum.isoformat(),
-                    st.session_state.user,
-                    datetime.now().isoformat(
-                        timespec="seconds"
-                    )
-                ))
+                    datum,
+                    aangemaakt_door,
+                    aangemaakt_op
+                )
+                VALUES (?,?,?,?)
+            """, (
+                titel,
+                datum.isoformat(),
+                st.session_state.user,
+                datetime.now().isoformat(
+                    timespec="seconds"
+                )
+            ))
 
-                c.commit()
+            c.commit()
 
-                try:
-                    upload_db()
-                except:
-                    pass
+            try:
+                upload_db()
+            except:
+                pass
 
-                st.rerun()
+            st.rerun()
 
-    if IS_EDITOR:
-        st.subheader("🗑️ Agenda-item verwijderen")
+    st.subheader("🗑️ Agenda-item verwijderen")
 
-        if not df.empty:
+    if not df.empty:
 
-            agenda_opties = {
-                f"{row['datum']} - {row['titel']}": row["id"]
-                for _, row in df.iterrows()
-            }
+        agenda_opties = {
+            f"{row['datum']} - {row['titel']}": row["id"]
+            for _, row in df.iterrows()
+        }
 
-            agenda_label = st.selectbox(
-                "Selecteer agenda-item",
-                list(agenda_opties.keys()),
-                key="agenda_verwijderen"
+        agenda_label = st.selectbox(
+            "Selecteer agenda-item",
+            list(agenda_opties.keys()),
+            key="agenda_verwijderen"
+        )
+
+        agenda_id = agenda_opties[
+            agenda_label
+        ]
+
+        st.warning(
+            "⚠️ Dit agenda-item wordt definitief verwijderd."
+        )
+
+        if st.button(
+            "❌ Agenda-item verwijderen",
+            key="agenda_delete_btn"
+        ):
+
+            c.execute(
+                "DELETE FROM agenda WHERE id=?",
+                (agenda_id,)
             )
 
-            agenda_id = agenda_opties[
-                agenda_label
-            ]
+            c.commit()
 
-            st.warning(
-                "⚠️ Dit agenda-item wordt definitief verwijderd."
+            try:
+                upload_db()
+            except:
+                pass
+
+            st.success(
+                f"✅ Verwijderd: {agenda_label}"
             )
 
-            if st.button(
-                "❌ Agenda-item verwijderen",
-                key="agenda_delete_btn"
-            ):
-
-                c.execute(
-                    "DELETE FROM agenda WHERE id=?",
-                    (agenda_id,)
-                )
-
-                c.commit()
-
-                try:
-                    upload_db()
-                except:
-                    pass
-
-                st.success(
-                    f"✅ Verwijderd: {agenda_label}"
-                )
-
-                st.rerun()
+            st.rerun()
 
     c.close()
 # ================= PROJECTENOVERZICHT =================
@@ -2011,12 +1521,14 @@ with tabs[3]:
 
     c.close()
 
+
 # ================= WERKZAAMHEDEN =================
 with tabs[4]:
-    
-    st.header("🔧 Werkzaamheden")
 
+    st.header("🔧 Werkzaamheden")
     c = conn()
+
+    can_edit_work = st.session_state.role in ["admin", "editor"]
 
     try:
         df_werk = pd.read_sql(
@@ -2026,413 +1538,373 @@ with tabs[4]:
     except Exception:
         df_werk = pd.DataFrame()
 
-    st.dataframe(df_werk, use_container_width=True)
+    st.subheader("📋 Ingevoerde werkzaamheden")
+    if df_werk.empty:
+        st.info("Nog geen werkzaamheden ingevoerd.")
+    else:
+        st.dataframe(df_werk, use_container_width=True)
 
-    # ==================================================
-    if IS_EDITOR:
-        # BEOORDELEN
-        # ==================================================
+    # Iedereen mag nieuwe werkzaamheden invoeren.
+    st.subheader("➕ Nieuwe werkzaamheden")
 
-        st.subheader("📝 Werkzaamheid beoordelen")
+    with st.form("werk_form", clear_on_submit=True):
+        titel = st.text_input("Titel")
+        omschrijving = st.text_area("Omschrijving")
+        postcode = st.text_input("Postcode")
+        huisnummer = st.text_input("Huisnummer")
+        locatie = st.text_input("Locatie")
+        aangeleverd_door = st.text_input("Aangeleverd bij Parkeren door")
+        start = st.date_input("Startdatum")
+        einde = st.date_input("Einddatum")
 
-        if not df_werk.empty:
-
-            beoordeling_opties = {
-                f"{row['titel']} ({row['locatie']})": row["id"]
-                for _, row in df_werk.iterrows()
-            }
-
-            beoordeling_label = st.selectbox(
-                "Selecteer werkzaamheid",
-                list(beoordeling_opties.keys()),
-                key="werk_beoordeling"
-            )
-
-            beoordeling_id = beoordeling_opties[
-                beoordeling_label
-            ]
-
-            geselecteerd = df_werk[
-                df_werk["id"] == beoordeling_id
-            ].iloc[0]
-
-            status = st.selectbox(
-                "Status",
-                [
-                    "In behandeling",
-                    "Goedgekeurd",
-                    "Afgekeurd"
-                ],
-                index=[
-                    "In behandeling",
-                    "Goedgekeurd",
-                    "Afgekeurd"
-                ].index(
-                    geselecteerd["status_parkeren"]
-                    if pd.notna(
-                        geselecteerd["status_parkeren"]
-                    )
-                    else "In behandeling"
-                )
-            )
-
-            behandeld_door = st.text_input(
-                "Behandeld door",
-                value=
-                geselecteerd["behandeld_door"]
-                if pd.notna(
-                    geselecteerd["behandeld_door"]
-                )
-                else ""
-            )
-
-            opmerking = st.text_area(
-                "Opmerking",
-                value=
-                geselecteerd["opmerking_parkeren"]
-                if pd.notna(
-                    geselecteerd["opmerking_parkeren"]
-                )
-                else ""
-            )
-
-            if st.button(
-                "💾 Status opslaan",
-                key="status_opslaan"
-            ):
-
-                c.execute("""
-                    UPDATE werkzaamheden
-                    SET
-                        status_parkeren=?,
-                        behandeld_door=?,
-                        opmerking_parkeren=?
-                    WHERE id=?
-                """, (
-                    status,
-                    behandeld_door,
-                    opmerking,
-                    beoordeling_id
-                ))
-
-                c.commit()
-
+        if st.form_submit_button("➕ Werkzaamheid toevoegen"):
+            if not titel.strip():
+                st.error("Vul minimaal een titel in.")
+            else:
                 try:
-                    upload_db()
-                except:
-                    pass
-
-                st.success(
-                    "✅ Beoordeling opgeslagen"
-                )
-
-                st.rerun()
-
-        # ==================================================
-        # VERWIJDEREN
-        # ==================================================
-
-        st.subheader("🗑️ Werkzaamheid verwijderen")
-
-        if not df_werk.empty:
-
-            verwijder_opties = {
-                f"{row['titel']} ({row['locatie']})": row["id"]
-                for _, row in df_werk.iterrows()
-            }
-
-            verwijder_label = st.selectbox(
-                "Selecteer werkzaamheid",
-                list(verwijder_opties.keys()),
-                key="werk_verwijderen"
-            )
-
-            verwijder_id = verwijder_opties[
-                verwijder_label
-            ]
-
-            st.warning(
-                "⚠️ Deze actie verwijdert ook het gekoppelde werkgebied."
-            )
-
-            bevestiging = st.checkbox(
-                "Ik weet zeker dat ik deze werkzaamheid wil verwijderen"
-            )
-
-            if bevestiging and st.button(
-                "❌ Definitief verwijderen"
-            ):
-
-                c.execute(
-                    "DELETE FROM werkzaamheden WHERE id=?",
-                    (verwijder_id,)
-                )
-
-                c.commit()
-
-                try:
-                    upload_db()
-                except:
-                    pass
-
-                st.success(
-                    f"✅ Verwijderd: {verwijder_label}"
-                )
-
-                st.rerun()
-
-    # ==================================================
-    # NIEUWE WERKZAAMHEID
-    # ==================================================
-
-    if CAN_ADD_WORK:
-        st.subheader("➕ Nieuwe werkzaamheden")
-
-        with st.form("werk_form"):
-
-            titel = st.text_input("Titel")
-
-            omschrijving = st.text_area(
-                "Omschrijving"
-            )
-
-            postcode = st.text_input(
-                "Postcode"
-            )
-
-            huisnummer = st.text_input(
-                "Huisnummer"
-            )
-
-            locatie = st.text_input(
-                "Locatie"
-            )
-
-            aangeleverd_door = st.text_input(
-                "Aangeleverd bij Parkeren door"
-            )
-
-            start = st.date_input(
-                "Startdatum"
-            )
-
-            einde = st.date_input(
-                "Einddatum"
-            )
-
-            opslaan = st.form_submit_button(
-                "Opslaan"
-            )
-
-            if opslaan:
-
-                try:
-
                     lat, lon = geocode_postcode_huisnummer(
-                        postcode,
-                        huisnummer
+                        postcode, huisnummer
                     )
 
-                    c.execute("""
+                    c.execute(
+                        """
                         INSERT INTO werkzaamheden
                         (
-                            titel,
-                            omschrijving,
-                            locatie,
-                            startdatum,
-                            einddatum,
-                            latitude,
-                            longitude,
+                            titel, omschrijving, locatie,
+                            startdatum, einddatum,
+                            latitude, longitude,
                             aangeleverd_door,
                             status_parkeren,
                             behandeld_door,
                             opmerking_parkeren
                         )
-                        VALUES
-                        (?,?,?,?,?,?,?,?,?,?,?)
-                    """, (
-                        titel,
-                        omschrijving,
-                        locatie,
-                        start.isoformat(),
-                        einde.isoformat(),
-                        lat,
-                        lon,
-                        aangeleverd_door,
-                        "In behandeling",
-                        "",
-                        ""
-                    ))
-
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (
+                            titel,
+                            omschrijving,
+                            locatie,
+                            start.isoformat(),
+                            einde.isoformat(),
+                            lat,
+                            lon,
+                            aangeleverd_door,
+                            "In behandeling",
+                            "",
+                            ""
+                        )
+                    )
                     c.commit()
 
                     try:
                         upload_db()
-                    except:
+                    except Exception:
                         pass
 
-                    st.success(
-                        "✅ Werkzaamheid opgeslagen"
-                    )
-
+                    st.success("✅ Werkzaamheid opgeslagen")
                     st.rerun()
 
                 except Exception as e:
-                    st.error(
-                        f"Opslaan mislukt: {e}"
-                    )
+                    st.error(f"Opslaan mislukt: {e}")
 
-    # ==================================================
-    if IS_EDITOR:
-        # WERKGEBIED TEKENEN
-        # ==================================================
+    # Eerst expliciet een werkzaamheid selecteren.
+    if not df_werk.empty:
+        st.divider()
+        st.subheader("🗺️ Werkzaamheid selecteren voor kaart")
 
-        st.subheader("🗺️ Werkgebied tekenen")
+        werk_opties = {
+            f"{row['titel']} ({row['locatie']})": int(row["id"])
+            for _, row in df_werk.iterrows()
+        }
 
-        if not df_werk.empty:
+        geselecteerde_label = st.selectbox(
+            "Selecteer werkzaamheid",
+            list(werk_opties.keys()),
+            key="werkzaamheden_kaart_select"
+        )
+        geselecteerde_id = werk_opties[geselecteerde_label]
 
-            werk_opties = {
-                f"{row['titel']} ({row['locatie']})": row["id"]
-                for _, row in df_werk.iterrows()
-            }
+        if st.button(
+            "📍 Werkzaamheid selecteren",
+            key="werkzaamheid_kaart_selecteren"
+        ):
+            st.session_state["werkzaamheden_kaart_selected_id"] = (
+                geselecteerde_id
+            )
+            st.rerun()
 
-            werk_label = st.selectbox(
-                "Kies werkzaamheid",
-                list(werk_opties.keys()),
-                key="werkgebied_select"
+        actieve_id = st.session_state.get(
+            "werkzaamheden_kaart_selected_id"
+        )
+
+        if actieve_id not in werk_opties.values():
+            actieve_id = None
+            st.session_state.pop(
+                "werkzaamheden_kaart_selected_id", None
             )
 
-            werk_id = werk_opties[
-                werk_label
-            ]
+        if actieve_id is None:
+            st.info(
+                "Selecteer een werkzaamheid en klik op "
+                "‘📍 Werkzaamheid selecteren’ om de kaart te tonen."
+            )
+        else:
+            geselecteerde = df_werk[
+                df_werk["id"] == actieve_id
+            ].iloc[0]
 
-            m = folium.Map(
-                location=[51.8133, 4.6901],
-                zoom_start=13
+            st.success(
+                f"📍 Geselecteerd: **{geselecteerde['titel']}**"
             )
 
-            selected_row = df_werk[
-                df_werk["id"] == werk_id
-            ]
-
-            if (
-                not selected_row.empty
-                and "geometry" in selected_row.columns
-                and pd.notna(
-                    selected_row.iloc[0]["geometry"]
+            try:
+                lat = (
+                    float(geselecteerde["latitude"])
+                    if pd.notna(geselecteerde["latitude"])
+                    else 51.8133
                 )
-                and str(
-                    selected_row.iloc[0]["geometry"]
-                ) != "None"
-            ):
+                lon = (
+                    float(geselecteerde["longitude"])
+                    if pd.notna(geselecteerde["longitude"])
+                    else 4.6901
+                )
+            except Exception:
+                lat, lon = 51.8133, 4.6901
 
-                try:
-
-                    geojson = json.loads(
-                        selected_row.iloc[0]["geometry"]
-                    )
-
-                    folium.GeoJson(
-                        geojson,
-                        style_function=lambda x: {
-                            "color": "red",
-                            "weight": 6,
-                            "fillColor": "red",
-                            "fillOpacity": 0.35
-                        },
-                        tooltip=werk_label
-                    ).add_to(m)
-
-                except:
-                    pass
-
-            Draw(
-                export=True,
-                draw_options={
-                    "polyline": True,
-                    "polygon": True,
-                    "rectangle": True,
-                    "circle": False,
-                    "circlemarker": False,
-                    "marker": False
-                }
-            ).add_to(m)
+            # Exact dezelfde Leaflet/OpenStreetMap-kaart voor alle rollen.
+            m = folium.Map(
+                location=[lat, lon],
+                zoom_start=15,
+                control_scale=True
+            )
 
             for _, r in df_werk.iterrows():
+                is_selected = int(r["id"]) == int(actieve_id)
+
+                geometry = (
+                    r["geometry"]
+                    if "geometry" in df_werk.columns
+                    else None
+                )
+
+                if (
+                    pd.notna(geometry)
+                    and str(geometry) not in ["", "None", "nan"]
+                ):
+                    try:
+                        geojson = json.loads(geometry)
+
+                        folium.GeoJson(
+                            geojson,
+                            style_function=lambda feature,
+                            selected=is_selected: {
+                                "color": "red" if selected else "blue",
+                                "weight": 6 if selected else 4,
+                                "fillColor": "red" if selected else "blue",
+                                "fillOpacity": 0.35 if selected else 0.20
+                            },
+                            tooltip=str(r["titel"])
+                        ).add_to(m)
+                    except Exception:
+                        pass
 
                 if (
                     pd.notna(r["latitude"])
                     and pd.notna(r["longitude"])
                 ):
-
-                    popup_txt = f"""
-                    <b>{r['titel']}</b><br>
-                    Locatie: {r['locatie']}<br>
-                    Status: {r.get('status_parkeren','')}<br>
-                    Aangeleverd door: {r.get('aangeleverd_door','')}
-                    """
+                    popup_txt = (
+                        f"<b>{r['titel']}</b><br>"
+                        f"Locatie: {r['locatie']}<br>"
+                        f"Start: {r['startdatum']}<br>"
+                        f"Einde: {r['einddatum']}<br>"
+                        f"Status: {r.get('status_parkeren', '')}<br>"
+                        f"Aangeleverd door: "
+                        f"{r.get('aangeleverd_door', '')}"
+                    )
 
                     folium.CircleMarker(
                         [r["latitude"], r["longitude"]],
-                        radius=8,
-                        popup=popup_txt
+                        radius=10 if is_selected else 7,
+                        popup=popup_txt,
+                        tooltip=str(r["titel"])
                     ).add_to(m)
 
-            map_data = st_folium(
-                m,
-                width=1200,
-                height=700,
-                returned_objects=[
-                    "last_active_drawing"
+            map_data = None
+
+            if can_edit_work:
+                Draw(
+                    export=True,
+                    draw_options={
+                        "polyline": True,
+                        "polygon": True,
+                        "rectangle": True,
+                        "circle": False,
+                        "circlemarker": False,
+                        "marker": False
+                    }
+                ).add_to(m)
+
+                map_data = st_folium(
+                    m,
+                    width=1200,
+                    height=700,
+                    returned_objects=["last_active_drawing"],
+                    key="werkzaamheden_kaart_editor"
+                )
+            else:
+                # Viewer: dezelfde kaart, zonder tekenlaag.
+                st_folium(
+                    m,
+                    width=1200,
+                    height=700,
+                    returned_objects=[],
+                    key="werkzaamheden_kaart_viewer"
+                )
+
+            # Alleen admin/editor mogen beoordelen, tekenen, opslaan en verwijderen.
+            if can_edit_work:
+                st.divider()
+                st.subheader("📝 Werkzaamheid beoordelen")
+
+                status_opties = [
+                    "In behandeling", "Goedgekeurd", "Afgekeurd"
                 ]
-            )
 
-            if st.button(
-                "💾 Werkgebied opslaan"
-            ):
-
+                huidige_status = geselecteerde.get(
+                    "status_parkeren"
+                )
                 if (
-                    map_data
-                    and map_data.get(
-                        "last_active_drawing"
-                    )
+                    pd.isna(huidige_status)
+                    or huidige_status not in status_opties
                 ):
+                    huidige_status = "In behandeling"
 
-                    geometry = json.dumps(
-                        map_data[
-                            "last_active_drawing"
-                        ]
-                    )
+                status = st.selectbox(
+                    "Status",
+                    status_opties,
+                    index=status_opties.index(huidige_status),
+                    key="werk_status"
+                )
 
-                    c.execute("""
+                behandeld_door = st.text_input(
+                    "Behandeld door",
+                    value=(
+                        geselecteerde["behandeld_door"]
+                        if pd.notna(geselecteerde["behandeld_door"])
+                        else ""
+                    ),
+                    key="werk_behandeld"
+                )
+
+                opmerking = st.text_area(
+                    "Opmerking",
+                    value=(
+                        geselecteerde["opmerking_parkeren"]
+                        if pd.notna(geselecteerde["opmerking_parkeren"])
+                        else ""
+                    ),
+                    key="werk_opmerking"
+                )
+
+                if st.button(
+                    "💾 Status opslaan",
+                    key="werk_status_opslaan"
+                ):
+                    c.execute(
+                        """
                         UPDATE werkzaamheden
-                        SET geometry=?
+                        SET status_parkeren=?,
+                            behandeld_door=?,
+                            opmerking_parkeren=?
                         WHERE id=?
-                    """, (
-                        geometry,
-                        werk_id
-                    ))
-
+                        """,
+                        (
+                            status,
+                            behandeld_door,
+                            opmerking,
+                            actieve_id
+                        )
+                    )
                     c.commit()
 
                     try:
                         upload_db()
-                    except:
+                    except Exception:
+                        pass
+
+                    st.success("✅ Beoordeling opgeslagen")
+                    st.rerun()
+
+                st.subheader("💾 Werkgebied opslaan")
+
+                if st.button(
+                    "💾 Werkgebied opslaan",
+                    key="werkgebied_opslaan"
+                ):
+                    if (
+                        map_data
+                        and map_data.get("last_active_drawing")
+                    ):
+                        c.execute(
+                            """
+                            UPDATE werkzaamheden
+                            SET geometry=?
+                            WHERE id=?
+                            """,
+                            (
+                                json.dumps(
+                                    map_data["last_active_drawing"]
+                                ),
+                                actieve_id
+                            )
+                        )
+                        c.commit()
+
+                        try:
+                            upload_db()
+                        except Exception:
+                            pass
+
+                        st.success("✅ Werkgebied opgeslagen")
+                        st.rerun()
+                    else:
+                        st.warning(
+                            "Teken eerst een lijn, polygon of rechthoek."
+                        )
+
+                st.subheader("🗑️ Werkzaamheid verwijderen")
+
+                bevestiging = st.checkbox(
+                    "Ik weet zeker dat ik deze werkzaamheid wil verwijderen",
+                    key="bevestig_werk_verwijderen"
+                )
+
+                if bevestiging and st.button(
+                    "❌ Definitief verwijderen",
+                    key="werk_verwijderen_btn"
+                ):
+                    c.execute(
+                        "DELETE FROM werkzaamheden WHERE id=?",
+                        (actieve_id,)
+                    )
+                    c.commit()
+
+                    try:
+                        upload_db()
+                    except Exception:
                         pass
 
                     st.success(
-                        f"✅ Werkgebied gekoppeld aan: {werk_label}"
+                        f"✅ Verwijderd: {geselecteerde_label}"
                     )
-
+                    st.session_state.pop(
+                        "werkzaamheden_kaart_selected_id",
+                        None
+                    )
                     st.rerun()
 
-                else:
-
-                    st.warning(
-                        "Teken eerst een lijn, polygon of rechthoek."
-                    )
-
     c.close()
+
 # ================= KAARTFOUTEN =================
 with tabs[5]:
     st.header("🗺️ Kaartfouten – parkeervakken")
@@ -2445,71 +1917,70 @@ with tabs[5]:
     )
     st.dataframe(df, use_container_width=True)
 
-    if IS_EDITOR:
-        # ---- NIEUWE MELDING ----
-        st.subheader("➕ Nieuwe kaartfout")
+    # ---- NIEUWE MELDING ----
+    st.subheader("➕ Nieuwe kaartfout")
 
-        with st.form("kaartfout_form"):
-            straat = st.text_input("Straat *")
-            huisnummer = st.text_input("Huisnummer *")
-            postcode = st.text_input("Postcode *")
-            vak_id = st.text_input("Parkeervak ID")
-            melding_type = st.selectbox(
-                "Soort kaartfout",
-                [
-                    "Geometrie onjuist",
-                    "Type onjuist",
-                    "Parkeervak bestaat niet",
-                    "Parkeervak ontbreekt",
-                    "Overig"
-                ]
-            )
-            omschrijving = st.text_area("Toelichting *")
-            fotos = st.file_uploader("Foto’s", accept_multiple_files=True)
+    with st.form("kaartfout_form"):
+        straat = st.text_input("Straat *")
+        huisnummer = st.text_input("Huisnummer *")
+        postcode = st.text_input("Postcode *")
+        vak_id = st.text_input("Parkeervak ID")
+        melding_type = st.selectbox(
+            "Soort kaartfout",
+            [
+                "Geometrie onjuist",
+                "Type onjuist",
+                "Parkeervak bestaat niet",
+                "Parkeervak ontbreekt",
+                "Overig"
+            ]
+        )
+        omschrijving = st.text_area("Toelichting *")
+        fotos = st.file_uploader("Foto’s", accept_multiple_files=True)
 
-            if st.form_submit_button("Melden"):
-                lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
+        if st.form_submit_button("Melden"):
+            lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
 
-                c.execute("""
-                    INSERT INTO kaartfouten
-                    (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
-                    VALUES (?,?,?,?,?,?,?,?)
-                """, (
-                    vak_id,
-                    melding_type,
-                    omschrijving,
-                    "Open",
-                    st.session_state.user,
-                    datetime.now().isoformat(timespec="seconds"),
-                    lat,
-                    lon
-                ))
+            c.execute("""
+                INSERT INTO kaartfouten
+                (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (
+                vak_id,
+                melding_type,
+                omschrijving,
+                "Open",
+                st.session_state.user,
+                datetime.now().isoformat(timespec="seconds"),
+                lat,
+                lon
+            ))
 
-                kaartfout_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+            kaartfout_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
 
-                if fotos:
-                    for f in fotos:
-                        fname = f"{kaartfout_id}_{f.name}"
-                        path = os.path.join(UPLOAD_DIR, fname)
-                        with open(path, "wb") as out:
-                            out.write(f.getbuffer())
+            if fotos:
+                for f in fotos:
+                    fname = f"{kaartfout_id}_{f.name}"
+                    path = os.path.join(UPLOAD_DIR, fname)
+                    with open(path, "wb") as out:
+                        out.write(f.getbuffer())
 
-                        upload_file_to_github(path, f"uploads/kaartfouten/{fname}")
+                    upload_file_to_github(path, f"uploads/kaartfouten/{fname}")
 
-                        c.execute("""
-                            INSERT INTO kaartfout_fotos
-                            (kaartfout_id, bestandsnaam, geupload_op)
-                            VALUES (?,?,?)
-                        """, (
-                            kaartfout_id,
-                            fname,
-                            datetime.now().isoformat(timespec="seconds")
-                        ))
+                    c.execute("""
+                        INSERT INTO kaartfout_fotos
+                        (kaartfout_id, bestandsnaam, geupload_op)
+                        VALUES (?,?,?)
+                    """, (
+                        kaartfout_id,
+                        fname,
+                        datetime.now().isoformat(timespec="seconds")
+                    ))
 
-                c.commit()
-                upload_db()
-                st.success("✅ Kaartfout gemeld")
-                st.rerun()
+            c.commit()
+            upload_db()
+            st.success("✅ Kaartfout gemeld")
+            st.rerun()
 
     # ---- KAART ----
     df_map = df[
@@ -2590,7 +2061,7 @@ with tabs[6]:
 
     # Alleen admin
     if st.session_state.role != "admin":
-        st.info("❌ Alleen admins hebben toegang tot gebruikersbeheer.")
+        st.error("❌ Alleen admins hebben toegang tot gebruikersbeheer.")
         st.stop()
 
     c = conn()
