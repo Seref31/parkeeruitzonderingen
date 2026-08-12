@@ -339,6 +339,17 @@ if "user" not in st.session_state:
 
     st.stop()
 
+# ================= ROLEN =================
+ROLE = st.session_state.get("role", "")
+IS_ADMIN = ROLE == "admin"
+IS_EDITOR = ROLE in ["admin", "editor"]
+IS_MANAGER = ROLE == "manager"
+IS_VIEWER = ROLE == "viewer"
+
+# Viewer mag nieuwe werkzaamheden invoeren.
+# Manager heeft uitsluitend leesrechten.
+CAN_ADD_WORK = ROLE in ["admin", "editor", "viewer"]
+
 # ================= SIDEBAR =================
 st.sidebar.image(LOGO_PATH, use_container_width=True)
 st.sidebar.success(st.session_state.user)
@@ -478,188 +489,78 @@ with tabs[1]:
 
     st.divider()
 
-    # ==================================================
-    # WERKZAAMHEDEN OPHALEN
-    # ==================================================
 
-    df_werk = pd.read_sql("""
-        SELECT
-            id,
-            titel,
-            locatie,
-            startdatum,
-            einddatum
-        FROM werkzaamheden
-        ORDER BY startdatum DESC
-    """, c)
+    if IS_EDITOR:
+        # ==================================================
+        # WERKZAAMHEDEN OPHALEN
+        # ==================================================
 
-    werk_opties = {
-        "Geen gekoppelde werkzaamheid": None
-    }
-
-    for _, row in df_werk.iterrows():
-        werk_opties[
-            f"{row['titel']} ({row['locatie']})"
-        ] = row["id"]
-
-    # ==================================================
-    # TOEVOEGEN
-    # ==================================================
-
-    st.subheader("➕ Nieuwe uitzondering")
-
-    with st.form("uitz_add"):
-
-        naam = st.text_input("Naam")
-
-        kenteken = st.text_input(
-            "Kenteken"
-        ).upper()
-
-        locatie = st.text_input(
-            "Locatie"
-        )
-
-        gekoppelde_werkzaamheid = st.selectbox(
-            "Koppelen aan werkzaamheid (optioneel)",
-            list(werk_opties.keys())
-        )
-
-        start = st.date_input("Start")
-        einde = st.date_input("Einde")
-
-        if st.form_submit_button("➕ Toevoegen"):
-
-            c.execute("""
-                INSERT INTO uitzonderingen
-                (
-                    naam,
-                    kenteken,
-                    locatie,
-                    start,
-                    einde,
-                    werkzaamheid_id
-                )
-                VALUES (?,?,?,?,?,?)
-            """, (
-                naam,
-                kenteken,
+        df_werk = pd.read_sql("""
+            SELECT
+                id,
+                titel,
                 locatie,
-                start.isoformat(),
-                einde.isoformat(),
-                werk_opties[gekoppelde_werkzaamheid]
-            ))
+                startdatum,
+                einddatum
+            FROM werkzaamheden
+            ORDER BY startdatum DESC
+        """, c)
 
-            c.commit()
-
-            try:
-                upload_db()
-            except:
-                pass
-
-            st.success("✅ Uitzondering toegevoegd")
-            st.rerun()
-
-    st.divider()
-
-    # ==================================================
-    # BEWERKEN
-    # ==================================================
-
-    st.subheader("✏️ Uitzondering aanpassen")
-
-    if not df.empty:
-
-        uitzondering_opties = {
-            f"{row['kenteken']} - {row['naam']} ({row['locatie']})": row["id"]
-            for _, row in df.iterrows()
+        werk_opties = {
+            "Geen gekoppelde werkzaamheid": None
         }
 
-        geselecteerd_label = st.selectbox(
-            "Selecteer uitzondering",
-            list(uitzondering_opties.keys()),
-            key="uitzondering_bewerken"
-        )
+        for _, row in df_werk.iterrows():
+            werk_opties[
+                f"{row['titel']} ({row['locatie']})"
+            ] = row["id"]
 
-        uitzondering_id = uitzondering_opties[geselecteerd_label]
+        # ==================================================
+        # TOEVOEGEN
+        # ==================================================
 
-        uitzondering = df[
-            df["id"] == uitzondering_id
-        ].iloc[0]
+        st.subheader("➕ Nieuwe uitzondering")
 
-        huidige_werkzaamheid = uitzondering.get(
-            "werkzaamheid_id",
-            None
-        )
+        with st.form("uitz_add"):
 
-        geselecteerde_index = 0
-
-        for i, waarde in enumerate(werk_opties.values()):
-            if waarde == huidige_werkzaamheid:
-                geselecteerde_index = i
-                break
-
-        with st.form("uitzondering_edit_form"):
-
-            naam = st.text_input(
-                "Naam",
-                value=uitzondering["naam"]
-            )
+            naam = st.text_input("Naam")
 
             kenteken = st.text_input(
-                "Kenteken",
-                value=uitzondering["kenteken"]
-            )
+                "Kenteken"
+            ).upper()
 
             locatie = st.text_input(
-                "Locatie",
-                value=uitzondering["locatie"]
+                "Locatie"
             )
 
             gekoppelde_werkzaamheid = st.selectbox(
-                "Gekoppelde werkzaamheid",
-                list(werk_opties.keys()),
-                index=geselecteerde_index
+                "Koppelen aan werkzaamheid (optioneel)",
+                list(werk_opties.keys())
             )
 
-            start = st.date_input(
-                "Start",
-                value=safe_date(
-                    uitzondering["start"]
-                )
-            )
+            start = st.date_input("Start")
+            einde = st.date_input("Einde")
 
-            einde = st.date_input(
-                "Einde",
-                value=safe_date(
-                    uitzondering["einde"]
-                )
-            )
-
-            if st.form_submit_button(
-                "💾 Wijzigingen opslaan"
-            ):
+            if st.form_submit_button("➕ Toevoegen"):
 
                 c.execute("""
-                    UPDATE uitzonderingen
-                    SET
-                        naam=?,
-                        kenteken=?,
-                        locatie=?,
-                        start=?,
-                        einde=?,
-                        werkzaamheid_id=?
-                    WHERE id=?
+                    INSERT INTO uitzonderingen
+                    (
+                        naam,
+                        kenteken,
+                        locatie,
+                        start,
+                        einde,
+                        werkzaamheid_id
+                    )
+                    VALUES (?,?,?,?,?,?)
                 """, (
                     naam,
-                    kenteken.upper(),
+                    kenteken,
                     locatie,
                     start.isoformat(),
                     einde.isoformat(),
-                    werk_opties[
-                        gekoppelde_werkzaamheid
-                    ],
-                    uitzondering_id
+                    werk_opties[gekoppelde_werkzaamheid]
                 ))
 
                 c.commit()
@@ -669,67 +570,184 @@ with tabs[1]:
                 except:
                     pass
 
+                st.success("✅ Uitzondering toegevoegd")
+                st.rerun()
+
+        st.divider()
+
+        # ==================================================
+        # BEWERKEN
+        # ==================================================
+
+        st.subheader("✏️ Uitzondering aanpassen")
+
+        if not df.empty:
+
+            uitzondering_opties = {
+                f"{row['kenteken']} - {row['naam']} ({row['locatie']})": row["id"]
+                for _, row in df.iterrows()
+            }
+
+            geselecteerd_label = st.selectbox(
+                "Selecteer uitzondering",
+                list(uitzondering_opties.keys()),
+                key="uitzondering_bewerken"
+            )
+
+            uitzondering_id = uitzondering_opties[geselecteerd_label]
+
+            uitzondering = df[
+                df["id"] == uitzondering_id
+            ].iloc[0]
+
+            huidige_werkzaamheid = uitzondering.get(
+                "werkzaamheid_id",
+                None
+            )
+
+            geselecteerde_index = 0
+
+            for i, waarde in enumerate(werk_opties.values()):
+                if waarde == huidige_werkzaamheid:
+                    geselecteerde_index = i
+                    break
+
+            with st.form("uitzondering_edit_form"):
+
+                naam = st.text_input(
+                    "Naam",
+                    value=uitzondering["naam"]
+                )
+
+                kenteken = st.text_input(
+                    "Kenteken",
+                    value=uitzondering["kenteken"]
+                )
+
+                locatie = st.text_input(
+                    "Locatie",
+                    value=uitzondering["locatie"]
+                )
+
+                gekoppelde_werkzaamheid = st.selectbox(
+                    "Gekoppelde werkzaamheid",
+                    list(werk_opties.keys()),
+                    index=geselecteerde_index
+                )
+
+                start = st.date_input(
+                    "Start",
+                    value=safe_date(
+                        uitzondering["start"]
+                    )
+                )
+
+                einde = st.date_input(
+                    "Einde",
+                    value=safe_date(
+                        uitzondering["einde"]
+                    )
+                )
+
+                if st.form_submit_button(
+                    "💾 Wijzigingen opslaan"
+                ):
+
+                    c.execute("""
+                        UPDATE uitzonderingen
+                        SET
+                            naam=?,
+                            kenteken=?,
+                            locatie=?,
+                            start=?,
+                            einde=?,
+                            werkzaamheid_id=?
+                        WHERE id=?
+                    """, (
+                        naam,
+                        kenteken.upper(),
+                        locatie,
+                        start.isoformat(),
+                        einde.isoformat(),
+                        werk_opties[
+                            gekoppelde_werkzaamheid
+                        ],
+                        uitzondering_id
+                    ))
+
+                    c.commit()
+
+                    try:
+                        upload_db()
+                    except:
+                        pass
+
+                    st.success(
+                        "✅ Uitzondering bijgewerkt"
+                    )
+
+                    st.rerun()
+
+        st.divider()
+
+        # ==================================================
+        # VERWIJDEREN
+        # ==================================================
+
+        st.subheader("🗑️ Uitzondering verwijderen")
+
+        if not df.empty:
+
+            uitzondering_opties = {
+                f"{row['kenteken']} - {row['naam']} ({row['locatie']})": row["id"]
+                for _, row in df.iterrows()
+            }
+
+            uitzondering_label = st.selectbox(
+                "Selecteer uitzondering",
+                list(uitzondering_opties.keys()),
+                key="uitzondering_verwijderen"
+            )
+
+            uitzondering_id = uitzondering_opties[
+                uitzondering_label
+            ]
+
+            st.warning(
+                "⚠️ Deze uitzondering wordt definitief verwijderd."
+            )
+
+            bevestiging = st.checkbox(
+                "Ik weet zeker dat ik deze uitzondering wil verwijderen",
+                key="bevestig_uitzondering"
+            )
+
+            if bevestiging and st.button(
+                "❌ Uitzondering verwijderen"
+            ):
+
+                c.execute(
+                    "DELETE FROM uitzonderingen WHERE id=?",
+                    (uitzondering_id,)
+                )
+
+                c.commit()
+
+                try:
+                    upload_db()
+                except:
+                    pass
+
                 st.success(
-                    "✅ Uitzondering bijgewerkt"
+                    f"✅ Verwijderd: {uitzondering_label}"
                 )
 
                 st.rerun()
 
-    st.divider()
+        c.close()
 
-    # ==================================================
-    # VERWIJDEREN
-    # ==================================================
-
-    st.subheader("🗑️ Uitzondering verwijderen")
-
-    if not df.empty:
-
-        uitzondering_opties = {
-            f"{row['kenteken']} - {row['naam']} ({row['locatie']})": row["id"]
-            for _, row in df.iterrows()
-        }
-
-        uitzondering_label = st.selectbox(
-            "Selecteer uitzondering",
-            list(uitzondering_opties.keys()),
-            key="uitzondering_verwijderen"
-        )
-
-        uitzondering_id = uitzondering_opties[
-            uitzondering_label
-        ]
-
-        st.warning(
-            "⚠️ Deze uitzondering wordt definitief verwijderd."
-        )
-
-        bevestiging = st.checkbox(
-            "Ik weet zeker dat ik deze uitzondering wil verwijderen",
-            key="bevestig_uitzondering"
-        )
-
-        if bevestiging and st.button(
-            "❌ Uitzondering verwijderen"
-        ):
-
-            c.execute(
-                "DELETE FROM uitzonderingen WHERE id=?",
-                (uitzondering_id,)
-            )
-
-            c.commit()
-
-            try:
-                upload_db()
-            except:
-                pass
-
-            st.success(
-                f"✅ Verwijderd: {uitzondering_label}"
-            )
-
-            st.rerun()
+    else:
+        st.caption("👁️ Alleen-lezen: uitzonderingen kunnen niet worden aangepast.")
 
     c.close()
 
@@ -748,89 +766,91 @@ with tabs[2]:
         use_container_width=True
     )
 
-    st.subheader("➕ Nieuw agenda-item")
+    if IS_EDITOR:
 
-    with st.form("agenda_add"):
+        st.subheader("➕ Nieuw agenda-item")
 
-        titel = st.text_input("Titel")
-        datum = st.date_input("Datum")
+        with st.form("agenda_add"):
+            titel = st.text_input("Titel")
+            datum = st.date_input("Datum")
 
-        if st.form_submit_button("Toevoegen"):
-
-            c.execute("""
-                INSERT INTO agenda
-                (
+            if st.form_submit_button("Toevoegen"):
+                c.execute("""
+                    INSERT INTO agenda
+                    (
+                        titel,
+                        datum,
+                        aangemaakt_door,
+                        aangemaakt_op
+                    )
+                    VALUES (?,?,?,?)
+                """, (
                     titel,
-                    datum,
-                    aangemaakt_door,
-                    aangemaakt_op
-                )
-                VALUES (?,?,?,?)
-            """, (
-                titel,
-                datum.isoformat(),
-                st.session_state.user,
-                datetime.now().isoformat(
-                    timespec="seconds"
-                )
-            ))
+                    datum.isoformat(),
+                    st.session_state.user,
+                    datetime.now().isoformat(
+                        timespec="seconds"
+                    )
+                ))
 
-            c.commit()
+                c.commit()
 
-            try:
-                upload_db()
-            except:
-                pass
+                try:
+                    upload_db()
+                except:
+                    pass
 
-            st.rerun()
+                st.rerun()
 
-    st.subheader("🗑️ Agenda-item verwijderen")
+        st.subheader("🗑️ Agenda-item verwijderen")
 
-    if not df.empty:
+        if not df.empty:
 
-        agenda_opties = {
-            f"{row['datum']} - {row['titel']}": row["id"]
-            for _, row in df.iterrows()
-        }
+            agenda_opties = {
+                f"{row['datum']} - {row['titel']}": row["id"]
+                for _, row in df.iterrows()
+            }
 
-        agenda_label = st.selectbox(
-            "Selecteer agenda-item",
-            list(agenda_opties.keys()),
-            key="agenda_verwijderen"
-        )
-
-        agenda_id = agenda_opties[
-            agenda_label
-        ]
-
-        st.warning(
-            "⚠️ Dit agenda-item wordt definitief verwijderd."
-        )
-
-        if st.button(
-            "❌ Agenda-item verwijderen",
-            key="agenda_delete_btn"
-        ):
-
-            c.execute(
-                "DELETE FROM agenda WHERE id=?",
-                (agenda_id,)
+            agenda_label = st.selectbox(
+                "Selecteer agenda-item",
+                list(agenda_opties.keys()),
+                key="agenda_verwijderen"
             )
 
-            c.commit()
+            agenda_id = agenda_opties[agenda_label]
 
-            try:
-                upload_db()
-            except:
-                pass
-
-            st.success(
-                f"✅ Verwijderd: {agenda_label}"
+            st.warning(
+                "⚠️ Dit agenda-item wordt definitief verwijderd."
             )
 
-            st.rerun()
+            if st.button(
+                "❌ Agenda-item verwijderen",
+                key="agenda_delete_btn"
+            ):
+
+                c.execute(
+                    "DELETE FROM agenda WHERE id=?",
+                    (agenda_id,)
+                )
+
+                c.commit()
+
+                try:
+                    upload_db()
+                except:
+                    pass
+
+                st.success(
+                    f"✅ Verwijderd: {agenda_label}"
+                )
+
+                st.rerun()
+
+    else:
+        st.caption("👁️ Alleen-lezen: agenda kan niet worden aangepast.")
 
     c.close()
+
 # ================= PROJECTENOVERZICHT =================
 with tabs[3]:
 
@@ -871,7 +891,7 @@ with tabs[3]:
     # PROJECT TOEVOEGEN
     # ==================================================
 
-    if st.session_state.role in ["admin", "editor"]:
+    if IS_EDITOR:
 
         st.subheader("➕ Nieuw project")
 
@@ -964,7 +984,7 @@ with tabs[3]:
 
     st.subheader("✏️ Project aanpassen")
 
-    if not df.empty and st.session_state.role in ["admin", "editor"]:
+    if not df.empty and IS_EDITOR:
 
         # Gebruik de originele dataframe-kolomnamen
         df_edit = pd.read_sql(
@@ -1470,7 +1490,7 @@ with tabs[3]:
 
     st.subheader("🗑️ Project verwijderen")
 
-    if not df.empty and st.session_state.role in ["admin", "editor"]:
+    if not df.empty and IS_EDITOR:
 
         # Originele data opnieuw ophalen
         df_delete = pd.read_sql(
@@ -1528,7 +1548,7 @@ with tabs[4]:
     st.header("🔧 Werkzaamheden")
     c = conn()
 
-    can_edit_work = st.session_state.role in ["admin", "editor"]
+    can_edit_work = IS_EDITOR
 
     try:
         df_werk = pd.read_sql(
@@ -1544,68 +1564,99 @@ with tabs[4]:
     else:
         st.dataframe(df_werk, use_container_width=True)
 
-    # Iedereen mag nieuwe werkzaamheden invoeren.
-    st.subheader("➕ Nieuwe werkzaamheden")
+    # Alleen admin/editor/viewer mogen nieuwe werkzaamheden invoeren.
+    # Manager is volledig alleen-lezen.
+    if CAN_ADD_WORK:
 
-    with st.form("werk_form", clear_on_submit=True):
-        titel = st.text_input("Titel")
-        omschrijving = st.text_area("Omschrijving")
-        postcode = st.text_input("Postcode")
-        huisnummer = st.text_input("Huisnummer")
-        locatie = st.text_input("Locatie")
-        aangeleverd_door = st.text_input("Aangeleverd bij Parkeren door")
-        start = st.date_input("Startdatum")
-        einde = st.date_input("Einddatum")
+        st.subheader("➕ Nieuwe werkzaamheden")
 
-        if st.form_submit_button("➕ Werkzaamheid toevoegen"):
-            if not titel.strip():
-                st.error("Vul minimaal een titel in.")
-            else:
-                try:
-                    lat, lon = geocode_postcode_huisnummer(
-                        postcode, huisnummer
+        with st.form("werk_form", clear_on_submit=True):
+
+            titel = st.text_input("Titel")
+            omschrijving = st.text_area("Omschrijving")
+            postcode = st.text_input("Postcode")
+            huisnummer = st.text_input("Huisnummer")
+            locatie = st.text_input("Locatie")
+            aangeleverd_door = st.text_input(
+                "Aangeleverd bij Parkeren door"
+            )
+            start = st.date_input("Startdatum")
+            einde = st.date_input("Einddatum")
+
+            if st.form_submit_button(
+                "➕ Werkzaamheid toevoegen"
+            ):
+
+                if not titel.strip():
+                    st.error(
+                        "Vul minimaal een titel in."
                     )
 
-                    c.execute(
-                        """
-                        INSERT INTO werkzaamheden
-                        (
-                            titel, omschrijving, locatie,
-                            startdatum, einddatum,
-                            latitude, longitude,
-                            aangeleverd_door,
-                            status_parkeren,
-                            behandeld_door,
-                            opmerking_parkeren
-                        )
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                        """,
-                        (
-                            titel,
-                            omschrijving,
-                            locatie,
-                            start.isoformat(),
-                            einde.isoformat(),
-                            lat,
-                            lon,
-                            aangeleverd_door,
-                            "In behandeling",
-                            "",
-                            ""
-                        )
-                    )
-                    c.commit()
+                else:
 
                     try:
-                        upload_db()
-                    except Exception:
-                        pass
+                        lat, lon = geocode_postcode_huisnummer(
+                            postcode,
+                            huisnummer
+                        )
 
-                    st.success("✅ Werkzaamheid opgeslagen")
-                    st.rerun()
+                        c.execute(
+                            """
+                            INSERT INTO werkzaamheden
+                            (
+                                titel,
+                                omschrijving,
+                                locatie,
+                                startdatum,
+                                einddatum,
+                                latitude,
+                                longitude,
+                                aangeleverd_door,
+                                status_parkeren,
+                                behandeld_door,
+                                opmerking_parkeren
+                            )
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                            """,
+                            (
+                                titel,
+                                omschrijving,
+                                locatie,
+                                start.isoformat(),
+                                einde.isoformat(),
+                                lat,
+                                lon,
+                                aangeleverd_door,
+                                "In behandeling",
+                                "",
+                                ""
+                            )
+                        )
 
-                except Exception as e:
-                    st.error(f"Opslaan mislukt: {e}")
+                        c.commit()
+
+                        try:
+                            upload_db()
+                        except Exception:
+                            pass
+
+                        st.success(
+                            "✅ Werkzaamheid opgeslagen"
+                        )
+
+                        st.rerun()
+
+                    except Exception as e:
+
+                        st.error(
+                            f"Opslaan mislukt: {e}"
+                        )
+
+    else:
+        st.caption(
+            "👁️ Alleen-lezen: nieuwe werkzaamheden "
+            "kunnen niet worden ingevoerd."
+        )
 
     # Eerst expliciet een werkzaamheid selecteren.
     if not df_werk.empty:
@@ -1917,70 +1968,75 @@ with tabs[5]:
     )
     st.dataframe(df, use_container_width=True)
 
-    # ---- NIEUWE MELDING ----
-    st.subheader("➕ Nieuwe kaartfout")
 
-    with st.form("kaartfout_form"):
-        straat = st.text_input("Straat *")
-        huisnummer = st.text_input("Huisnummer *")
-        postcode = st.text_input("Postcode *")
-        vak_id = st.text_input("Parkeervak ID")
-        melding_type = st.selectbox(
-            "Soort kaartfout",
-            [
-                "Geometrie onjuist",
-                "Type onjuist",
-                "Parkeervak bestaat niet",
-                "Parkeervak ontbreekt",
-                "Overig"
-            ]
-        )
-        omschrijving = st.text_area("Toelichting *")
-        fotos = st.file_uploader("Foto’s", accept_multiple_files=True)
+    if IS_EDITOR:
+        # ---- NIEUWE MELDING ----
+        st.subheader("➕ Nieuwe kaartfout")
 
-        if st.form_submit_button("Melden"):
-            lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
+        with st.form("kaartfout_form"):
+            straat = st.text_input("Straat *")
+            huisnummer = st.text_input("Huisnummer *")
+            postcode = st.text_input("Postcode *")
+            vak_id = st.text_input("Parkeervak ID")
+            melding_type = st.selectbox(
+                "Soort kaartfout",
+                [
+                    "Geometrie onjuist",
+                    "Type onjuist",
+                    "Parkeervak bestaat niet",
+                    "Parkeervak ontbreekt",
+                    "Overig"
+                ]
+            )
+            omschrijving = st.text_area("Toelichting *")
+            fotos = st.file_uploader("Foto’s", accept_multiple_files=True)
 
-            c.execute("""
-                INSERT INTO kaartfouten
-                (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
-                VALUES (?,?,?,?,?,?,?,?)
-            """, (
-                vak_id,
-                melding_type,
-                omschrijving,
-                "Open",
-                st.session_state.user,
-                datetime.now().isoformat(timespec="seconds"),
-                lat,
-                lon
-            ))
+            if st.form_submit_button("Melden"):
+                lat, lon = geocode_postcode_huisnummer(postcode, huisnummer)
 
-            kaartfout_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+                c.execute("""
+                    INSERT INTO kaartfouten
+                    (vak_id, melding_type, omschrijving, status, melder, gemeld_op, latitude, longitude)
+                    VALUES (?,?,?,?,?,?,?,?)
+                """, (
+                    vak_id,
+                    melding_type,
+                    omschrijving,
+                    "Open",
+                    st.session_state.user,
+                    datetime.now().isoformat(timespec="seconds"),
+                    lat,
+                    lon
+                ))
 
-            if fotos:
-                for f in fotos:
-                    fname = f"{kaartfout_id}_{f.name}"
-                    path = os.path.join(UPLOAD_DIR, fname)
-                    with open(path, "wb") as out:
-                        out.write(f.getbuffer())
+                kaartfout_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
 
-                    upload_file_to_github(path, f"uploads/kaartfouten/{fname}")
+                if fotos:
+                    for f in fotos:
+                        fname = f"{kaartfout_id}_{f.name}"
+                        path = os.path.join(UPLOAD_DIR, fname)
+                        with open(path, "wb") as out:
+                            out.write(f.getbuffer())
 
-                    c.execute("""
-                        INSERT INTO kaartfout_fotos
-                        (kaartfout_id, bestandsnaam, geupload_op)
-                        VALUES (?,?,?)
-                    """, (
-                        kaartfout_id,
-                        fname,
-                        datetime.now().isoformat(timespec="seconds")
-                    ))
+                        upload_file_to_github(path, f"uploads/kaartfouten/{fname}")
 
-            c.commit()
-            upload_db()
-            st.success("✅ Kaartfout gemeld")
-            st.rerun()
+                        c.execute("""
+                            INSERT INTO kaartfout_fotos
+                            (kaartfout_id, bestandsnaam, geupload_op)
+                            VALUES (?,?,?)
+                        """, (
+                            kaartfout_id,
+                            fname,
+                            datetime.now().isoformat(timespec="seconds")
+                        ))
+
+                c.commit()
+                upload_db()
+                st.success("✅ Kaartfout gemeld")
+                st.rerun()
+
+    else:
+        st.caption("👁️ Alleen-lezen: kaartfouten kunnen niet worden gemeld.")
 
     # ---- KAART ----
     df_map = df[
@@ -2023,7 +2079,7 @@ with tabs[5]:
     # ---- VERWIJDEREN ----
     st.subheader("🗑️ Kaartfout verwijderen")
 
-    if st.session_state.role == "admin" and not df.empty:
+    if IS_ADMIN and not df.empty:
         sel_del = st.selectbox(
             "Selecteer kaartfout om te verwijderen",
             df["id"].tolist(),
@@ -2059,9 +2115,9 @@ with tabs[5]:
 with tabs[6]:
     st.header("👥 Gebruikersbeheer")
 
-    # Alleen admin
-    if st.session_state.role != "admin":
-        st.error("❌ Alleen admins hebben toegang tot gebruikersbeheer.")
+    # Admin kan beheren; manager kan alleen bekijken.
+    if ROLE not in ["admin", "manager"]:
+        st.error("❌ Geen toegang tot gebruikersbeheer.")
         st.stop()
 
     c = conn()
@@ -2074,97 +2130,103 @@ with tabs[6]:
     )
     st.dataframe(df_users, use_container_width=True)
 
-    st.divider()
 
-    # ---- GEBRUIKER TOEVOEGEN ----
-    st.subheader("➕ Gebruiker toevoegen")
-    with st.form("user_add"):
-        new_user = st.text_input("E-mailadres")
-        new_pw = st.text_input("Wachtwoord", type="password")
-        new_role = st.selectbox("Rol", ["admin", "editor", "viewer"])
-        active = st.checkbox("Actief", True)
+    if IS_ADMIN:
+        st.divider()
 
-        if st.form_submit_button("Gebruiker aanmaken"):
-            if not new_user or not new_pw:
-                st.error("Gebruiker en wachtwoord zijn verplicht.")
-            else:
-                try:
-                    c.execute(
-                        """
-                        INSERT INTO users (username, password, role, active)
-                        VALUES (?,?,?,?)
-                        """,
-                        (new_user, hash_pw(new_pw), new_role, int(active))
-                    )
+        # ---- GEBRUIKER TOEVOEGEN ----
+        st.subheader("➕ Gebruiker toevoegen")
+        with st.form("user_add"):
+            new_user = st.text_input("E-mailadres")
+            new_pw = st.text_input("Wachtwoord", type="password")
+            new_role = st.selectbox("Rol", ["admin", "editor", "manager", "viewer"])
+            active = st.checkbox("Actief", True)
+
+            if st.form_submit_button("Gebruiker aanmaken"):
+                if not new_user or not new_pw:
+                    st.error("Gebruiker en wachtwoord zijn verplicht.")
+                else:
+                    try:
+                        c.execute(
+                            """
+                            INSERT INTO users (username, password, role, active)
+                            VALUES (?,?,?,?)
+                            """,
+                            (new_user, hash_pw(new_pw), new_role, int(active))
+                        )
+                        c.commit()
+                        upload_db()
+                        st.success("✅ Gebruiker aangemaakt")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error("❌ Deze gebruiker bestaat al.")
+
+        st.divider()
+
+        # ---- GEBRUIKER BEWERKEN / VERWIJDEREN ----
+        st.subheader("✏️ Gebruiker aanpassen of verwijderen")
+
+        sel_user = st.selectbox(
+            "Selecteer gebruiker",
+            df_users["username"].tolist()
+        )
+
+        sel_info = df_users[df_users.username == sel_user].iloc[0]
+
+        with st.form("user_edit"):
+            role = st.selectbox(
+                "Rol",
+                ["admin", "editor", "manager", "viewer"],
+                index=["admin", "editor", "manager", "viewer"].index(sel_info.role)
+            )
+            active = st.checkbox("Actief", bool(sel_info.active))
+            reset_pw = st.checkbox("Wachtwoord resetten?")
+            new_pw = st.text_input("Nieuw wachtwoord", type="password", disabled=not reset_pw)
+
+            col1, col2 = st.columns(2)
+            save = col1.form_submit_button("💾 Opslaan")
+            delete = col2.form_submit_button("🗑️ Verwijderen")
+
+            if save:
+                if reset_pw and not new_pw:
+                    st.error("Nieuw wachtwoord ontbreekt.")
+                else:
+                    if reset_pw:
+                        c.execute(
+                            """
+                            UPDATE users
+                            SET role=?, active=?, password=?
+                            WHERE username=?
+                            """,
+                            (role, int(active), hash_pw(new_pw), sel_user)
+                        )
+                    else:
+                        c.execute(
+                            """
+                            UPDATE users
+                            SET role=?, active=?
+                            WHERE username=?
+                            """,
+                            (role, int(active), sel_user)
+                        )
+
                     c.commit()
                     upload_db()
-                    st.success("✅ Gebruiker aangemaakt")
+                    st.success("✅ Gebruiker bijgewerkt")
                     st.rerun()
-                except sqlite3.IntegrityError:
-                    st.error("❌ Deze gebruiker bestaat al.")
 
-    st.divider()
-
-    # ---- GEBRUIKER BEWERKEN / VERWIJDEREN ----
-    st.subheader("✏️ Gebruiker aanpassen of verwijderen")
-
-    sel_user = st.selectbox(
-        "Selecteer gebruiker",
-        df_users["username"].tolist()
-    )
-
-    sel_info = df_users[df_users.username == sel_user].iloc[0]
-
-    with st.form("user_edit"):
-        role = st.selectbox(
-            "Rol",
-            ["admin", "editor", "viewer"],
-            index=["admin", "editor", "viewer"].index(sel_info.role)
-        )
-        active = st.checkbox("Actief", bool(sel_info.active))
-        reset_pw = st.checkbox("Wachtwoord resetten?")
-        new_pw = st.text_input("Nieuw wachtwoord", type="password", disabled=not reset_pw)
-
-        col1, col2 = st.columns(2)
-        save = col1.form_submit_button("💾 Opslaan")
-        delete = col2.form_submit_button("🗑️ Verwijderen")
-
-        if save:
-            if reset_pw and not new_pw:
-                st.error("Nieuw wachtwoord ontbreekt.")
-            else:
-                if reset_pw:
-                    c.execute(
-                        """
-                        UPDATE users
-                        SET role=?, active=?, password=?
-                        WHERE username=?
-                        """,
-                        (role, int(active), hash_pw(new_pw), sel_user)
-                    )
+            if delete:
+                if sel_user == st.session_state.user:
+                    st.error("❌ Je kunt jezelf niet verwijderen.")
                 else:
-                    c.execute(
-                        """
-                        UPDATE users
-                        SET role=?, active=?
-                        WHERE username=?
-                        """,
-                        (role, int(active), sel_user)
-                    )
+                    c.execute("DELETE FROM users WHERE username=?", (sel_user,))
+                    c.commit()
+                    upload_db()
+                    st.success("✅ Gebruiker verwijderd")
+                    st.rerun()
 
-                c.commit()
-                upload_db()
-                st.success("✅ Gebruiker bijgewerkt")
-                st.rerun()
-
-        if delete:
-            if sel_user == st.session_state.user:
-                st.error("❌ Je kunt jezelf niet verwijderen.")
-            else:
-                c.execute("DELETE FROM users WHERE username=?", (sel_user,))
-                c.commit()
-                upload_db()
-                st.success("✅ Gebruiker verwijderd")
-                st.rerun()
+        c.close()
+    else:
+        st.info("👁️ Manager: alleen-lezen. Gebruikers kunnen niet worden aangepast.")
 
     c.close()
